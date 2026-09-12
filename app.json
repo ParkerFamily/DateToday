@@ -42,7 +42,6 @@
       },
       "package": "com.parkerfamily.datetoday",
       "label": "DateToday",
-      "versionCode": 1,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
