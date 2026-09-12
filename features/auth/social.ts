@@ -210,11 +210,31 @@ export async function signInWithGoogleNative(): Promise<SocialAuthResult> {
   });
 
   if (Platform.OS === 'android') {
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    } catch {
+      throw new Error(
+        'Google Play Services is required for Google Sign-In on Android. Update Play Services and try again.',
+      );
+    }
   }
 
   analytics.track('signup_started', { provider: 'google' });
-  const response = await GoogleSignin.signIn();
+  let response: { data?: { idToken?: string | null } | null; idToken?: string | null };
+  try {
+    response = await GoogleSignin.signIn();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/10:|DEVELOPER_ERROR|ApiException: 10/i.test(message)) {
+      throw new Error(
+        'Android Google Sign-In misconfigured. Add your EAS/Play SHA-1 fingerprint to Firebase → Project settings → Your Android app (com.parkerfamily.datetoday).',
+      );
+    }
+    if (/cancel|12501|SIGN_IN_CANCELLED/i.test(message)) {
+      throw new Error('Google sign-in was cancelled.');
+    }
+    throw error instanceof Error ? error : new Error(message);
+  }
   const idToken = response.data?.idToken ?? response.idToken;
   if (!idToken) {
     throw new Error('Google did not return an ID token. Check that webClientId is your Web OAuth client.');

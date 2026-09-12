@@ -266,11 +266,12 @@ function SocialAuthChrome({
 }
 
 export function SocialAuthButtons(props: Props) {
-  // AuthSession requires iosClientId on iOS — only mount that path when we have one.
-  if (env.googleIosClientId) {
-    return <SocialAuthWithGoogleSession {...props} />;
+  // Android: always native Google (Play Services). AuthSession+iosClientId is iOS-oriented.
+  // iOS: AuthSession hook only when iosClientId exists (otherwise native-only).
+  if (Platform.OS === 'android' || !env.googleIosClientId) {
+    return <SocialAuthNativeOnly {...props} />;
   }
-  return <SocialAuthNativeOnly {...props} />;
+  return <SocialAuthWithGoogleSession {...props} />;
 }
 
 const styles = StyleSheet.create({

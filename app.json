@@ -42,15 +42,37 @@
       },
       "package": "com.parkerfamily.datetoday",
       "label": "DateToday",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "CAMERA",
         "RECORD_AUDIO",
         "POST_NOTIFICATIONS",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "data": [
+            {
+              "scheme": "datetoday"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
       ]
+    },
+    "androidStatusBar": {
+      "backgroundColor": "#09090B",
+      "barStyle": "light-content"
+    },
+    "androidNavigationBar": {
+      "backgroundColor": "#09090B",
+      "barStyle": "light-content"
     },
     "web": {
       "bundler": "metro",
@@ -90,6 +112,20 @@
           "microphonePermission": "DateToday needs microphone access to record video prompts.",
           "recordAudioAndroid": true
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "DateToday needs photo library access to upload profile media.",
+          "cameraPermission": "DateToday needs camera access for profile and tonight videos."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#7C3AED"
+        }
       ]
     ],
     "experiments": {
@@ -110,7 +146,9 @@
       "firebaseMessagingSenderId": "626033907762",
       "firebaseAppId": "1:626033907762:ios:4b577d261a70e27fea442b",
       "googleWebClientId": "626033907762-6c3mb8spcs4ppomfsjm4um135t5t443o.apps.googleusercontent.com",
-      "googleIosClientId": "626033907762-l00sub102ttvc96t1hkqsbij6rdq0a7r.apps.googleusercontent.com"
+      "googleIosClientId": "626033907762-l00sub102ttvc96t1hkqsbij6rdq0a7r.apps.googleusercontent.com",
+      "revenueCatIosKey": "test_uKLjKSIfiujaBuwNIJANcBsiRss",
+      "revenueCatAndroidKey": "test_uKLjKSIfiujaBuwNIJANcBsiRss"
     },
     "owner": "parkerfamily"
   }
