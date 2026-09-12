@@ -3,7 +3,7 @@ import { Alert, StyleSheet, View } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { PromptRecorder } from '@/components/video/PromptRecorder';
 import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
-import { DevSkipVideosButton } from '@/components/onboarding/DevSkipVideosButton';
+import { SkipVideosButton } from '@/components/onboarding/SkipVideosButton';
 import { getPromptById, TONIGHT_SIGNATURE_PROMPT } from '@/constants/videoPrompts';
 import { persistPromptVideosToAccount } from '@/features/profile/persistMedia';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
@@ -78,7 +78,7 @@ export default function VideoRecordScreen() {
       progress={progress}
       title={title}
       subtitle={subtitle}
-      footer={<DevSkipVideosButton />}
+      footer={<SkipVideosButton />}
     >
       <View style={styles.wrap}>
         <PromptRecorder

@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppText } from '@/components/ui/AppText';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
 import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
-import { DevSkipVideosButton } from '@/components/onboarding/DevSkipVideosButton';
+import { SkipVideosButton } from '@/components/onboarding/SkipVideosButton';
 import { colors, radii } from '@/constants/theme';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 
@@ -49,7 +49,7 @@ export default function PhotoScreen() {
             disabled={!mainPhotoUri}
             onPress={() => router.push('/(onboarding)/video-pick')}
           />
-          <DevSkipVideosButton />
+          <SkipVideosButton />
         </>
       }
     >

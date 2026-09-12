@@ -156,6 +156,15 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
     mainPhotoUrl = firebaseUser.photoURL;
   }
 
+  const aboutOk = Boolean(
+    aboutVideoUrl && aboutVideoUrl !== DEV_SKIP && !aboutVideoUrl.startsWith('datetoday://'),
+  );
+  const tonightOk = Boolean(
+    tonightVideoUrl &&
+      tonightVideoUrl !== DEV_SKIP &&
+      !tonightVideoUrl.startsWith('datetoday://'),
+  );
+
   const profileCompletion = {
     onboardingComplete: true,
     name: draft.displayName.trim().length >= 2,
@@ -164,7 +173,7 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
     preference: Boolean(draft.interestedIn),
     vibes: draft.vibes.length >= 1,
     mainPhoto: Boolean(mainPhotoUrl && mainPhotoUrl !== DEV_SKIP),
-    videos: Boolean(aboutVideoUrl && tonightVideoUrl),
+    videos: aboutOk && tonightOk,
     location: draft.locationEnabled,
     verification: draft.verificationStatus === 'verified',
     communityStandards: Boolean(draft.legalConsentAccepted),

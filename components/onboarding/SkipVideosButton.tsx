@@ -1,36 +1,31 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ABOUT_YOU_PROMPTS } from '@/constants/videoPrompts';
 import { colors } from '@/constants/theme';
-import { env } from '@/lib/env';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 
-const DEV_SKIP_URI = 'datetoday://dev-skip-video';
-
-/** Marks video steps complete and jumps to verify — testing only. */
-export function skipVideosForTesting(router: ReturnType<typeof useRouter>) {
+/**
+ * Skip video prompts for now — enter later from Profile / Photos & videos.
+ * Go Live stays locked until both videos are recorded.
+ */
+export function skipVideosForNow(router: ReturnType<typeof useRouter>) {
   const draft = useOnboardingDraft.getState();
-  if (!draft.aboutPromptId) {
-    draft.setAboutPromptId(ABOUT_YOU_PROMPTS[0]?.id ?? 'about-vibing');
-  }
-  draft.setAboutVideoUri(DEV_SKIP_URI);
-  draft.setTonightVideoUri(DEV_SKIP_URI);
+  draft.setAboutVideoUri(null);
+  draft.setTonightVideoUri(null);
   router.replace('/(onboarding)/verify');
 }
 
-export function DevSkipVideosButton() {
+export function SkipVideosButton() {
   const router = useRouter();
-  if (!env.previewContentEnabled) return null;
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Skip videos for testing"
-      onPress={() => skipVideosForTesting(router)}
+      accessibilityLabel="Skip videos for now"
+      onPress={() => skipVideosForNow(router)}
       style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
     >
-      <Text style={styles.label}>Skip videos (dev)</Text>
+      <Text style={styles.label}>Skip for now</Text>
     </Pressable>
   );
 }

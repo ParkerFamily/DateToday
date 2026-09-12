@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppText } from '@/components/ui/AppText';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
 import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
-import { DevSkipVideosButton } from '@/components/onboarding/DevSkipVideosButton';
+import { SkipVideosButton } from '@/components/onboarding/SkipVideosButton';
 import { ABOUT_YOU_PROMPTS } from '@/constants/videoPrompts';
 import { colors, radii, spacing } from '@/constants/theme';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
@@ -42,7 +42,7 @@ export default function VideoPickScreen() {
             disabled={!selected}
             onPress={continueNext}
           />
-          <DevSkipVideosButton />
+          <SkipVideosButton />
         </>
       }
     >

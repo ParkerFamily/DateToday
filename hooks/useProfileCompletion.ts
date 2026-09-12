@@ -31,7 +31,9 @@ function deriveRequirements(): ProfileCompletionRequirements {
     gender: Boolean(profile?.genderId) || Boolean(completion.gender),
     preference: Boolean(preferences?.interestedIn) || Boolean(completion.preference),
     mainPhoto: Boolean(profile?.mainPhotoUrl) || Boolean(completion.mainPhoto),
-    videos: Boolean(completion.videos),
+    videos:
+      Boolean(completion.videos) ||
+      Boolean(profile?.aboutVideoUrl && profile?.tonightVideoUrl),
     location: locationGranted || Boolean(completion.location),
     communityStandards:
       Boolean(completion.communityStandards) ||
@@ -55,7 +57,9 @@ export function useProfileCompletion() {
       age: ageSatisfied(completion.age, profile?.dateOfBirth ?? draftDob),
       preference: Boolean(preferences?.interestedIn) || Boolean(completion.preference),
       mainPhoto: Boolean(profile?.mainPhotoUrl) || Boolean(completion.mainPhoto),
-      videos: Boolean(completion.videos),
+      videos:
+        Boolean(completion.videos) ||
+        Boolean(profile?.aboutVideoUrl && profile?.tonightVideoUrl),
       location: locationGranted || Boolean(completion.location),
       communityStandards:
         Boolean(completion.communityStandards) ||
