@@ -19,6 +19,7 @@ type Extra = {
   firebaseStorageBucket?: string;
   firebaseMessagingSenderId?: string;
   firebaseAppId?: string;
+  firebaseAndroidAppId?: string;
 };
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
@@ -98,6 +99,11 @@ export const env = {
     'EXPO_PUBLIC_FIREBASE_APP_ID',
     process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? extra.firebaseAppId,
     plistDefaults.appId,
+  ),
+  firebaseAndroidAppId: pick(
+    'EXPO_PUBLIC_FIREBASE_ANDROID_APP_ID',
+    process.env.EXPO_PUBLIC_FIREBASE_ANDROID_APP_ID ?? extra.firebaseAndroidAppId,
+    '1:626033907762:android:a4854e9d7bd75de6ea442b',
   ),
   appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development',
   isDev: (process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development') !== 'production',

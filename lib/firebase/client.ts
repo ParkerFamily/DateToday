@@ -21,7 +21,10 @@ const firebaseConfig = {
   projectId: env.firebaseProjectId,
   storageBucket: env.firebaseStorageBucket,
   messagingSenderId: env.firebaseMessagingSenderId,
-  appId: env.firebaseAppId,
+  appId:
+    Platform.OS === 'android' && env.firebaseAndroidAppId
+      ? env.firebaseAndroidAppId
+      : env.firebaseAppId,
 };
 
 let app: FirebaseApp | null = null;

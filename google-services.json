@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "626033907762",
+    "project_id": "datetoday-e1331",
+    "storage_bucket": "datetoday-e1331.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:626033907762:android:a4854e9d7bd75de6ea442b",
+        "android_client_info": {
+          "package_name": "com.parkerfamily.datetoday"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "626033907762-6c3mb8spcs4ppomfsjm4um135t5t443o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBxYcxpL6CZDPsYc5BIwipSmSSt_1yxXo4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "626033907762-6c3mb8spcs4ppomfsjm4um135t5t443o.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "626033907762-l00sub102ttvc96t1hkqsbij6rdq0a7r.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.parkerfamily.datetoday"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

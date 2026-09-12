@@ -42,6 +42,7 @@
       },
       "package": "com.parkerfamily.datetoday",
       "label": "DateToday",
+      "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
@@ -144,6 +145,7 @@
       "firebaseStorageBucket": "datetoday-e1331.firebasestorage.app",
       "firebaseMessagingSenderId": "626033907762",
       "firebaseAppId": "1:626033907762:ios:4b577d261a70e27fea442b",
+      "firebaseAndroidAppId": "1:626033907762:android:a4854e9d7bd75de6ea442b",
       "googleWebClientId": "626033907762-6c3mb8spcs4ppomfsjm4um135t5t443o.apps.googleusercontent.com",
       "googleIosClientId": "626033907762-l00sub102ttvc96t1hkqsbij6rdq0a7r.apps.googleusercontent.com",
       "revenueCatIosKey": "test_uKLjKSIfiujaBuwNIJANcBsiRss",
