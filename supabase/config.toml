@@ -1,0 +1,29 @@
+# Minimal Supabase local config for date:today
+
+project_id = "datetoday"
+
+[api]
+enabled = true
+port = 54321
+
+[db]
+port = 54322
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.expire-sessions]
+verify_jwt = false

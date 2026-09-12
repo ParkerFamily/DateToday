@@ -1,0 +1,25 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    // TODO: tighten to match/live participants when discovery is fully on Firebase.
+    // Until then, any signed-in user can read profile media paths (needed for discovery UX).
+    // Never put government ID / Persona captures under this tree.
+    match /users/{userId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if isOwner(userId)
+        && request.resource.size < 50 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType.matches('video/.*')
+        );
+    }
+  }
+}

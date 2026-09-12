@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Delete your DateToday account</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #09090b;
+        --card: #151518;
+        --text: #fafafa;
+        --muted: #92929d;
+        --danger: #ff4757;
+        --brand: #a855f7;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 48px 20px 80px;
+      }
+      h1 {
+        font-size: 2rem;
+        margin: 0 0 12px;
+      }
+      p,
+      li {
+        color: var(--muted);
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid #24242a;
+        border-radius: 16px;
+        padding: 20px;
+        margin: 24px 0;
+      }
+      a {
+        color: var(--brand);
+      }
+      .danger {
+        color: var(--danger);
+      }
+      code {
+        color: var(--text);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Delete your DateToday account</h1>
+      <p>
+        Google Play requires a web path to request account deletion. You can delete
+        entirely in the DateToday app, or request deletion here.
+      </p>
+
+      <div class="card">
+        <h2>In-app (recommended)</h2>
+        <ol>
+          <li>Open DateToday and sign in.</li>
+          <li>Go to <strong>Settings → Account &amp; Security → Delete account</strong>.</li>
+          <li>Read the deletion notice, manage any App Store / Play subscriptions, re-authenticate, and confirm.</li>
+        </ol>
+        <p>
+          Deleting your DateToday account <span class="danger">does not</span> automatically
+          cancel Apple or Google subscriptions. Manage those in your store account settings.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Request by email</h2>
+        <p>
+          Email
+          <a href="mailto:support@datetoday.app?subject=Account%20deletion%20request"
+            >support@datetoday.app</a
+          >
+          from the email on your DateToday account with subject
+          <code>Account deletion request</code>. Include your account email and that you want
+          permanent deletion.
+        </p>
+        <p>
+          <!-- [LEGAL REVIEW REQUIRED] Confirm support SLA / retention language before launch. -->
+          We will verify ownership and process deletion of account data that is not legally
+          required to retain for fraud, safety, chargeback, or regulatory purposes.
+        </p>
+      </div>
+
+      <p>
+        Privacy Policy:
+        <a href="/legal/privacy">datetoday.app/legal/privacy</a>
+        (host the in-app policy at your production domain).
+      </p>
+    </main>
+  </body>
+</html>

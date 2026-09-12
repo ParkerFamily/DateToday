@@ -1,23 +1,56 @@
 {
   "expo": {
     "name": "DateToday",
-    "slug": "DateToday",
+    "slug": "date-today",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "datetoday",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.parkerfamily.datetoday",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "CFBundleDisplayName": "DateToday",
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "DateToday uses your location to show people who are actually available near you. Exact coordinates are never shared with other users.",
+        "NSCameraUsageDescription": "DateToday needs camera access for profile and tonight videos.",
+        "NSMicrophoneUsageDescription": "DateToday needs microphone access to record video prompts.",
+        "NSPhotoLibraryUsageDescription": "DateToday needs photo library access to upload profile media.",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "datetoday"
+            ]
+          },
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.626033907762-l00sub102ttvc96t1hkqsbij6rdq0a7r"
+            ]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#09090B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "package": "com.parkerfamily.datetoday",
+      "label": "DateToday",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "POST_NOTIFICATIONS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -26,17 +59,59 @@
     },
     "plugins": [
       "expo-router",
+      "expo-secure-store",
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.626033907762-l00sub102ttvc96t1hkqsbij6rdq0a7r"
+        }
+      ],
       [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#09090B"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "DateToday uses your location to show people who are actually available near you."
+        }
+      ],
+      "expo-font",
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "DateToday needs camera access to record video prompts live.",
+          "microphonePermission": "DateToday needs microphone access to record video prompts.",
+          "recordAudioAndroid": true
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "appEnv": "production",
+      "eas": {
+        "projectId": "f884fefe-8fba-40f2-954a-aec0bcb30174"
+      },
+      "router": {},
+      "personaTemplateId": "itmpl_A8A6iSWHGeg1Ci8LNomZtWccCWWhhd",
+      "personaEnvironmentId": "",
+      "firebaseApiKey": "AIzaSyDpWkj2YymrKnAyRWcMQkHvbieBh97pbCU",
+      "firebaseAuthDomain": "datetoday-e1331.firebaseapp.com",
+      "firebaseProjectId": "datetoday-e1331",
+      "firebaseStorageBucket": "datetoday-e1331.firebasestorage.app",
+      "firebaseMessagingSenderId": "626033907762",
+      "firebaseAppId": "1:626033907762:ios:4b577d261a70e27fea442b",
+      "googleWebClientId": "626033907762-6c3mb8spcs4ppomfsjm4um135t5t443o.apps.googleusercontent.com",
+      "googleIosClientId": "626033907762-l00sub102ttvc96t1hkqsbij6rdq0a7r.apps.googleusercontent.com"
+    },
+    "owner": "parkerfamily"
   }
 }

@@ -1,0 +1,101 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Clients may set verification fields. Production should prefer Cloud Function
+    // confirmPersonaVerification (Admin write) once the project is on Blaze.
+    // Until then, the app only writes verified after a live Persona API poll.
+    function verificationNotForged() {
+      return !('verificationStatus' in request.resource.data)
+        || request.resource.data.verificationStatus in [
+          'unverified',
+          'pending',
+          'failed',
+          'manual_review',
+          'verified',
+        ];
+    }
+
+    // Prevent self-granting paid plan / role fields if present on the doc.
+    function entitlementsNotForged() {
+      return !('plan' in request.resource.data)
+        || request.resource.data.plan == 'free'
+        || (
+          resource != null
+          && request.resource.data.plan == resource.data.plan
+        );
+    }
+
+    // Only block *new* private fields on write — existing keys on merge must not
+    // poison every later update (verificationStatus, photo, etc.).
+    function privateProfileKeys() {
+      return [
+        'dateOfBirth',
+        'email',
+        'phone',
+        'phoneNumber',
+        'latitude',
+        'longitude',
+        'exactLocation',
+        'personaRaw',
+        'governmentId',
+        'password',
+        'personaInquiryId',
+        'verifiedAt',
+        'verificationCheckedAt',
+      ];
+    }
+
+    function noPrivateLeakOnProfile() {
+      return resource == null
+        ? !request.resource.data.keys().hasAny(privateProfileKeys())
+        : !request.resource.data.diff(resource.data).affectedKeys().hasAny(privateProfileKeys());
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && verificationNotForged() && entitlementsNotForged();
+      allow update: if isOwner(userId) && verificationNotForged() && entitlementsNotForged();
+      allow delete: if isOwner(userId);
+    }
+
+    match /profiles/{userId} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(userId)
+        && noPrivateLeakOnProfile()
+        && verificationNotForged();
+      allow delete: if isOwner(userId);
+    }
+
+    match /deleted_users/{userId} {
+      allow create: if isOwner(userId);
+      allow read, update, delete: if false;
+    }
+
+    match /blocks/{blockId} {
+      allow read: if signedIn() && resource.data.blockerId == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.blockerId == request.auth.uid
+        && request.resource.data.blockedId is string
+        && request.resource.data.blockerId != request.resource.data.blockedId;
+      allow delete: if signedIn() && resource.data.blockerId == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.reportedId is string
+        && request.resource.data.reporterId != request.resource.data.reportedId
+        && request.resource.data.status == 'open';
+      allow read, update, delete: if false;
+    }
+  }
+}
