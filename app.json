@@ -61,37 +61,9 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.POST_NOTIFICATIONS",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.READ_MEDIA_VIDEO"
       ],
       "intentFilters": [
-        {
-          "action": "VIEW",
-          "autoVerify": false,
-          "data": [
-            {
-              "scheme": "datetoday"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        },
         {
           "action": "VIEW",
           "autoVerify": false,
@@ -188,9 +160,7 @@
       "firebaseAppId": "1:626033907762:ios:4b577d261a70e27fea442b",
       "firebaseAndroidAppId": "1:626033907762:android:a4854e9d7bd75de6ea442b",
       "googleWebClientId": "626033907762-6c3mb8spcs4ppomfsjm4um135t5t443o.apps.googleusercontent.com",
-      "googleIosClientId": "626033907762-l00sub102ttvc96t1hkqsbij6rdq0a7r.apps.googleusercontent.com",
-      "revenueCatIosKey": "test_uKLjKSIfiujaBuwNIJANcBsiRss",
-      "revenueCatAndroidKey": "test_uKLjKSIfiujaBuwNIJANcBsiRss"
+      "googleIosClientId": "626033907762-l00sub102ttvc96t1hkqsbij6rdq0a7r.apps.googleusercontent.com"
     },
     "owner": "parkerfamily",
     "runtimeVersion": {

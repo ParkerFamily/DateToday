@@ -82,7 +82,7 @@ export function BrandMark({ size = 34, width }: { size?: number; width?: number 
   return (
     <Image
       source={WORDMARK}
-      style={{ width: w, height: h }}
+      style={{ width: w, height: h, backgroundColor: 'transparent' }}
       resizeMode="contain"
       accessibilityLabel="DateToday — Go live. Get pinged. Go out."
       accessibilityRole="image"

@@ -69,11 +69,25 @@ export function isPurchasesConfigured(): boolean {
   return configured && Boolean(apiKeyForPlatform()) && Boolean(purchasesMod);
 }
 
+/**
+ * RevenueCat kills release builds that configure with a Test Store key (`test_…`).
+ * Only allow those keys in __DEV__; production/TestFlight need appl_/goog_ keys.
+ */
+function isUsableApiKey(apiKey: string): boolean {
+  if (!apiKey) return false;
+  if (apiKey.startsWith('test_') && !__DEV__) return false;
+  return true;
+}
+
 /** Configure once at app boot. Never throws — safe in Expo Go. */
 export async function configurePurchases(appUserId?: string | null): Promise<void> {
   try {
     const apiKey = apiKeyForPlatform();
     if (!apiKey || Platform.OS === 'web') return;
+    if (!isUsableApiKey(apiKey)) {
+      // Release builds must use appl_/goog_ keys — configuring with test_ kills the app.
+      return;
+    }
     if (!loadPurchasesSdk() || !purchasesMod || !purchasesNs) return;
 
     if (!configured) {
