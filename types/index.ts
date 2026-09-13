@@ -174,6 +174,9 @@ export interface LiveSession {
   /** Tonight Boost active for this Ping session only */
   isBoosted?: boolean;
   boostedAt?: string | null;
+  /** Local hour (18–21) when free later tonight; null = live now. */
+  laterTonightHour?: number | null;
+  availabilityMode?: 'live' | 'later';
 }
 
 export interface DiscoveryVideoPrompt {
@@ -204,6 +207,9 @@ export interface DiscoveryCard {
   /** Signature first, then About You — curated prompts only */
   videoPrompts: DiscoveryVideoPrompt[];
   foodCuisines?: FoodCuisine[];
+  /** live = Pinged now; later = said they'll be free later tonight */
+  availabilityMode?: 'live' | 'later';
+  laterTonightHour?: number | null;
 }
 
 export interface Ping {

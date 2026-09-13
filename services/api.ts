@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
-import { assertSupabaseConfigured } from '@/lib/env';
+import { assertSupabaseConfigured, env, isBackendConfigured } from '@/lib/env';
 import type {
   DatingPreferences,
   InterestOption,
@@ -153,9 +153,15 @@ export interface StartLiveInput {
   availableFrom?: string | null;
   availableUntil?: string | null;
   availabilityLabel?: string | null;
+  laterTonightHour?: number | null;
 }
 
 export async function startLiveSession(input: StartLiveInput): Promise<LiveSession> {
+  if (isBackendConfigured()) {
+    analytics.track('go_live_started');
+    const { publishLiveSession } = await import('@/features/live/firestoreLive');
+    return publishLiveSession(input);
+  }
   assertSupabaseConfigured();
   analytics.track('go_live_started');
   const { data, error } = await supabase.rpc('start_live_session', {
@@ -184,10 +190,16 @@ export async function startLiveSession(input: StartLiveInput): Promise<LiveSessi
     availabilityLabel: (row.availability_label as string | null) ?? null,
     activities: input.activities,
     foodCuisines: input.foodCuisines,
+    laterTonightHour: input.laterTonightHour ?? null,
   };
 }
 
 export async function endLiveSession(sessionId?: string): Promise<void> {
+  if (isBackendConfigured()) {
+    const { endFirestoreLiveSession } = await import('@/features/live/firestoreLive');
+    await endFirestoreLiveSession(sessionId);
+    return;
+  }
   assertSupabaseConfigured();
   const { error } = await supabase.rpc('end_live_session', {
     p_session_id: sessionId ?? null,
@@ -197,6 +209,11 @@ export async function endLiveSession(sessionId?: string): Promise<void> {
 }
 
 export async function fetchDiscoveryFeed(limit = 20): Promise<DiscoveryCard[]> {
+  if (isBackendConfigured()) {
+    const { fetchFirestoreDiscoveryFeed } = await import('@/features/live/firestoreLive');
+    return fetchFirestoreDiscoveryFeed(limit);
+  }
+  if (!env.supabaseUrl || !env.supabaseAnonKey) return [];
   assertSupabaseConfigured();
   const { data, error } = await supabase.rpc('get_discovery_feed', {
     p_limit: limit,

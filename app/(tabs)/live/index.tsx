@@ -21,8 +21,8 @@ import { DtIconHero } from '@/components/onboarding/DtIconHero';
 import { HeartbeatPulse } from '@/components/live/HeartbeatPulse';
 import { copy, availabilityPresets } from '@/constants/copy';
 import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
-import { demoCity, DEMO_VIDEO_PROMPTS } from '@/constants/demoTonight';
-import { flowCopy, formatPeopleInPing } from '@/constants/flow';
+import { demoCity } from '@/constants/demoTonight';
+import { flowCopy, formatLaterHour, formatPeopleInPing } from '@/constants/flow';
 import { colors, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { allowedRadiusPresets, canUseAdvancedFilters, isPlusActive } from '@/lib/entitlements';
@@ -39,11 +39,12 @@ import {
 import { endLiveSession, startLiveSession } from '@/services/api';
 import { formatRemaining, isLiveSessionActive, clampLiveExpiration } from '@/utils/time';
 import type { RadiusMiles, TonightActivity } from '@/types';
-import { env } from '@/lib/env';
+import { env, isBackendConfigured } from '@/lib/env';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import { commerceConfig } from '@/constants/config';
 
 const HOLD_MS = 1200;
+const LATER_HOURS = [18, 19, 20, 21] as const;
 
 const PLAN_OPTIONS: { value: TonightActivity; label: string }[] = [
   { value: 'drinks', label: 'Drinks' },
@@ -119,6 +120,8 @@ export default function LiveHomeScreen() {
   const [foodCuisines, setFoodCuisines] = useState<FoodCuisine[]>(['italian']);
   const [availability, setAvailability] = useState<string[]>(['7_10']);
   const [radius, setRadius] = useState<RadiusMiles>(10);
+  /** null = live now; 18–21 = free later tonight */
+  const [laterTonightHour, setLaterTonightHour] = useState<number | null>(null);
   const [holdProgress, setHoldProgress] = useState(0);
   const holdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const holdDone = useRef(false);
@@ -189,7 +192,7 @@ export default function LiveHomeScreen() {
       handledExpire.current = true;
       void (async () => {
         try {
-          if (env.supabaseUrl) await endLiveSession(liveSession.id);
+          if (isBackendConfigured() || env.supabaseUrl) await endLiveSession(liveSession.id);
         } catch {
           /* ignore */
         }
@@ -280,6 +283,26 @@ export default function LiveHomeScreen() {
       warnedLowPing.current = false;
       handledExpire.current = false;
 
+      // Firebase is primary — always publish a real beacon (no silent local-only pool).
+      if (isBackendConfigured()) {
+        const session = await startLiveSession({
+          latitude,
+          longitude,
+          radiusMiles: radius,
+          expiresAt: expiresAt.toISOString(),
+          activities: activities as TonightActivity[],
+          foodCuisines: wantsDinner ? foodCuisines : [],
+          availabilityLabel: label,
+          availableUntil: expiresAt.toISOString(),
+          laterTonightHour,
+        });
+        setLiveSession({ ...session, isBoosted: false, boostedAt: null });
+        if (!plus) await beginPingSegment();
+        setPingResults(0, 0);
+        setSheet('none');
+        return;
+      }
+
       if (!env.supabaseUrl) {
         const localSession = {
           id: `local-${Date.now()}`,
@@ -294,13 +317,14 @@ export default function LiveHomeScreen() {
           availabilityLabel: label,
           activities: activities as TonightActivity[],
           foodCuisines: wantsDinner ? foodCuisines : [],
+          laterTonightHour,
+          availabilityMode: (laterTonightHour != null ? 'later' : 'live') as 'live' | 'later',
           isBoosted: false,
           boostedAt: null,
         };
         setLiveSession(localSession);
         if (!plus) await beginPingSegment();
-        const pool = env.previewContentEnabled ? DEMO_VIDEO_PROMPTS.length : 0;
-        setPingResults(pool, pool > 0 ? Math.min(3, pool) : 0);
+        setPingResults(0, 0);
         setSheet('none');
         return;
       }
@@ -314,6 +338,7 @@ export default function LiveHomeScreen() {
         foodCuisines: wantsDinner ? foodCuisines : [],
         availabilityLabel: label,
         availableUntil: expiresAt.toISOString(),
+        laterTonightHour,
       });
       setLiveSession({ ...session, isBoosted: false, boostedAt: null });
       if (!plus) await beginPingSegment();
@@ -371,7 +396,7 @@ export default function LiveHomeScreen() {
         onPress: async () => {
           try {
             setLoading(true);
-            if (env.supabaseUrl) await endLiveSession(liveSession?.id);
+            if (isBackendConfigured() || env.supabaseUrl) await endLiveSession(liveSession?.id);
             if (!plus) await endPingSegment();
             await clearTonightBoost();
             setLiveSession(null);
@@ -568,6 +593,40 @@ export default function LiveHomeScreen() {
                   </Pressable>
                 </>
               ) : null}
+            </View>
+
+            <View style={styles.block}>
+              <AppText style={styles.blockLabel}>Free later?</AppText>
+              <View style={styles.planRow}>
+                <Pressable
+                  onPress={() => setLaterTonightHour(null)}
+                  style={styles.planOpt}
+                >
+                  <AppText style={[styles.planText, laterTonightHour == null && styles.planTextOn]}>
+                    Live now
+                  </AppText>
+                  {laterTonightHour == null ? (
+                    <View style={styles.planUnderline} />
+                  ) : (
+                    <View style={styles.planSpacer} />
+                  )}
+                </Pressable>
+                {LATER_HOURS.map((hour) => {
+                  const on = laterTonightHour === hour;
+                  return (
+                    <Pressable
+                      key={hour}
+                      onPress={() => setLaterTonightHour(hour)}
+                      style={styles.planOpt}
+                    >
+                      <AppText style={[styles.planText, on && styles.planTextOn]}>
+                        {formatLaterHour(hour)}
+                      </AppText>
+                      {on ? <View style={styles.planUnderline} /> : <View style={styles.planSpacer} />}
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
 
             <Pressable style={styles.fineTune} onPress={() => router.push('/filters')}>

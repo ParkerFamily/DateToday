@@ -22,7 +22,7 @@ export default function LikesScreen() {
   const entitlements = useSessionStore((s) => s.entitlements);
   const unlocked = canSeeAllReceivedPings(entitlements);
   const all = useMemo(
-    () => (env.previewContentEnabled ? DEMO_PINGS.received : []),
+    () => (env.useMockData ? DEMO_PINGS.received : []),
     [],
   );
   const visible = unlocked ? all : all.slice(0, FREE_PREVIEW);
@@ -39,9 +39,13 @@ export default function LikesScreen() {
         </AppText>
 
         {visible.length === 0 ? (
-          <AppText variant="secondary" style={styles.empty}>
-            No likes yet — keep Pinging.
-          </AppText>
+          <View style={styles.emptyWrap}>
+            <AppText style={styles.emptyTitle}>No likes yet</AppText>
+            <AppText variant="secondary" style={styles.empty}>
+              Keep your Ping on — we’ll surface interest when someone ♥ you. No fake people here.
+            </AppText>
+            <Button label="Open your Ping" onPress={() => router.push('/(tabs)/pings')} />
+          </View>
         ) : (
           visible.map((person) => (
             <Pressable
@@ -99,7 +103,20 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   empty: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  emptyWrap: {
     marginTop: spacing.xl,
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '800',
     textAlign: 'center',
   },
   row: {

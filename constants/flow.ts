@@ -43,6 +43,22 @@ export const flowCopy = {
   seeWhosLive: "SEE WHO'S LIVE →",
   fineTuneTitle: 'More time. More conversation. ✦',
   fineTuneBody: 'Unlimited Ping + messages with DateToday+',
+  quietTitle: 'Quiet right now. Not dead.',
+  quietBody:
+    'Nobody matching your filters is Pinged nearby yet. Start your Ping — we’ll alert you when someone compatible goes live.',
+  youreLiveWatching: "You're live ✦",
+  watchingArea: "We're watching your area.",
+  zeroMatchNow: '0 people match right now',
+  notifyWhenNearby: "We'll notify you the second someone matching your preferences Pings nearby.",
+  expandRadius: 'Expand radius',
+  adjustFilters: 'Adjust filters',
+  loosenFiltersTitle: 'No exact matches right now',
+  loosenFiltersBody: 'People are Live nearby if you loosen one preference.',
+  showNearby: 'Show nearby people',
+  laterTonightTitle: 'LATER TONIGHT',
+  liveNowTitle: 'LIVE NOW ⚡',
+  beFirstCta: 'Start your Ping',
+  tonightIdeas: 'Tonight’s ideas',
 } as const;
 
 /** Ping-scoped counts only — never generic “online now” vanity. */
@@ -58,15 +74,15 @@ export function formatPingMatchLine(count: number): string {
   return `${count} people match your night`;
 }
 
-/**
- * Offline teaser — thresholds so a tiny pool never looks dead.
- * No names, no exact pin locations.
- */
-export function formatCityTonightTeaser(city: string, estimated: number): string {
-  if (estimated >= 50) return `50+ people are going out around ${city} tonight`;
-  if (estimated >= 20) return `20+ people are going out around ${city} tonight`;
-  if (estimated >= 10) return `10+ people are going out around ${city} tonight`;
-  return `People are getting ready around ${city} tonight`;
+/** Offline teaser — never invents a headcount. */
+export function formatCityTonightTeaser(city: string, _estimated?: number): string {
+  return `People get ready around ${city} tonight — Go Live to enter the pool.`;
+}
+
+export function formatLaterHour(hour: number): string {
+  if (hour >= 21) return '9 PM+';
+  const h = ((hour + 11) % 12) + 1;
+  return `${h} PM`;
 }
 
 /** Contextual openers — no AI. Templates only. */

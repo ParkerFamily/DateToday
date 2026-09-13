@@ -97,5 +97,12 @@ service cloud.firestore {
         && request.resource.data.status == 'open';
       allow read, update, delete: if false;
     }
+
+    // Approximate live beacons for Ping discovery (rounded lat/lng only).
+    match /liveSessions/{userId} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
   }
 }

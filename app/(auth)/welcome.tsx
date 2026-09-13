@@ -71,7 +71,7 @@ function seedDevSession() {
 export default function WelcomeScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
-  const showDevLogin = env.previewContentEnabled;
+  const showDevLogin = env.useMockData;
 
   const iconSize = useMemo(() => {
     const base = Math.min(width, height) * 0.42;

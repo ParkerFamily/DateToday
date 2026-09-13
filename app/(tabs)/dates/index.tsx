@@ -27,7 +27,7 @@ interface DateListItem {
 }
 
 /** Preview boarding-pass UI only in local/dev — never invent dates in production. */
-const useDemo = env.previewContentEnabled;
+const useDemo = env.useMockData;
 
 const ACTIVITY_EMOJI: Record<string, string> = {
   Drinks: '🍸',

@@ -107,8 +107,23 @@ export const env = {
   ),
   appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development',
   isDev: (process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development') !== 'production',
-  previewContentEnabled:
-    __DEV__ || (process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development') !== 'production',
+  /**
+   * Fake Maya/Jordan pool — ONLY development / preview (or explicit flag).
+   * Production / TestFlight must never inject demo people when the real pool is empty.
+   */
+  useMockData: (() => {
+    if (process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true') return true;
+    if (process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'false') return false;
+    const appEnv = process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development';
+    return appEnv === 'development' || appEnv === 'preview';
+  })(),
+  /** @deprecated Prefer useMockData — kept for older call sites during migration. */
+  previewContentEnabled: (() => {
+    if (process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true') return true;
+    if (process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'false') return false;
+    const appEnv = process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development';
+    return appEnv === 'development' || appEnv === 'preview';
+  })(),
 } as const;
 
 /** Primary backend for DateToday is Firebase. */

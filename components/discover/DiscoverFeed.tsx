@@ -25,6 +25,7 @@ import { DEMO_VIDEO_PROMPTS, demoVideoPromptsFor, demoCity } from '@/constants/d
 import {
   flowCopy,
   formatCityTonightTeaser,
+  formatLaterHour,
   formatPingMatchLine,
 } from '@/constants/flow';
 import { promptDisplayLabel } from '@/constants/videoPrompts';
@@ -35,7 +36,7 @@ import type { DiscoveryCard, FoodCuisine, TonightActivity } from '@/types';
 import { useSessionStore } from '@/store/session';
 import { useDiscoverFilters } from '@/store/discoverFilters';
 import { useBlocksStore } from '@/store/blocks';
-import { env } from '@/lib/env';
+import { env, isBackendConfigured } from '@/lib/env';
 import { fetchDiscoveryFeed, sendPing } from '@/services/api';
 import { tonightCompatibility } from '@/utils/tonightCompatibility';
 import { canUseAdvancedFilters, canUsePriorityPool } from '@/lib/entitlements';
@@ -95,7 +96,6 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
   const [interestFlash, setInterestFlash] = useState(false);
   /** Preview: first ♥ is one-way interest; second ♥ simulates mutual match */
   const interestsSentRef = useRef(0);
-  const preferences = useSessionStore((s) => s.preferences);
   const liveSession = useSessionStore((s) => s.liveSession);
   const discoveryPaused = useSessionStore((s) => s.discoveryPaused);
   const setDiscoverAttention = useSessionStore((s) => s.setDiscoverAttention);
@@ -117,10 +117,11 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
   );
 
   const feedQuery = useQuery({
-    queryKey: ['discovery-feed'],
-    queryFn: () => fetchDiscoveryFeed(20),
-    enabled: Boolean(env.supabaseUrl && env.supabaseAnonKey) && live,
+    queryKey: ['discovery-feed', liveSession?.id, liveSession?.radiusMiles],
+    queryFn: () => fetchDiscoveryFeed(40),
+    enabled: Boolean(live && (isBackendConfigured() || (env.supabaseUrl && env.supabaseAnonKey))),
     retry: false,
+    refetchInterval: live ? 45_000 : false,
   });
 
   const myVibe = useMemo(
@@ -131,16 +132,25 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     [liveSession],
   );
 
-  const cards = useMemo(() => {
+  /** Real feed only — mocks never fill an empty production pool. */
+  const rawFeed = useMemo((): DiscoveryCard[] => {
     if (!live) return [];
-    let list: DiscoveryCard[] = feedQuery.data?.length
-      ? feedQuery.data
-      : env.previewContentEnabled
-        ? DEMO_CARDS
-        : [];
+    if (feedQuery.data && feedQuery.data.length > 0) return feedQuery.data;
+    // Intentional preview sandbox only — never a silent production fallback.
+    if (env.useMockData && !feedQuery.isFetching && feedQuery.isFetched) {
+      return DEMO_CARDS;
+    }
+    return [];
+  }, [live, feedQuery.data, feedQuery.isFetching, feedQuery.isFetched]);
 
-    list = list.filter((c) => c.distanceMiles <= filters.maxDistanceMiles);
-    list = list.filter((c) => !blockedMap[c.userId]);
+  const nearbyBeforeFilters = useMemo(() => {
+    return rawFeed
+      .filter((c) => c.distanceMiles <= filters.maxDistanceMiles)
+      .filter((c) => !blockedMap[c.userId]);
+  }, [rawFeed, filters.maxDistanceMiles, blockedMap]);
+
+  const cards = useMemo(() => {
+    let list = [...nearbyBeforeFilters];
 
     if (filters.verifiedOnly) {
       list = list.filter((c) => c.verificationStatus === 'verified');
@@ -155,7 +165,6 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
       );
     }
     if (filters.foodFilter.length) {
-      // Free: only first cuisine applies even if store was tampered.
       const foods = plusFoods ? filters.foodFilter : filters.foodFilter.slice(0, 1);
       const matchAll = filters.matchAllFilters && plusFoods;
       list = list.filter((c) => {
@@ -169,6 +178,9 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     if (filters.freeUntilHour != null) {
       list = list.filter((c) => new Date(c.liveUntil).getHours() >= filters.freeUntilHour!);
     }
+
+    // Live Now first; Later Tonight stays in pool but ranked after.
+    list = list.filter((c) => c.availabilityMode !== 'later');
 
     return [...list].sort((a, b) => {
       const sa = tonightCompatibility(myVibe, {
@@ -185,7 +197,17 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
         { priorityPool },
       );
     });
-  }, [live, feedQuery.data, filters, myVibe, blockedMap, priorityPool, plusFoods]);
+  }, [nearbyBeforeFilters, filters, myVibe, priorityPool, plusFoods]);
+
+  const laterTonight = useMemo(() => {
+    return nearbyBeforeFilters
+      .filter((c) => c.availabilityMode === 'later')
+      .sort((a, b) => (a.laterTonightHour ?? 99) - (b.laterTonightHour ?? 99));
+  }, [nearbyBeforeFilters]);
+
+  const filtersTight =
+    cards.length === 0 &&
+    nearbyBeforeFilters.filter((c) => c.availabilityMode !== 'later').length > 0;
 
   useEffect(() => {
     if (live) setPingResults(cards.length);
@@ -256,14 +278,19 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     if (!card || interestFlash) return;
     try {
       setInterestedLoading(true);
-      if (!env.supabaseUrl || env.previewContentEnabled) {
+      // Mock sandbox only — real builds never invent mutual matches.
+      if (env.useMockData && (!env.supabaseUrl || card.userId.startsWith('demo-'))) {
         interestsSentRef.current += 1;
-        // Mutual-blind: first interest is silent to them; second demo ♥ = match both sides
         if (interestsSentRef.current === 1) {
           showInterestSentThenAdvance();
         } else {
           openMatch(card);
         }
+        return;
+      }
+      if (!env.supabaseUrl) {
+        // Firebase interest path not live yet — still acknowledge ♥ honestly.
+        showInterestSentThenAdvance();
         return;
       }
       const result = await sendPing(card.userId);
@@ -318,9 +345,6 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
       profile?.neighborhoodLabel?.split(',')[0]?.trim() ||
       profile?.hometown ||
       demoCity.label;
-    const teaserThumbs = env.previewContentEnabled
-      ? DEMO_VIDEO_PROMPTS.slice(0, 3).map((p) => p.videoThumbUrl)
-      : [];
 
     return (
       <Screen padded={false}>
@@ -333,36 +357,29 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
           {showClose ? <CloseButton onPress={() => dismissToLive(router)} /> : null}
           <View style={styles.quiet}>
             <AppText style={styles.teaserEyebrow}>TONIGHT · {city.toUpperCase()}</AppText>
-            {teaserThumbs.length ? (
-              <View style={styles.teaserRow}>
-                {teaserThumbs.map((uri) => (
-                  <View key={uri} style={styles.teaserCard}>
-                    <Image source={{ uri }} style={styles.teaserImg} blurRadius={18} />
-                    <View style={styles.teaserScrim} />
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <View style={styles.radarStub}>
-                <View style={styles.radarRing} />
-                <View style={[styles.radarRing, styles.radarRingMid]} />
-                <Ionicons name="radio-outline" size={28} color={colors.brandBright} />
-              </View>
-            )}
-            <AppText style={styles.quietTitle}>
-              {formatCityTonightTeaser(city, env.previewContentEnabled ? 23 : 12)}
+            <View style={styles.radarStub}>
+              <View style={styles.radarRing} />
+              <View style={[styles.radarRing, styles.radarRingMid]} />
+              <Ionicons name="radio-outline" size={28} color={colors.brandBright} />
+            </View>
+            <AppText style={styles.quietTitle}>{flowCopy.quietTitle}</AppText>
+            <AppText variant="secondary" style={styles.quietBody}>
+              {formatCityTonightTeaser(city)}
             </AppText>
             <AppText variant="secondary" style={styles.quietBody}>
-              This is your Ping tab — peek anytime.
-            </AppText>
-            <AppText variant="secondary" style={styles.quietBody}>
-              {flowCopy.goLiveToEnter} Profiles unlock when your beacon is on.
+              {flowCopy.quietBody}
             </AppText>
             <Button
-              label="GO LIVE TO ENTER"
+              label={flowCopy.beFirstCta}
               onPress={() => router.push('/(tabs)/live')}
               style={styles.quietCta}
             />
+            <AppText variant="label" style={styles.radiusLabel}>
+              {flowCopy.tonightIdeas}
+            </AppText>
+            <AppText variant="secondary" style={styles.quietBody}>
+              Dinner · Drinks · Coffee · Something fun
+            </AppText>
           </View>
         </View>
       </Screen>
@@ -370,6 +387,10 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
   }
 
   if (!card) {
+    const radiusMi = liveSession?.radiusMiles ?? filters.maxDistanceMiles;
+    const nextRadius =
+      radiusPresets.find((mi) => mi > radiusMi) ?? radiusPresets[radiusPresets.length - 1];
+
     return (
       <Screen padded={false}>
         <LinearGradient
@@ -377,41 +398,134 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
-        <View style={[styles.quietPad, { paddingTop: insets.top + spacing.md }]}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.quietPad,
+            { paddingTop: insets.top + spacing.md, paddingBottom: 48 },
+          ]}
+        >
           {showClose ? <CloseButton onPress={() => dismissToLive(router)} /> : null}
           <View style={styles.quiet}>
-            <AppText style={styles.quietTitle}>Your Ping is quiet.</AppText>
-            <AppText variant="secondary" style={styles.quietBody}>
-              You're Live and Pinging. We'll surface people free tonight who match your vibe.
-            </AppText>
-            <AppText variant="label" style={styles.radiusLabel}>
-              Expand distance
-            </AppText>
-            <View style={styles.radiusRow}>
-              {radiusPresets.map((mi) => (
-                <OptionChip
-                  key={mi}
-                  label={`${mi} mi`}
-                  selected={(preferences?.maxDistanceMiles ?? 15) === mi}
-                  onPress={() => void feedQuery.refetch()}
+            {filtersTight ? (
+              <>
+                <AppText style={styles.quietTitle}>{flowCopy.loosenFiltersTitle}</AppText>
+                <AppText variant="secondary" style={styles.quietBody}>
+                  {nearbyBeforeFilters.filter((c) => c.availabilityMode !== 'later').length}{' '}
+                  {flowCopy.loosenFiltersBody}
+                </AppText>
+                <Button
+                  label={flowCopy.showNearby}
+                  onPress={() => {
+                    useDiscoverFilters.getState().reset();
+                    void feedQuery.refetch();
+                  }}
+                  style={styles.quietCta}
                 />
-              ))}
-            </View>
-            <Button
-              label="Adjust preferences"
-              onPress={() => router.push('/settings/preferences')}
-              style={styles.quietCta}
-            />
+                <Button
+                  label={flowCopy.adjustFilters}
+                  variant="secondary"
+                  onPress={() => router.push('/filters')}
+                  style={styles.quietCta}
+                />
+              </>
+            ) : (
+              <>
+                <AppText style={styles.teaserEyebrow}>{flowCopy.youreLiveWatching}</AppText>
+                <AppText style={styles.quietTitle}>{flowCopy.watchingArea}</AppText>
+                <AppText variant="secondary" style={styles.quietBody}>
+                  {flowCopy.zeroMatchNow}
+                </AppText>
+                <AppText variant="secondary" style={styles.quietBody}>
+                  {flowCopy.notifyWhenNearby}
+                </AppText>
+                <AppText variant="label" style={styles.radiusLabel}>
+                  {flowCopy.expandRadius}
+                </AppText>
+                <View style={styles.radiusRow}>
+                  {radiusPresets.map((mi) => (
+                    <OptionChip
+                      key={mi}
+                      label={`${mi} mi`}
+                      selected={radiusMi === mi}
+                      onPress={() => {
+                        useDiscoverFilters.getState().setMaxDistanceMiles(mi);
+                        if (liveSession) {
+                          useSessionStore.getState().setLiveSession({
+                            ...liveSession,
+                            radiusMiles: mi,
+                          });
+                        }
+                        void feedQuery.refetch();
+                      }}
+                    />
+                  ))}
+                </View>
+                <AppText variant="secondary" style={styles.quietBody}>
+                  Only a few people match within {radiusMi} mi? Try {nextRadius} mi.
+                </AppText>
+                <Button
+                  label={flowCopy.adjustFilters}
+                  variant="secondary"
+                  onPress={() => router.push('/filters')}
+                  style={styles.quietCta}
+                />
+              </>
+            )}
+
+            {laterTonight.length > 0 ? (
+              <View style={styles.laterBlock}>
+                <AppText style={styles.laterTitle}>{flowCopy.laterTonightTitle}</AppText>
+                <AppText variant="secondary" style={styles.quietBody}>
+                  {laterTonight.length}{' '}
+                  {laterTonight.length === 1 ? 'person is' : 'people are'} planning to be free
+                  later
+                  {laterTonight[0]?.laterTonightHour != null
+                    ? ` after ${formatLaterHour(laterTonight[0].laterTonightHour)}`
+                    : ''}
+                  .
+                </AppText>
+                {laterTonight.slice(0, 4).map((p) => (
+                  <Pressable
+                    key={p.userId}
+                    style={styles.laterRow}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/profile/[userId]',
+                        params: { userId: p.userId, name: p.displayName },
+                      })
+                    }
+                  >
+                    {p.mainPhotoUrl ? (
+                      <Image source={{ uri: p.mainPhotoUrl }} style={styles.laterAvatar} />
+                    ) : (
+                      <View style={[styles.laterAvatar, styles.laterAvatarPh]} />
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <AppText style={styles.laterName}>
+                        {p.displayName}, {p.age}
+                      </AppText>
+                      <AppText variant="secondary">
+                        {p.laterTonightHour != null
+                          ? `Free after ${formatLaterHour(p.laterTonightHour)}`
+                          : 'Later tonight'}{' '}
+                        · {formatDistanceMiles(p.distanceMiles)}
+                      </AppText>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+
             {showClose ? (
               <Button
                 label="Back to Live"
-                variant="secondary"
+                variant="ghost"
                 onPress={() => dismissToLive(router)}
                 style={styles.quietCta}
               />
             ) : null}
           </View>
-        </View>
+        </ScrollView>
       </Screen>
     );
   }
@@ -992,5 +1106,41 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: spacing.md,
     justifyContent: 'center',
+  },
+  laterBlock: {
+    alignSelf: 'stretch',
+    marginTop: spacing.lg,
+    gap: 10,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  laterTitle: {
+    color: colors.brandBright,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textAlign: 'center',
+  },
+  laterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  laterAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.elevated,
+  },
+  laterAvatarPh: {
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  laterName: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

@@ -135,7 +135,7 @@ export default function VerifyScreen() {
               onPress={goNext}
             />
           ) : null}
-          {env.previewContentEnabled && !isVerified ? (
+          {env.useMockData && !isVerified ? (
             <Button
               label="Mark pending (dev — not verified)"
               variant="ghost"
