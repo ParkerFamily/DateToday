@@ -103,17 +103,10 @@ export async function configurePurchases(appUserId?: string | null): Promise<voi
         // Log level is optional — continue to configure.
       }
       try {
-        // Some SDK versions expose isConfigured — never double-configure.
-        const already =
-          typeof (purchasesMod as { isConfigured?: () => boolean }).isConfigured === 'function'
-            ? (purchasesMod as { isConfigured: () => boolean }).isConfigured()
-            : false;
-        if (!already) {
-          purchasesMod.configure({
-            apiKey,
-            appUserID: appUserId ?? undefined,
-          });
-        }
+        purchasesMod.configure({
+          apiKey,
+          appUserID: appUserId ?? undefined,
+        });
         configured = true;
         startPurchasesCustomerInfoListener();
         // Warm customer info in background — never block / never throw to UI.
