@@ -70,40 +70,54 @@ export function isPurchasesConfigured(): boolean {
 }
 
 /**
- * RevenueCat kills release builds that configure with a Test Store key (`test_…`).
- * Only allow those keys in __DEV__; production/TestFlight need appl_/goog_ keys.
+ * RevenueCat force-closes release builds configured with a Test Store key (`test_…`).
+ * Dev: allow test_/appl_/goog_. Release: iOS needs appl_, Android needs goog_.
  */
 function isUsableApiKey(apiKey: string): boolean {
-  if (!apiKey) return false;
-  if (apiKey.startsWith('test_') && !__DEV__) return false;
-  return true;
+  const key = apiKey.trim();
+  if (!key) return false;
+  if (__DEV__) {
+    return key.startsWith('test_') || key.startsWith('appl_') || key.startsWith('goog_');
+  }
+  if (Platform.OS === 'ios') return key.startsWith('appl_');
+  if (Platform.OS === 'android') return key.startsWith('goog_');
+  return false;
 }
 
-/** Configure once at app boot. Never throws — safe in Expo Go. */
+/** Configure once at app boot. Never throws — never lets a bad key kill TestFlight. */
 export async function configurePurchases(appUserId?: string | null): Promise<void> {
   try {
-    const apiKey = apiKeyForPlatform();
+    const apiKey = apiKeyForPlatform()?.trim() ?? '';
     if (!apiKey || Platform.OS === 'web') return;
     if (!isUsableApiKey(apiKey)) {
-      // Release builds must use appl_/goog_ keys — configuring with test_ kills the app.
+      // Skip SDK entirely — Test Store keys crash release builds after OK on the alert.
       return;
     }
     if (!loadPurchasesSdk() || !purchasesMod || !purchasesNs) return;
 
     if (!configured) {
       try {
-        const level = __DEV__ ? purchasesNs.LOG_LEVEL.DEBUG : purchasesNs.LOG_LEVEL.WARN;
+        const level = __DEV__ ? purchasesNs.LOG_LEVEL.DEBUG : purchasesNs.LOG_LEVEL.ERROR;
         purchasesMod.setLogLevel(level);
       } catch {
         // Log level is optional — continue to configure.
       }
       try {
-        purchasesMod.configure({
-          apiKey,
-          appUserID: appUserId ?? undefined,
-        });
+        // Some SDK versions expose isConfigured — never double-configure.
+        const already =
+          typeof (purchasesMod as { isConfigured?: () => boolean }).isConfigured === 'function'
+            ? (purchasesMod as { isConfigured: () => boolean }).isConfigured()
+            : false;
+        if (!already) {
+          purchasesMod.configure({
+            apiKey,
+            appUserID: appUserId ?? undefined,
+          });
+        }
         configured = true;
         startPurchasesCustomerInfoListener();
+        // Warm customer info in background — never block / never throw to UI.
+        void purchasesMod.getCustomerInfo().then(applyCustomerInfoToSession).catch(() => undefined);
       } catch {
         nativeUnavailable = true;
         purchasesMod = null;
@@ -122,6 +136,7 @@ export async function configurePurchases(appUserId?: string | null): Promise<voi
     startPurchasesCustomerInfoListener();
   } catch {
     nativeUnavailable = true;
+    purchasesMod = null;
     configured = false;
   }
 }
@@ -290,7 +305,7 @@ export async function purchasePlusPackage(
   if (!isPurchasesConfigured() || !purchasesMod) {
     return {
       status: 'error',
-      message: 'Purchases need a store / dev build (not Expo Go).',
+      message: 'Subscriptions aren’t set up on this build yet. You can keep using the app.',
     };
   }
   if (!pkg) {
@@ -328,7 +343,7 @@ export async function restorePlusPurchases(): Promise<PurchaseResult> {
   if (!isPurchasesConfigured() || !purchasesMod) {
     return {
       status: 'error',
-      message: 'Purchases need a store / dev build (not Expo Go).',
+      message: 'Subscriptions aren’t set up on this build yet. You can keep using the app.',
     };
   }
   try {
@@ -378,7 +393,7 @@ export async function purchaseTonightBoost(
   if (!isPurchasesConfigured() || !purchasesMod) {
     return {
       status: 'error',
-      message: 'Purchases need a store / dev build (not Expo Go).',
+      message: 'Subscriptions aren’t set up on this build yet. You can keep using the app.',
     };
   }
   if (!pkg) {
