@@ -59,7 +59,9 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
-        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO"
       ],
@@ -129,7 +131,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "DateToday needs photo library access to upload profile media.",
+          "photosPermission": "DateToday needs photo library access so you can choose a profile photo.",
           "cameraPermission": "DateToday needs camera access for profile and tonight videos."
         }
       ],
