@@ -71,14 +71,14 @@ export function isPurchasesConfigured(): boolean {
 
 /**
  * RevenueCat force-closes release builds configured with a Test Store key (`test_…`).
- * Dev: allow test_/appl_/goog_. Release: iOS needs appl_, Android needs goog_.
+ * Never configure with test_ outside Metro __DEV__ — preview/store APKs are release builds.
+ * iOS release: appl_ only. Android release: goog_ only.
  */
 function isUsableApiKey(apiKey: string): boolean {
   const key = apiKey.trim();
   if (!key) return false;
-  if (__DEV__) {
-    return key.startsWith('test_') || key.startsWith('appl_') || key.startsWith('goog_');
-  }
+  // Test Store is Metro/dev only — never release/preview/store binaries.
+  if (key.startsWith('test_')) return Boolean(__DEV__);
   if (Platform.OS === 'ios') return key.startsWith('appl_');
   if (Platform.OS === 'android') return key.startsWith('goog_');
   return false;
