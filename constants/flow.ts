@@ -44,8 +44,10 @@ export const flowCopy = {
   fineTuneTitle: 'More time. More conversation. ✦',
   fineTuneBody: 'Unlimited Ping + messages with DateToday+',
   quietTitle: 'Quiet right now. Not dead.',
+  quietTitleLead: 'Quiet right now.',
+  quietTitleAccent: 'Not dead.',
   quietBody:
-    'Nobody matching your filters is Pinged nearby yet. Start your Ping — we’ll alert you when someone compatible goes live.',
+    'No one matching your filters is pinged nearby yet. Start your Ping — we’ll alert you when compatible people go live.',
   youreLiveWatching: "You're live ✦",
   watchingArea: "We're watching your area.",
   zeroMatchNow: '0 people match right now',

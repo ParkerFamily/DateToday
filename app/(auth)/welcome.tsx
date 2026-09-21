@@ -3,7 +3,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,10 +14,10 @@ import { BrandHeartLight } from '@/components/onboarding/BrandHeartLight';
 import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons';
 import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
-import { env } from '@/lib/env';
 import { continueAfterSocialAuth } from '@/features/auth/postAuth';
 import { CONSENT_COPY } from '@/constants/legal';
 import type { Profile } from '@/types';
+import { useContentLayout } from '@/lib/layout';
 
 const DEV_USER_ID = 'local-dev-user';
 
@@ -70,13 +69,13 @@ function seedDevSession() {
 
 export default function WelcomeScreen() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
-  const showDevLogin = env.useMockData;
+  const { contentWidth, layoutHeight } = useContentLayout();
+  const showDevLogin = __DEV__;
 
   const iconSize = useMemo(() => {
-    const base = Math.min(width, height) * 0.42;
+    const base = Math.min(contentWidth, layoutHeight) * 0.42;
     return Math.round(Math.max(170, Math.min(200, base)));
-  }, [width, height]);
+  }, [contentWidth, layoutHeight]);
 
   const loginForMe = () => {
     seedDevSession();

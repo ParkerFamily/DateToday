@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
-  Platform,
   ScrollView,
   StyleSheet,
   View,
@@ -15,7 +14,9 @@ import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { SettingsGroup, SettingsRow, SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, spacing } from '@/constants/theme';
-import { APP_STORE_LINKS, SUPPORT } from '@/constants/legal';
+import { SUPPORT } from '@/constants/legal';
+import { plusStatusLabel } from '@/lib/entitlements';
+import { managementUrlForEntitlements } from '@/lib/purchases';
 import { useSessionStore } from '@/store/session';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { signOut } from '@/features/auth/api';
@@ -26,9 +27,11 @@ export default function SettingsScreen() {
   const resetSession = useSessionStore((s) => s.reset);
   const resetDraft = useOnboardingDraft((s) => s.reset);
   const profile = useSessionStore((s) => s.profile);
+  const entitlements = useSessionStore((s) => s.entitlements);
   const [busy, setBusy] = useState(false);
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const verified = profile?.verificationStatus === 'verified';
+  const plusLabel = plusStatusLabel(entitlements);
 
   const leaveToWelcome = () => {
     resetSession();
@@ -58,11 +61,7 @@ export default function SettingsScreen() {
   };
 
   const manageSubscription = () => {
-    const url =
-      Platform.OS === 'ios'
-        ? APP_STORE_LINKS.appleSubscriptions
-        : APP_STORE_LINKS.googleSubscriptions;
-    void Linking.openURL(url);
+    void Linking.openURL(managementUrlForEntitlements(entitlements));
   };
 
   const restorePurchases = () => {
@@ -120,7 +119,10 @@ export default function SettingsScreen() {
         </SettingsGroup>
 
         <SettingsGroup title="Subscription">
-          <SettingsRow label="DateToday+" onPress={() => router.push('/paywall')} />
+          <SettingsRow
+            label={`DateToday+ · ${plusLabel}`}
+            onPress={() => router.push('/paywall')}
+          />
           <SettingsRow label="Tonight Boost" onPress={() => router.push('/paywall/boost')} />
           <SettingsRow label="Restore purchases" onPress={restorePurchases} />
           <SettingsRow label="Manage subscription" last onPress={manageSubscription} />

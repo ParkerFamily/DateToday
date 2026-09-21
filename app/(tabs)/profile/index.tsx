@@ -2,11 +2,20 @@ import React, { useMemo } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { VerificationTag } from '@/components/ui/VerificationTag';
-import { colors, radii, spacing } from '@/constants/theme';
+import {
+  BlockLabel,
+  FineTuneCard,
+  LiveAtmosphere,
+  livePad,
+  PlusBadge,
+} from '@/components/ui/LiveChrome';
+import { colors, spacing } from '@/constants/theme';
 import { isPlusActive } from '@/lib/entitlements';
 import { useSessionStore } from '@/store/session';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
@@ -23,29 +32,9 @@ const CHECKLIST: { key: ChecklistKey; label: string; href: string }[] = [
   { key: 'location', label: 'Enable location', href: '/settings/location' },
 ];
 
-function MenuRow({
-  label,
-  onPress,
-  last,
-}: {
-  label: string;
-  onPress: () => void;
-  last?: boolean;
-}) {
-  return (
-    <Pressable
-      style={[styles.menuRow, last && styles.menuRowLast]}
-      onPress={onPress}
-      accessibilityRole="button"
-    >
-      <AppText style={styles.menuLabel}>{label}</AppText>
-      <AppText variant="secondary">›</AppText>
-    </Pressable>
-  );
-}
-
 export default function ProfileTabScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const profile = useSessionStore((s) => s.profile);
   const entitlements = useSessionStore((s) => s.entitlements);
   const { percent, requirements, readyForLive } = useProfileCompletion();
@@ -61,39 +50,56 @@ export default function ProfileTabScreen() {
   const name = profile?.displayName ?? 'Your profile';
 
   return (
-    <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
+    <Screen padded={false} edges={['top', 'left', 'right']}>
+      <LiveAtmosphere />
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          livePad,
+          { paddingBottom: Math.max(insets.bottom, 8) + 24 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.heroCard}>
           {profile?.mainPhotoUrl ? (
             <Image source={{ uri: profile.mainPhotoUrl }} style={styles.heroImage} />
           ) : (
             <LinearGradient
-              colors={['#1A1228', '#0C0C10']}
+              colors={['rgba(124,58,237,0.35)', '#0C0C10']}
               style={styles.heroImage}
-              start={{ x: 0.2, y: 0 }}
-              end={{ x: 0.8, y: 1 }}
             >
-              <AppText style={styles.heroInitial}>
-                {(name[0] ?? 'Y').toUpperCase()}
-              </AppText>
+              <AppText style={styles.heroInitial}>{(name[0] ?? 'Y').toUpperCase()}</AppText>
             </LinearGradient>
           )}
           <LinearGradient
-            colors={['transparent', 'rgba(9,9,11,0.55)', colors.background]}
-            locations={[0.35, 0.72, 1]}
+            colors={['transparent', 'rgba(9,9,11,0.4)', '#09090B']}
+            locations={[0.25, 0.55, 1]}
             style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />
 
+          <Pressable
+            style={styles.editBtn}
+            onPress={() => router.push('/settings/media')}
+            accessibilityLabel="Edit photo"
+          >
+            <Ionicons name="camera" size={16} color={colors.text} />
+            <AppText style={styles.editBtnText}>Edit</AppText>
+          </Pressable>
+
           <View style={styles.heroCopy}>
-            <AppText style={styles.name}>{name}</AppText>
-            <VerificationTag status={verificationStatus} />
-            <AppText variant="secondary">
-              {profile?.neighborhoodLabel ?? 'Add your neighborhood'}
+            <AppText style={styles.name} numberOfLines={1}>
+              {name}
             </AppText>
+            <VerificationTag status={verificationStatus} />
+            <View style={styles.hoodRow}>
+              <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
+              <AppText style={styles.hood}>
+                {profile?.neighborhoodLabel ?? 'Add your neighborhood'}
+              </AppText>
+            </View>
             <Button
-              label="VIEW MY PROFILE"
-              variant="secondary"
+              label="VIEW MY PROFILE →"
               onPress={() => router.push(`/profile/${profile?.userId ?? 'me'}`)}
               style={styles.viewProfile}
             />
@@ -106,16 +112,18 @@ export default function ProfileTabScreen() {
             <AppText style={styles.strengthPct}>{percent}%</AppText>
           </View>
           <View style={styles.barTrack}>
-            <View style={[styles.barFill, { width: `${percent}%` }]} />
+            <View style={[styles.barFill, { width: `${Math.max(4, percent)}%` }]} />
           </View>
-          {plus ? (
-            <AppText variant="caption">DateToday+</AppText>
-          ) : null}
+          <AppText style={styles.readyNote}>
+            {readyForLive
+              ? 'Ready to go live tonight.'
+              : 'Finish a few steps to go live tonight.'}
+          </AppText>
         </View>
 
         {!readyForLive && openSteps.length > 0 ? (
           <View style={styles.finish}>
-            <AppText style={styles.finishTitle}>Finish your profile</AppText>
+            <BlockLabel>Finish profile</BlockLabel>
             {openSteps.slice(0, 4).map((step) => (
               <Pressable
                 key={step.key}
@@ -124,7 +132,7 @@ export default function ProfileTabScreen() {
               >
                 <View style={styles.checkDot} />
                 <AppText style={styles.checkLabel}>{step.label}</AppText>
-                <AppText variant="secondary">›</AppText>
+                <AppText style={styles.chevron}>›</AppText>
               </Pressable>
             ))}
             <Button
@@ -132,25 +140,68 @@ export default function ProfileTabScreen() {
               onPress={() =>
                 router.push((openSteps[0]?.href ?? '/settings/edit-profile') as never)
               }
-              style={styles.continueBtn}
+              style={{ marginTop: spacing.sm }}
             />
           </View>
-        ) : (
-          <AppText variant="secondary" style={styles.readyNote}>
-            Ready to go live tonight.
-          </AppText>
-        )}
+        ) : null}
 
-        <View style={styles.menu}>
-          <MenuRow
-            label="Edit Profile"
+        <View style={styles.block}>
+          <BlockLabel>Account</BlockLabel>
+          <FineTuneCard
+            title="Edit Profile"
+            body="Update your photos, bio, and details"
             onPress={() => router.push('/settings/edit-profile')}
           />
-          <MenuRow
-            label={verified ? 'Verification · Verified' : 'Get verified'}
+          <FineTuneCard
+            title="Dating Preferences"
+            body="Who you're looking for"
+            onPress={() => router.push('/settings/preferences')}
+          />
+          <FineTuneCard
+            title="Verification"
+            body={verified ? "You're verified" : 'Build trust and get verified'}
             onPress={() => router.push('/settings/verification')}
           />
-          <MenuRow label="Settings" last onPress={() => router.push('/settings')} />
+          <Pressable style={styles.fineTune} onPress={() => router.push('/paywall')}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <View style={styles.fineTuneTitleRow}>
+                <AppText style={styles.fineTuneTitle}>DateToday+</AppText>
+                <PlusBadge />
+              </View>
+              <AppText style={styles.fineTuneBody}>
+                {plus ? 'Active on this account' : 'Unlock premium features'}
+              </AppText>
+            </View>
+            <AppText style={styles.chevron}>›</AppText>
+          </Pressable>
+        </View>
+
+        <View style={styles.block}>
+          <BlockLabel>App</BlockLabel>
+          <FineTuneCard
+            title="Safety & Privacy"
+            body="Your safety comes first"
+            onPress={() => router.push('/safety')}
+          />
+          <FineTuneCard
+            title="Notifications"
+            body="Manage your alerts"
+            onPress={() => router.push('/settings/notifications')}
+          />
+          <FineTuneCard
+            title="Settings"
+            body="App preferences"
+            onPress={() => router.push('/settings')}
+          />
+        </View>
+
+        <View style={styles.block}>
+          <BlockLabel>Support</BlockLabel>
+          <FineTuneCard
+            title="Help & Support"
+            body="Get help or contact us"
+            onPress={() => router.push('/legal/guidelines')}
+          />
         </View>
       </ScrollView>
     </Screen>
@@ -159,11 +210,16 @@ export default function ProfileTabScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    paddingBottom: spacing.xxl,
+    gap: spacing.md,
+    paddingTop: spacing.sm,
   },
-  hero: {
-    height: 340,
-    marginBottom: spacing.lg,
+  heroCard: {
+    height: 320,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.border,
     justifyContent: 'flex-end',
   },
   heroImage: {
@@ -177,27 +233,50 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     opacity: 0.35,
   },
+  editBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    backgroundColor: 'rgba(9,9,11,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  editBtnText: {
+    color: colors.text,
+    fontSize: 10,
+    fontWeight: '700',
+  },
   heroCopy: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
     gap: 8,
   },
   name: {
     color: colors.text,
-    fontSize: 34,
+    fontSize: 30,
     fontWeight: '800',
-    letterSpacing: -0.8,
-    lineHeight: 40,
+    letterSpacing: -0.6,
+  },
+  hoodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  hood: {
+    color: colors.textSecondary,
+    fontSize: 14,
   },
   viewProfile: {
-    marginTop: spacing.sm,
-    alignSelf: 'flex-start',
-    minWidth: 180,
+    marginTop: 4,
   },
   strength: {
-    paddingHorizontal: spacing.lg,
     gap: 10,
-    marginBottom: spacing.lg,
   },
   strengthTop: {
     flexDirection: 'row',
@@ -217,32 +296,27 @@ const styles = StyleSheet.create({
   barTrack: {
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.elevated,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
   },
   barFill: {
     height: '100%',
     backgroundColor: colors.brandBright,
   },
-  finish: {
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.xl,
-    padding: spacing.md,
-    borderRadius: radii.surface,
-    backgroundColor: colors.elevated,
-    gap: 4,
+  readyNote: {
+    color: colors.textSecondary,
+    fontSize: 13,
   },
-  finishTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: spacing.sm,
+  finish: {
+    gap: 4,
   },
   checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 12,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   checkDot: {
     width: 18,
@@ -257,30 +331,38 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  continueBtn: {
-    marginTop: spacing.md,
+  block: {
+    gap: 10,
   },
-  readyNote: {
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.xl,
-  },
-  menu: {
-    marginHorizontal: spacing.lg,
-  },
-  menuRow: {
+  fineTune: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  menuRowLast: {
-    borderBottomWidth: 0,
+  fineTuneTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  menuLabel: {
+  fineTuneTitle: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  fineTuneBody: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  chevron: {
+    color: colors.textSecondary,
+    fontSize: 22,
+    fontWeight: '300',
   },
 });

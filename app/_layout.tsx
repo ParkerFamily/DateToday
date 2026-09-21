@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -94,21 +94,25 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
         if (user) {
           await hydrateSignedInUser(user.uid, user.email ?? null);
-          // Purchases must never wipe auth — Expo Go has no native RC module.
-          try {
-            const { configurePurchases, refreshCustomerInfo } = await import('@/lib/purchases');
-            await configurePurchases(user.uid);
-            await refreshCustomerInfo();
-          } catch {
-            /* ignore */
+          // Purchases must never wipe auth — skip entirely on Android (IAP deferred).
+          if (Platform.OS !== 'android') {
+            try {
+              const { configurePurchases, refreshCustomerInfo } = await import('@/lib/purchases');
+              await configurePurchases(user.uid);
+              await refreshCustomerInfo();
+            } catch {
+              /* ignore */
+            }
           }
         } else {
           useSessionStore.getState().setAuth(null, null);
-          try {
-            const { configurePurchases } = await import('@/lib/purchases');
-            await configurePurchases(null);
-          } catch {
-            /* ignore */
+          if (Platform.OS !== 'android') {
+            try {
+              const { configurePurchases } = await import('@/lib/purchases');
+              await configurePurchases(null);
+            } catch {
+              /* ignore */
+            }
           }
         }
       } catch {
@@ -140,6 +144,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           return;
         }
         await hydrateSignedInUser(user.uid, user.email ?? null);
+        if (Platform.OS === 'android') return;
         try {
           const { configurePurchases, refreshCustomerInfo } = await import('@/lib/purchases');
           await configurePurchases(user.uid);

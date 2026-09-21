@@ -1,12 +1,18 @@
-import React, { useMemo } from 'react';
-import { FlatList, Image, Pressable, StyleSheet, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/EmptyState';
+import {
+  BlockLabel,
+  LiveAtmosphere,
+  UnderlineTabs,
+  livePad,
+} from '@/components/ui/LiveChrome';
 import { DEMO_DATES } from '@/constants/demoTonight';
 import { colors, radii, spacing } from '@/constants/theme';
 import { env } from '@/lib/env';
@@ -26,7 +32,8 @@ interface DateListItem {
   photoUrl?: string;
 }
 
-/** Preview boarding-pass UI only in local/dev — never invent dates in production. */
+type DatesTab = 'upcoming' | 'requests' | 'past';
+
 const useDemo = env.useMockData;
 
 const ACTIVITY_EMOJI: Record<string, string> = {
@@ -35,16 +42,6 @@ const ACTIVITY_EMOJI: Record<string, string> = {
   Coffee: '☕',
   Activity: '🎳',
 };
-
-function DateRadarIcon() {
-  return (
-    <View style={styles.radar}>
-      <View style={styles.radarRing} />
-      <View style={[styles.radarRing, styles.radarRingMid]} />
-      <Ionicons name="calendar-outline" size={28} color={colors.brandBright} />
-    </View>
-  );
-}
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -58,14 +55,70 @@ function formatDay(iso: string): string {
   });
 }
 
+function openDateDetail(item: DateListItem) {
+  return {
+    pathname: '/dates/[dateId]' as const,
+    params: {
+      dateId: item.id,
+      partner: item.partnerName,
+      when: `${formatDay(item.scheduledAt)} · ${formatTime(item.scheduledAt)}`,
+      venue: item.venueName ?? '',
+      neighborhood: item.neighborhood ?? '',
+      activity: item.activityLabel ?? '',
+    },
+  };
+}
+
 function activityLine(label: string | null): string {
   if (!label) return '';
   const emoji = ACTIVITY_EMOJI[label] ?? '';
   return emoji ? `${emoji} ${label}` : label;
 }
 
+function EmptyPanel({
+  icon,
+  title,
+  subtitle,
+  emptyTitle,
+  emptyBody,
+  cta,
+  onCta,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+  emptyTitle: string;
+  emptyBody: string;
+  cta?: string;
+  onCta?: () => void;
+}) {
+  return (
+    <View style={styles.panel}>
+      <View style={styles.panelHead}>
+        <Ionicons name={icon} size={18} color={colors.brandBright} />
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.panelTitle}>{title}</AppText>
+          <AppText style={styles.panelSub}>{subtitle}</AppText>
+        </View>
+      </View>
+      <View style={styles.emptyGraphic}>
+        <View style={styles.emptyCircle}>
+          <Ionicons name={icon} size={26} color={colors.brandBright} />
+        </View>
+      </View>
+      <AppText style={styles.emptyTitle}>{emptyTitle}</AppText>
+      <AppText style={styles.emptyBody}>{emptyBody}</AppText>
+      {cta && onCta ? (
+        <Button label={cta} onPress={onCta} style={{ marginTop: spacing.sm }} />
+      ) : null}
+    </View>
+  );
+}
+
 export default function DatesScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [tab, setTab] = useState<DatesTab>('upcoming');
   const blockedMap = useBlocksStore((s) => s.byId);
   const data = useMemo(() => {
     const raw = useDemo ? ([...DEMO_DATES] as DateListItem[]) : [];
@@ -79,10 +132,15 @@ export default function DatesScreen() {
       );
     });
   }, [blockedMap]);
+
   const tonight = useMemo(() => data.filter((d) => d.section === 'tonight'), [data]);
   const upcoming = useMemo(() => data.filter((d) => d.section === 'upcoming'), [data]);
   const past = useMemo(() => data.filter((d) => d.section === 'past'), [data]);
-  const isEmpty = tonight.length + upcoming.length + past.length === 0;
+
+  const upcomingItems = useMemo(() => [...tonight, ...upcoming], [tonight, upcoming]);
+  const listForTab =
+    tab === 'upcoming' ? upcomingItems : tab === 'past' ? past : ([] as DateListItem[]);
+  const isEmpty = listForTab.length === 0;
 
   const rows = useMemo(() => {
     const out: Array<
@@ -90,65 +148,120 @@ export default function DatesScreen() {
       | { type: 'item'; item: DateListItem; key: string; featured?: boolean }
     > = [];
 
-    if (tonight.length) {
-      out.push({ type: 'section', title: 'TONIGHT', key: 'tonight' });
-      tonight.forEach((d) =>
-        out.push({ type: 'item', item: d, key: d.id, featured: true }),
-      );
-    }
-    if (upcoming.length) {
-      out.push({ type: 'section', title: 'UPCOMING', key: 'up' });
-      upcoming.forEach((d) => out.push({ type: 'item', item: d, key: d.id }));
-    }
-    if (past.length) {
-      out.push({ type: 'section', title: 'PAST DATES', key: 'past' });
+    if (tab === 'upcoming') {
+      if (tonight.length) {
+        out.push({ type: 'section', title: 'TONIGHT', key: 'tonight' });
+        tonight.forEach((d) =>
+          out.push({ type: 'item', item: d, key: d.id, featured: true }),
+        );
+      }
+      if (upcoming.length) {
+        out.push({ type: 'section', title: 'UPCOMING', key: 'up' });
+        upcoming.forEach((d) => out.push({ type: 'item', item: d, key: d.id }));
+      }
+    } else if (tab === 'past') {
       past.forEach((d) => out.push({ type: 'item', item: d, key: d.id }));
     }
     return out;
-  }, [tonight, upcoming, past]);
+  }, [tab, tonight, upcoming, past]);
 
   return (
-    <Screen padded={false}>
-      <LinearGradient
-        colors={['#0E0A14', '#09090B']}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-      <View style={styles.pad}>
+    <Screen padded={false} edges={['top', 'left', 'right']}>
+      <LiveAtmosphere />
+      <View style={[styles.pad, livePad, { paddingTop: spacing.sm }]}>
         <AppText style={styles.header}>Dates</AppText>
-        <AppText style={styles.subheader}>Matches that turn into plans</AppText>
+        <AppText style={styles.subheader}>Plans, invites, and upcoming meetups.</AppText>
+
+        <UnderlineTabs
+          value={tab}
+          onChange={setTab}
+          options={[
+            { id: 'upcoming', label: 'Upcoming' },
+            { id: 'requests', label: 'Requests' },
+            { id: 'past', label: 'Past' },
+          ]}
+        />
 
         {isEmpty ? (
-          <EmptyState
-            icon={<DateRadarIcon />}
-            title="Tonight is wide open."
-            body="Matches that turn into plans show up here — like a boarding pass for the night."
-            actionLabel="GO LIVE"
-            onAction={() => router.push('/(tabs)/live')}
-            secondaryLabel="SEE PING"
-            onSecondary={() => router.push('/(tabs)/pings')}
-          />
+          <ScrollView
+            contentContainerStyle={{
+              gap: spacing.md,
+              paddingBottom: Math.max(insets.bottom, 8) + 24,
+              paddingTop: spacing.sm,
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            {tab === 'upcoming' ? (
+              <>
+                <EmptyPanel
+                  icon="calendar-outline"
+                  title="Planned tonight"
+                  subtitle="Your upcoming date plans"
+                  emptyTitle="No date plans yet"
+                  emptyBody="You don't need to be live to plan dates. Save your matches, set up plans, and meet up later tonight or another day."
+                  cta="PLAN A DATE →"
+                  onCta={() => router.push('/(tabs)/pings')}
+                />
+                <EmptyPanel
+                  icon="paper-plane-outline"
+                  title="Pending invites"
+                  subtitle="Dates you've been invited to"
+                  emptyTitle="No pending invites"
+                  emptyBody="When someone invites you to a date, it'll show up here."
+                />
+                <Pressable
+                  style={styles.discoverRow}
+                  onPress={() => router.push('/(tabs)/pings')}
+                >
+                  <Ionicons name="sparkles-outline" size={18} color={colors.brandBright} />
+                  <View style={{ flex: 1 }}>
+                    <AppText style={styles.panelTitle}>Discover people to date</AppText>
+                    <AppText style={styles.panelSub}>
+                      Find new matches and start planning.
+                    </AppText>
+                  </View>
+                  <AppText style={styles.chevron}>›</AppText>
+                </Pressable>
+                <Button
+                  label="BROWSE PING"
+                  variant="secondary"
+                  onPress={() => router.push('/(tabs)/pings')}
+                />
+              </>
+            ) : tab === 'requests' ? (
+              <EmptyPanel
+                icon="paper-plane-outline"
+                title="Pending invites"
+                subtitle="Dates you've been invited to"
+                emptyTitle="No pending invites"
+                emptyBody="When someone invites you to a date, it'll show up here."
+              />
+            ) : (
+              <EmptyPanel
+                icon="calendar-outline"
+                title="Past dates"
+                subtitle="Where you've been"
+                emptyTitle="No past dates yet"
+                emptyBody="After you go out, your plans will live here."
+              />
+            )}
+          </ScrollView>
         ) : (
           <FlatList
             data={rows}
             keyExtractor={(row) => row.key}
-            contentContainerStyle={styles.list}
+            contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 8) + 24 }}
             showsVerticalScrollIndicator={false}
             renderItem={({ item: row }) => {
               if (row.type === 'section') {
-                return (
-                  <AppText variant="label" style={styles.section}>
-                    {row.title}
-                  </AppText>
-                );
+                return <BlockLabel>{row.title}</BlockLabel>;
               }
-
               const item = row.item;
               if (row.featured) {
                 return (
                   <Pressable
                     style={styles.pass}
-                    onPress={() => router.push(`/dates/${item.id}`)}
+                    onPress={() => router.push(openDateDetail(item))}
                   >
                     {item.photoUrl ? (
                       <Image source={{ uri: item.photoUrl }} style={styles.passPhoto} />
@@ -181,23 +294,18 @@ export default function DatesScreen() {
                         />
                         <Button
                           label="DATE DETAILS"
-                          onPress={() => router.push(`/dates/${item.id}`)}
+                          onPress={() => router.push(openDateDetail(item))}
                           style={styles.half}
                         />
                       </View>
-                      <Pressable style={styles.shareRow}>
-                        <Ionicons name="shield-checkmark-outline" size={16} color={colors.live} />
-                        <AppText style={styles.shareText}>Share date with a friend</AppText>
-                      </Pressable>
                     </View>
                   </Pressable>
                 );
               }
-
               return (
                 <Pressable
                   style={styles.card}
-                  onPress={() => router.push(`/dates/${item.id}`)}
+                  onPress={() => router.push(openDateDetail(item))}
                 >
                   {item.photoUrl ? (
                     <Image source={{ uri: item.photoUrl }} style={styles.cardPhoto} />
@@ -227,14 +335,12 @@ export default function DatesScreen() {
 const styles = StyleSheet.create({
   pad: {
     flex: 1,
-    paddingHorizontal: spacing.lg,
   },
   header: {
-    marginTop: spacing.md,
     color: colors.text,
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '800',
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
   },
   subheader: {
     color: colors.textSecondary,
@@ -242,33 +348,69 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     marginTop: 4,
   },
-  list: {
-    paddingBottom: spacing.xxl,
-  },
-  radar: {
-    width: 120,
-    height: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radarRing: {
-    position: 'absolute',
-    width: 110,
-    height: 110,
-    borderRadius: 55,
+  panel: {
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(168,85,247,0.35)',
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: 10,
   },
-  radarRingMid: {
+  panelHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  panelTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  panelSub: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  emptyGraphic: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+  },
+  emptyCircle: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    borderColor: 'rgba(168,85,247,0.55)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(168,85,247,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(168,85,247,0.1)',
   },
-  section: {
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  emptyBody: {
     color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  discoverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+  },
+  chevron: {
+    color: colors.textSecondary,
+    fontSize: 22,
+    fontWeight: '300',
   },
   pass: {
     height: 420,
@@ -277,14 +419,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.elevated,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: 'rgba(168,85,247,0.28)',
+    borderColor: colors.border,
   },
-  passPhoto: {
-    ...StyleSheet.absoluteFill,
-  },
-  passScrim: {
-    ...StyleSheet.absoluteFill,
-  },
+  passPhoto: { ...StyleSheet.absoluteFill },
+  passScrim: { ...StyleSheet.absoluteFill },
   passBody: {
     position: 'absolute',
     left: 18,
@@ -309,13 +447,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 28,
     fontWeight: '800',
-    letterSpacing: 0.5,
   },
   passActivity: {
     color: colors.brandBright,
     fontSize: 16,
     fontWeight: '700',
-    marginTop: 4,
   },
   passVenue: {
     color: colors.textSecondary,
@@ -326,53 +462,22 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.md,
   },
-  half: {
-    flex: 1,
-  },
-  shareRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: spacing.sm,
-  },
-  shareText: {
-    color: colors.live,
-    fontSize: 13,
-    fontWeight: '600',
-  },
+  half: { flex: 1 },
   card: {
     flexDirection: 'row',
     gap: 14,
-    backgroundColor: colors.elevated,
-    borderRadius: radii.card,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 14,
     padding: 12,
     marginBottom: spacing.sm,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  cardPhoto: {
-    width: 72,
-    height: 72,
-    borderRadius: 14,
-  },
-  cardPhotoEmpty: {
-    backgroundColor: colors.card,
-  },
-  cardBody: {
-    flex: 1,
-    gap: 4,
-  },
-  cardName: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  cardWhen: {
-    color: colors.brandBright,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  cardWhere: {
-    color: colors.textSecondary,
-    fontSize: 13,
-  },
+  cardPhoto: { width: 72, height: 72, borderRadius: 14 },
+  cardPhotoEmpty: { backgroundColor: colors.card },
+  cardBody: { flex: 1, gap: 4 },
+  cardName: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  cardWhen: { color: colors.brandBright, fontSize: 13, fontWeight: '600' },
+  cardWhere: { color: colors.textSecondary, fontSize: 13 },
 });

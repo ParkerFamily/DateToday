@@ -13,6 +13,8 @@ const PLUS_ENTITLEMENTS: EntitlementKey[] = [
   'read_receipts',
 ];
 
+export type PlusPlanId = 'weekly' | 'monthly';
+
 export interface EntitlementState {
   plan: 'free' | 'plus';
   subscriptionStatus: SubscriptionStatus;
@@ -20,6 +22,18 @@ export interface EntitlementState {
   freePingMinutesPerDay: number;
   /** Free outgoing messages per day. */
   freeOutgoingMessagesPerDay: number;
+  /** Active Plus cadence when known. */
+  plusPlanId: PlusPlanId | null;
+  /** Store product id unlocking DateToday+. */
+  productId: string | null;
+  /** ISO expiration / renewal boundary from RevenueCat. */
+  expiresAt: string | null;
+  /** False when user canceled but still in paid period. */
+  willRenew: boolean;
+  /** Store manage-subscriptions deep link when available. */
+  managementURL: string | null;
+  /** Billing issue detected by the store / RevenueCat. */
+  billingIssueDetected: boolean;
 }
 
 export const DEFAULT_ENTITLEMENTS: EntitlementState = {
@@ -27,12 +41,20 @@ export const DEFAULT_ENTITLEMENTS: EntitlementState = {
   subscriptionStatus: 'inactive',
   freePingMinutesPerDay: commerceConfig.freePingMinutesPerDay,
   freeOutgoingMessagesPerDay: commerceConfig.freeOutgoingMessagesPerDay,
+  plusPlanId: null,
+  productId: null,
+  expiresAt: null,
+  willRenew: false,
+  managementURL: null,
+  billingIssueDetected: false,
 };
 
 export function isPlusActive(state: EntitlementState): boolean {
   return (
     state.plan === 'plus' &&
-    (state.subscriptionStatus === 'active' || state.subscriptionStatus === 'trialing')
+    (state.subscriptionStatus === 'active' ||
+      state.subscriptionStatus === 'trialing' ||
+      state.subscriptionStatus === 'past_due')
   );
 }
 
@@ -93,4 +115,31 @@ export function allowedRadiusPresets(state: EntitlementState): number[] {
 /** Verified-only is trust/safety — always free. */
 export function canUseVerifiedOnly(_state: EntitlementState): boolean {
   return true;
+}
+
+/** Human status line for Settings / paywall. */
+export function plusStatusLabel(state: EntitlementState): string {
+  if (!isPlusActive(state)) return 'Free';
+  const plan =
+    state.plusPlanId === 'weekly'
+      ? 'Weekly'
+      : state.plusPlanId === 'monthly'
+        ? 'Monthly'
+        : 'Plus';
+  if (state.billingIssueDetected || state.subscriptionStatus === 'past_due') {
+    return `${plan} · Billing issue`;
+  }
+  if (!state.willRenew && state.expiresAt) {
+    return `${plan} · Ends ${formatShortDate(state.expiresAt)}`;
+  }
+  if (state.willRenew && state.expiresAt) {
+    return `${plan} · Renews ${formatShortDate(state.expiresAt)}`;
+  }
+  return `${plan} · Active`;
+}
+
+function formatShortDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }

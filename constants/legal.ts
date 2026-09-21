@@ -6,22 +6,32 @@
  */
 
 export const LEGAL_VERSIONS = {
-  terms: '2026-09-11.v1',
-  privacy: '2026-09-11.v1',
+  terms: '2026-09-17.v1',
+  privacy: '2026-09-17.v1',
   communityGuidelines: '2026-09-11.v1',
   identityVerificationNotice: '2026-09-11.v1',
 } as const;
 
 export type LegalDocKey = keyof typeof LEGAL_VERSIONS;
 
-/** Public URLs once hosted — used for App Store / Play and in-app WebBrowser. */
+/**
+ * Public HTTPS URLs for App Store / Play metadata and in-app links.
+ * Hosted from repo `docs/` via GitHub Pages (Project → Settings → Pages → /docs).
+ * App Store Terms of Use (EULA) for auto-renewables: Apple Standard EULA below.
+ */
 export const LEGAL_URLS = {
-  /** [LEGAL REVIEW REQUIRED] Replace with production HTTPS URLs. */
-  privacyPolicy: 'https://datetoday.app/legal/privacy',
-  termsOfService: 'https://datetoday.app/legal/terms',
-  communityGuidelines: 'https://datetoday.app/legal/community',
-  accountDeletion: 'https://datetoday.app/delete-account',
-  support: 'https://datetoday.app/support',
+  privacyPolicy: 'https://parkerfamily.github.io/DateToday/legal/privacy.html',
+  /** Custom product terms (subscriptions, safety, eligibility). */
+  termsOfService: 'https://parkerfamily.github.io/DateToday/legal/terms.html',
+  /**
+   * Apple Standard EULA — put this URL in App Store Connect App Description
+   * (or attach a custom EULA in ASC) for Guideline 3.1.2.
+   */
+  appleStandardEula:
+    'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/',
+  communityGuidelines: 'https://parkerfamily.github.io/DateToday/legal/community.html',
+  accountDeletion: 'https://parkerfamily.github.io/DateToday/delete-account.html',
+  support: 'mailto:support@datetoday.app',
   /** Persona’s public privacy notice */
   personaPrivacy: 'https://withpersona.com/legal/privacy-policy',
 } as const;

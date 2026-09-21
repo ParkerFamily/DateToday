@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,11 +18,15 @@ import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { PLUS_FILTER_FEATURES } from '@/constants/tonightVibe';
 import { LEGAL_URLS } from '@/constants/legal';
 import { colors, radii, spacing } from '@/constants/theme';
-import { isPlusActive } from '@/lib/entitlements';
+import { isPlusActive, plusStatusLabel } from '@/lib/entitlements';
 import {
   loadPlusPlans,
+  managementUrlForEntitlements,
   purchasePlusPackage,
+  purchasesUnavailableReason,
+  refreshCustomerInfo,
   restorePlusPurchases,
+  switchPlusPlan,
   type PlusPlanId,
   type PlusPlanOffer,
 } from '@/lib/purchases';
@@ -36,14 +41,26 @@ export default function PaywallScreen() {
   const [selected, setSelected] = useState<PlusPlanId>('monthly');
   const [loadingOffers, setLoadingOffers] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [storeHint, setStoreHint] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
         setLoadingOffers(true);
+        await refreshCustomerInfo();
         const next = await loadPlusPlans();
-        if (alive) setPlans(next);
+        if (!alive) return;
+        setPlans(next);
+        const current = useSessionStore.getState().entitlements.plusPlanId;
+        if (current) setSelected(current);
+        const missingStorePkg = next.every((p) => !p.package);
+        setStoreHint(
+          missingStorePkg
+            ? purchasesUnavailableReason() ??
+                'Store prices aren’t loading. RevenueCat must have products under DateToday (App Store) — not only Test Store — linked to offering `default` ($rc_weekly / $rc_monthly) and entitlement datetoday_pro.'
+            : null,
+        );
       } finally {
         if (alive) setLoadingOffers(false);
       }
@@ -58,27 +75,46 @@ export default function PaywallScreen() {
     [plans, selected],
   );
 
-  const ctaLabel = selectedPlan
-    ? `Continue · ${selectedPlan.priceLabel}/${selectedPlan.periodLabel}`
-    : 'Continue';
+  const selectingCurrent =
+    isPlus && entitlements.plusPlanId != null && selected === entitlements.plusPlanId;
+  const selectingOther =
+    isPlus && entitlements.plusPlanId != null && selected !== entitlements.plusPlanId;
 
-  const finishUnlocked = () => {
-    Alert.alert('DateToday+ unlocked', 'Unlimited Ping and messages are ready.', [
+  const ctaLabel = (() => {
+    if (!selectedPlan) return 'Continue';
+    if (selectingCurrent) return 'Manage subscription';
+    if (selectingOther) {
+      return selected === 'weekly' ? 'Switch to Weekly' : 'Switch to Monthly';
+    }
+    return `Continue · ${selectedPlan.priceLabel}/${selectedPlan.periodLabel}`;
+  })();
+
+  const finishUnlocked = (title = 'DateToday+ unlocked') => {
+    Alert.alert(title, 'Unlimited Ping and messages are ready.', [
       { text: 'OK', onPress: () => router.back() },
     ]);
   };
 
+  const openManage = () => {
+    void Linking.openURL(managementUrlForEntitlements(entitlements));
+  };
+
   const onContinue = async () => {
-    if (isPlus) {
-      finishUnlocked();
+    if (!selectedPlan) return;
+
+    if (selectingCurrent) {
+      openManage();
       return;
     }
-    if (!selectedPlan) return;
+
     setBusy(true);
     try {
-      const result = await purchasePlusPackage(selectedPlan.package);
+      const result = selectingOther
+        ? await switchPlusPlan(selectedPlan.package)
+        : await purchasePlusPackage(selectedPlan.package);
+
       if (result.status === 'success' || result.status === 'already') {
-        finishUnlocked();
+        finishUnlocked(selectingOther ? 'Plan updated' : 'DateToday+ unlocked');
         return;
       }
       if (result.status === 'cancelled') return;
@@ -100,7 +136,7 @@ export default function PaywallScreen() {
     try {
       const result = await restorePlusPurchases();
       if (result.status === 'success') {
-        finishUnlocked();
+        finishUnlocked('Purchases restored');
         return;
       }
       if (result.status === 'cancelled') return;
@@ -120,6 +156,21 @@ export default function PaywallScreen() {
           Unlimited Ping and messages — so you can actually go out tonight.
         </AppText>
 
+        {isPlus ? (
+          <View style={styles.statusCard}>
+            <AppText style={styles.statusEyebrow}>Your plan</AppText>
+            <AppText style={styles.statusTitle}>{plusStatusLabel(entitlements)}</AppText>
+            <AppText style={styles.statusBody}>
+              {entitlements.willRenew
+                ? 'Auto-renew is on. Pick Weekly or Monthly below to switch plans, or manage billing in the App Store.'
+                : 'Auto-renew is off. You’ll keep Plus until the period ends — resubscribe anytime.'}
+            </AppText>
+            <Pressable onPress={openManage} hitSlop={8}>
+              <AppText style={styles.statusLink}>Manage in {Platform.OS === 'android' ? 'Play Store' : 'App Store'} →</AppText>
+            </Pressable>
+          </View>
+        ) : null}
+
         <View style={styles.featureCard}>
           {PLUS_FILTER_FEATURES.map((line) => (
             <View key={line} style={styles.featureRow}>
@@ -129,12 +180,19 @@ export default function PaywallScreen() {
           ))}
         </View>
 
+        {storeHint ? (
+          <View style={styles.hintCard}>
+            <AppText style={styles.hintText}>{storeHint}</AppText>
+          </View>
+        ) : null}
+
         {loadingOffers ? (
           <ActivityIndicator color={colors.brandBright} style={{ marginVertical: spacing.md }} />
         ) : (
           <View style={styles.planList}>
             {plans.map((plan) => {
               const on = selected === plan.id;
+              const current = isPlus && entitlements.plusPlanId === plan.id;
               return (
                 <Pressable
                   key={plan.id}
@@ -143,7 +201,11 @@ export default function PaywallScreen() {
                   accessibilityRole="radio"
                   accessibilityState={{ selected: on }}
                 >
-                  {plan.badge ? (
+                  {current ? (
+                    <View style={styles.badgeCurrent}>
+                      <AppText style={styles.badgeText}>CURRENT</AppText>
+                    </View>
+                  ) : plan.badge ? (
                     <View style={styles.badge}>
                       <AppText style={styles.badgeText}>{plan.badge}</AppText>
                     </View>
@@ -169,20 +231,23 @@ export default function PaywallScreen() {
           </View>
         )}
 
-        {isPlus ? (
-          <AppText style={styles.have}>You already have DateToday+.</AppText>
-        ) : (
-          <Button label={ctaLabel} loading={busy} onPress={() => void onContinue()} />
-        )}
+        <Button label={ctaLabel} loading={busy} onPress={() => void onContinue()} />
 
         <AppText style={styles.legal}>
-          Subscription automatically renews unless canceled at least 24 hours before the end of the
-          current period. Manage or cancel your subscription in your Apple Account.
+          Payment is charged to your {Platform.OS === 'android' ? 'Google Play' : 'Apple ID'} account
+          at confirmation. Subscription automatically renews unless canceled at least 24 hours before
+          the end of the current period. Manage or cancel in your store account settings.
         </AppText>
 
         <View style={styles.links}>
-          <Pressable onPress={() => router.push('/legal/terms')}>
-            <AppText style={styles.link}>Terms</AppText>
+          <Pressable
+            onPress={() =>
+              void Linking.openURL(LEGAL_URLS.appleStandardEula).catch(() =>
+                router.push('/legal/terms'),
+              )
+            }
+          >
+            <AppText style={styles.link}>Terms of Use (EULA)</AppText>
           </Pressable>
           <AppText style={styles.linkDot}>·</AppText>
           <Pressable
@@ -196,7 +261,7 @@ export default function PaywallScreen() {
           </Pressable>
           <AppText style={styles.linkDot}>·</AppText>
           <Pressable onPress={() => void onRestore()} disabled={busy}>
-            <AppText style={styles.link}>Restore Purchases</AppText>
+            <AppText style={styles.link}>Restore</AppText>
           </Pressable>
         </View>
       </ScrollView>
@@ -222,6 +287,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
     marginBottom: spacing.xs,
+  },
+  statusCard: {
+    padding: spacing.md,
+    borderRadius: radii.card,
+    backgroundColor: 'rgba(124, 58, 237, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(168, 85, 247, 0.45)',
+    gap: 6,
+  },
+  statusEyebrow: {
+    color: colors.brandBright,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  statusTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  statusBody: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  statusLink: {
+    color: colors.brandBright,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 4,
   },
   featureCard: {
     padding: spacing.md,
@@ -272,6 +368,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.brand,
   },
+  badgeCurrent: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(34, 197, 94, 0.85)',
+  },
   badgeText: {
     color: colors.white,
     fontSize: 10,
@@ -316,10 +419,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandBright,
     borderColor: colors.brandBright,
   },
-  have: {
+  hintCard: {
+    padding: spacing.md,
+    borderRadius: radii.card,
+    backgroundColor: 'rgba(168,85,247,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(168,85,247,0.35)',
+  },
+  hintText: {
     color: colors.textSecondary,
-    textAlign: 'center',
-    marginVertical: spacing.sm,
+    fontSize: 13,
+    lineHeight: 19,
   },
   legal: {
     color: colors.textSecondary,

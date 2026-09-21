@@ -108,22 +108,12 @@ export const env = {
   appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development',
   isDev: (process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development') !== 'production',
   /**
-   * Fake Maya/Jordan pool — ONLY development / preview (or explicit flag).
-   * Production / TestFlight must never inject demo people when the real pool is empty.
+   * Fake people (Maya/Jordan/etc.) — OFF unless explicitly opted in.
+   * Never auto-enable for development/preview; production empty pools use real low-density UX.
    */
-  useMockData: (() => {
-    if (process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true') return true;
-    if (process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'false') return false;
-    const appEnv = process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development';
-    return appEnv === 'development' || appEnv === 'preview';
-  })(),
-  /** @deprecated Prefer useMockData — kept for older call sites during migration. */
-  previewContentEnabled: (() => {
-    if (process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true') return true;
-    if (process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'false') return false;
-    const appEnv = process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development';
-    return appEnv === 'development' || appEnv === 'preview';
-  })(),
+  useMockData: process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true',
+  /** @deprecated Alias of useMockData */
+  previewContentEnabled: process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true',
 } as const;
 
 /** Primary backend for DateToday is Firebase. */

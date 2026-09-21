@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Dimensions,
   Image,
   Pressable,
   ScrollView,
@@ -27,8 +26,7 @@ import { getDb } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
 import { calculateAge } from '@/utils/time';
 import type { Profile } from '@/types';
-
-const SCREEN_W = Dimensions.get('window').width;
+import { useContentLayout } from '@/lib/layout';
 
 function photosFromProfile(p: Profile | null | undefined): string[] {
   if (!p) return [];
@@ -38,6 +36,7 @@ function photosFromProfile(p: Profile | null | undefined): string[] {
 }
 
 export default function PublicProfileScreen() {
+  const { contentWidth } = useContentLayout();
   const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const sessionUid = useSessionStore((s) => s.userId);
@@ -207,7 +206,7 @@ export default function PublicProfileScreen() {
           {(photos.length ? photos : [null]).map((uri, i) => (
             <Pressable
               key={uri ?? `empty-${i}`}
-              style={styles.heroPage}
+              style={[styles.heroPage, { width: contentWidth }]}
               onPress={() => (uri ? openAt(i) : undefined)}
             >
               {uri ? (
@@ -355,7 +354,6 @@ const styles = StyleSheet.create({
     height: 420,
   },
   heroPage: {
-    width: SCREEN_W,
     height: 420,
   },
   heroImg: {

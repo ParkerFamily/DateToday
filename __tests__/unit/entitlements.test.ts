@@ -14,6 +14,12 @@ describe('entitlements', () => {
     subscriptionStatus: 'active',
     freePingMinutesPerDay: 30,
     freeOutgoingMessagesPerDay: 10,
+    plusPlanId: 'monthly',
+    productId: 'com.parkerfamily.datetoday.plus.monthly',
+    expiresAt: '2026-10-01T00:00:00.000Z',
+    willRenew: true,
+    managementURL: null,
+    billingIssueDetected: false,
   };
 
   const plusCanceled: EntitlementState = {
@@ -21,6 +27,12 @@ describe('entitlements', () => {
     subscriptionStatus: 'canceled',
     freePingMinutesPerDay: 30,
     freeOutgoingMessagesPerDay: 10,
+    plusPlanId: 'weekly',
+    productId: 'com.parkerfamily.datetoday.plus.weekly',
+    expiresAt: null,
+    willRenew: false,
+    managementURL: null,
+    billingIssueDetected: false,
   };
 
   it('free plan meters Ping time and messages', () => {

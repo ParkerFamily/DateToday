@@ -29,8 +29,8 @@ export default function TermsOfServiceScreen() {
       <LegalSection title="2. The service">
         <LegalP>
           DateToday is a dating product focused on going live tonight, discovering people nearby, pinging,
-          matching, and planning dates. Features may change. Some premium features (DateToday+ / Tonight Boost)
-          are shown in-app but payments are not fully wired yet.
+          matching, and planning dates. Features may change. DateToday+ and Tonight Boost are paid features
+          billed through the App Store or Google Play.
         </LegalP>
       </LegalSection>
 
@@ -76,13 +76,12 @@ export default function TermsOfServiceScreen() {
 
       <LegalSection title="8. Subscriptions & purchases">
         <LegalP>
-          When App Store / Play / Stripe billing is enabled, purchases are processed by those platforms. Manage
-          or cancel subscriptions in your store account settings. Deleting your DateToday account does not
-          automatically cancel a store subscription.
+          DateToday+ Weekly ($9.99 USD/week) and DateToday+ Monthly ($19.99 USD/month) are auto-renewable
+          subscriptions billed through Apple or Google. Payment is charged at confirmation of purchase.
+          Subscriptions renew unless canceled at least 24 hours before the end of the current period. Manage
+          or cancel in your store account settings. Deleting your DateToday account does not automatically
+          cancel a store subscription. App Store Terms of Use also include Apple’s Standard EULA.
         </LegalP>
-        <LegalNote>
-          [LEGAL REVIEW REQUIRED] Confirm refund, auto-renewal, and trial language once IAP is live.
-        </LegalNote>
       </LegalSection>
 
       <LegalSection title="9. Disclaimers">

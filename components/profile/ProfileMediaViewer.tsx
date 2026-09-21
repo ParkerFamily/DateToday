@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Dimensions,
   Image,
   Modal,
   Pressable,
@@ -12,8 +11,6 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui/AppText';
 import { colors, spacing } from '@/constants/theme';
-
-const { height: SCREEN_H } = Dimensions.get('window');
 
 export type MediaViewerItem =
   | { type: 'photo'; uri: string; caption?: string | null }
@@ -257,7 +254,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   tile: {
-    height: Math.min(SCREEN_H * 0.42, 360),
+    height: 320,
     borderRadius: 14,
     overflow: 'hidden',
     backgroundColor: colors.card,

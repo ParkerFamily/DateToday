@@ -14,7 +14,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "development"
+        "EXPO_PUBLIC_APP_ENV": "development",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_yOogBtYoUVNpfuHSlxmGGCZeLMk"
       },
       "channel": "development"
     },
@@ -26,7 +27,8 @@
       },
       "env": {
         "EXPO_PUBLIC_APP_ENV": "preview",
-        "EXPO_PUBLIC_USE_MOCK_DATA": "true"
+        "EXPO_PUBLIC_USE_MOCK_DATA": "false",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_yOogBtYoUVNpfuHSlxmGGCZeLMk"
       },
       "channel": "preview"
     },
@@ -35,7 +37,8 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
-        "EXPO_PUBLIC_USE_MOCK_DATA": "false"
+        "EXPO_PUBLIC_USE_MOCK_DATA": "false",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_yOogBtYoUVNpfuHSlxmGGCZeLMk"
       },
       "channel": "production"
     }

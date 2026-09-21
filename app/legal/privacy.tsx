@@ -30,8 +30,8 @@ export default function PrivacyPolicyScreen() {
       <LegalSection title="What we collect">
         <LegalP>
           Categories below reflect the current product. Location coordinates are not written to Firestore today.
-          Analytics events are console-only in development — no third-party analytics SDK is shipped. Plus and
-          Tonight Boost payments are not fully wired.
+          Analytics events are console-only in development — no third-party analytics SDK is shipped. DateToday+
+          and Tonight Boost purchases are processed by Apple / Google via RevenueCat.
         </LegalP>
       </LegalSection>
 

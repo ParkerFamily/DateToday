@@ -5,25 +5,26 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '@/components/ui/Screen';
 import { AppText, BrandMark } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { OptionGrid } from '@/components/ui/OptionChip';
+import { useContentLayout } from '@/lib/layout';
 import { DtIconHero } from '@/components/onboarding/DtIconHero';
 import { HeartbeatPulse } from '@/components/live/HeartbeatPulse';
 import { copy, availabilityPresets } from '@/constants/copy';
 import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
 import { demoCity } from '@/constants/demoTonight';
 import { flowCopy, formatLaterHour, formatPeopleInPing } from '@/constants/flow';
-import { colors, spacing } from '@/constants/theme';
+import { colors, gradients, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { allowedRadiusPresets, canUseAdvancedFilters, isPlusActive } from '@/lib/entitlements';
 import {
@@ -46,11 +47,15 @@ import { commerceConfig } from '@/constants/config';
 const HOLD_MS = 1200;
 const LATER_HOURS = [18, 19, 20, 21] as const;
 
-const PLAN_OPTIONS: { value: TonightActivity; label: string }[] = [
-  { value: 'drinks', label: 'Drinks' },
-  { value: 'dinner', label: 'Dinner' },
-  { value: 'coffee', label: 'Coffee' },
-  { value: 'activity', label: 'Activity' },
+const PLAN_OPTIONS: {
+  value: TonightActivity;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { value: 'drinks', label: 'Drinks', icon: 'wine-outline' },
+  { value: 'dinner', label: 'Dinner', icon: 'restaurant-outline' },
+  { value: 'coffee', label: 'Coffee', icon: 'cafe-outline' },
+  { value: 'activity', label: 'Activity', icon: 'walk-outline' },
 ];
 
 function buildExpiration(preset: string): { expiresAt: Date; label: string } {
@@ -104,7 +109,7 @@ function formatFoodSummary(foods: FoodCuisine[]): string {
 export default function LiveHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width: screenW, height: screenH } = useWindowDimensions();
+  const { contentWidth, layoutHeight } = useContentLayout();
   const liveSession = useSessionStore((s) => s.liveSession);
   const setLiveSession = useSessionStore((s) => s.setLiveSession);
   const profile = useSessionStore((s) => s.profile);
@@ -145,10 +150,13 @@ export default function LiveHomeScreen() {
     profile?.hometown ||
     demoCity.label;
 
-  const compact = screenH < 780;
-  const iconSize = compact ? 120 : screenH < 900 ? 148 : 168;
+  const compact = layoutHeight < 780;
+  const iconSize = Math.min(
+    compact ? 120 : layoutHeight < 900 ? 148 : 168,
+    Math.round(contentWidth * 0.4),
+  );
   const pulseSize = Math.round(iconSize * 1.55);
-  const logoWidth = Math.round(Math.min(compact ? 132 : 160, Math.max(120, screenW * 0.38)));
+  const logoWidth = Math.round(Math.min(compact ? 132 : 160, Math.max(120, contentWidth * 0.38)));
   const kickerSize = compact ? 24 : 30;
 
   const activeFoods = live ? (liveSession?.foodCuisines ?? foodCuisines) : foodCuisines;
@@ -300,6 +308,7 @@ export default function LiveHomeScreen() {
         if (!plus) await beginPingSegment();
         setPingResults(0, 0);
         setSheet('none');
+        router.push('/(tabs)/pings');
         return;
       }
 
@@ -326,6 +335,7 @@ export default function LiveHomeScreen() {
         if (!plus) await beginPingSegment();
         setPingResults(0, 0);
         setSheet('none');
+        router.push('/(tabs)/pings');
         return;
       }
 
@@ -344,6 +354,7 @@ export default function LiveHomeScreen() {
       if (!plus) await beginPingSegment();
       setPingResults(0, 0);
       setSheet('none');
+      router.push('/(tabs)/pings');
     } catch (error) {
       Alert.alert('Could not go live', error instanceof Error ? error.message : 'Try again');
     } finally {
@@ -449,9 +460,9 @@ export default function LiveHomeScreen() {
         colors={
           live
             ? ['rgba(34,229,139,0.14)', 'rgba(124,58,237,0.18)', '#09090B']
-            : ['rgba(124,58,237,0.24)', 'rgba(20,12,34,0.88)', '#09090B']
+            : ['rgba(124,58,237,0.28)', 'rgba(12,8,20,0.95)', '#050508']
         }
-        locations={[0, 0.4, 1]}
+        locations={[0, 0.35, 1]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
@@ -466,63 +477,224 @@ export default function LiveHomeScreen() {
         keyboardShouldPersistTaps="handled"
         bounces
       >
-        <View style={styles.header}>
-          <BrandMark width={logoWidth} />
-          <View style={[styles.statusPill, live && styles.statusLive]}>
-            <View style={[styles.statusDot, live && styles.statusDotLive]} />
-            <AppText
-              style={[
-                styles.statusText,
-                live && styles.statusTextLive,
-                datePlannedTonight && styles.statusDate,
-              ]}
-            >
-              {live ? (datePlannedTonight ? 'DATE PLANNED' : 'PINGING') : 'OFFLINE'}
-            </AppText>
-          </View>
-        </View>
+        {!live ? (
+          <>
+            <View style={styles.heroMark}>
+              <DtIconHero size={88} mode="breathe" atmosphere="soft" />
+            </View>
 
-        <AppText style={styles.cityLine}>{city.toUpperCase()}</AppText>
+            <View style={styles.heroCopy}>
+              <AppText style={styles.heroTitle}>
+                Who's out <AppText style={styles.heroTitleAccent}>tonight?</AppText>
+              </AppText>
+              <AppText style={styles.heroSub}>
+                Find real people, real plans,{' '}
+                <AppText style={styles.heroSubAccent}>right now.</AppText>
+              </AppText>
+            </View>
 
-        <View style={styles.stage}>
-          <AppText style={[styles.kicker, { fontSize: kickerSize, lineHeight: kickerSize + 6 }]}>
-            {live ? "YOU'RE LIVE" : 'GO LIVE TONIGHT'}
-          </AppText>
+            <View style={styles.section}>
+              <View style={styles.sectionHead}>
+                <AppText style={styles.sectionLabel}>⚡ TONIGHT PLANS</AppText>
+                <AppText style={styles.sectionHint}>What are you in the mood for?</AppText>
+              </View>
 
-          <View style={[styles.controlWrap, { width: pulseSize, height: pulseSize }]}>
-            <HeartbeatPulse active={live} size={pulseSize} />
-            {live ? (
-              <DtIconHero
-                size={iconSize}
-                mode="live"
-                progress={100}
-                live
-                atmosphere="soft"
-                onPress={onStop}
-              />
-            ) : (
-              <DtIconHero
-                size={iconSize}
-                mode="hold"
-                atmosphere="soft"
-                holdProgress={holdProgress}
+              <View style={styles.planCards}>
+                {PLAN_OPTIONS.map((opt) => {
+                  const on = activities.includes(opt.value);
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => togglePlan(opt.value)}
+                      style={[styles.planCard, on && styles.planCardOn]}
+                    >
+                      <Ionicons
+                        name={opt.icon}
+                        size={22}
+                        color={on ? colors.brandBright : colors.text}
+                      />
+                      <AppText style={[styles.planCardLabel, on && styles.planCardLabelOn]}>
+                        {opt.label}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.settingList}>
+                <Pressable style={styles.settingRow} onPress={() => setSheet('time')}>
+                  <Ionicons name="time-outline" size={18} color={colors.brandBright} />
+                  <AppText style={styles.settingKey}>Available until</AppText>
+                  <AppText style={styles.settingVal}>{untilLabel}</AppText>
+                  <AppText style={styles.settingChevron}>›</AppText>
+                </Pressable>
+                <Pressable style={styles.settingRow} onPress={() => setSheet('radius')}>
+                  <Ionicons name="location-outline" size={18} color={colors.brandBright} />
+                  <AppText style={styles.settingKey}>Distance</AppText>
+                  <AppText style={styles.settingVal}>Within {radiusLabel} miles</AppText>
+                  <AppText style={styles.settingChevron}>›</AppText>
+                </Pressable>
+                {wantsDinner ? (
+                  <Pressable style={styles.settingRow} onPress={() => setSheet('food')}>
+                    <Ionicons name="options-outline" size={18} color={colors.brandBright} />
+                    <AppText style={styles.settingKey}>Dinner preference</AppText>
+                    <AppText style={styles.settingVal}>
+                      {formatFoodSummary(foodCuisines)} · Change
+                    </AppText>
+                    <AppText style={styles.settingChevron}>›</AppText>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <View style={styles.sectionHead}>
+                <AppText style={styles.sectionLabel}>⚡ FREE LATER?</AppText>
+                <AppText style={styles.sectionHint}>Show up when you're free.</AppText>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.laterRow}
+              >
+                <Pressable
+                  onPress={() => setLaterTonightHour(null)}
+                  style={[
+                    styles.laterPill,
+                    laterTonightHour == null && styles.laterPillOn,
+                  ]}
+                >
+                  <AppText
+                    style={[
+                      styles.laterPillText,
+                      laterTonightHour == null && styles.laterPillTextOn,
+                    ]}
+                  >
+                    Live now
+                  </AppText>
+                </Pressable>
+                {LATER_HOURS.map((hour) => {
+                  const on = laterTonightHour === hour;
+                  return (
+                    <Pressable
+                      key={hour}
+                      onPress={() => setLaterTonightHour(hour)}
+                      style={[styles.laterPill, on && styles.laterPillOn]}
+                    >
+                      <AppText style={[styles.laterPillText, on && styles.laterPillTextOn]}>
+                        {formatLaterHour(hour)}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            <Pressable style={styles.plusCard} onPress={() => router.push('/paywall')}>
+              <Ionicons name="sparkles" size={22} color={colors.brandBright} />
+              <View style={styles.plusCopy}>
+                <View style={styles.plusTitleRow}>
+                  <AppText style={styles.plusTitle}>More time. More conversation.</AppText>
+                  {!plus ? (
+                    <View style={styles.plusBadge}>
+                      <AppText style={styles.plusBadgeText}>PLUS</AppText>
+                    </View>
+                  ) : null}
+                </View>
+                <AppText style={styles.plusBody}>{flowCopy.fineTuneBody}</AppText>
+              </View>
+              <AppText style={styles.settingChevron}>›</AppText>
+            </Pressable>
+
+            <View style={styles.ctaStack}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Hold to go live"
+                disabled={loading}
                 onPressIn={onHoldStart}
                 onPressOut={clearHold}
+                style={[styles.goLiveBtn, loading && styles.goLiveDisabled]}
+              >
+                <LinearGradient
+                  colors={[...gradients.brand]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.goLiveGrad}
+                >
+                  {holdProgress > 0.02 ? (
+                    <View
+                      pointerEvents="none"
+                      style={[styles.goLiveFill, { width: `${Math.round(holdProgress * 100)}%` }]}
+                    />
+                  ) : null}
+                  <AppText style={styles.goLiveLabel}>
+                    {loading
+                      ? 'Going live…'
+                      : holdProgress > 0.02
+                        ? `Keep holding… ${Math.round(holdProgress * 100)}%`
+                        : 'Hold to go live'}
+                  </AppText>
+                </LinearGradient>
+              </Pressable>
+              <AppText style={styles.goLiveHint}>
+                Puts you in tonight’s pool so people nearby can find you.
+              </AppText>
+              <Button
+                label="Browse who’s live →"
+                variant="secondary"
+                onPress={() => router.push('/(tabs)/pings')}
               />
-            )}
-          </View>
+              <AppText style={styles.browseHint}>
+                Peek at the feed without going live.
+              </AppText>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.header}>
+              <BrandMark width={logoWidth} />
+              <View style={[styles.statusPill, styles.statusLive]}>
+                <View style={[styles.statusDot, styles.statusDotLive]} />
+                <AppText
+                  style={[
+                    styles.statusText,
+                    styles.statusTextLive,
+                    datePlannedTonight && styles.statusDate,
+                  ]}
+                >
+                  {datePlannedTonight ? 'DATE PLANNED' : 'PINGING'}
+                </AppText>
+              </View>
+            </View>
 
-          <AppText style={styles.holdCue}>
-            {live
-              ? 'TAP TO GO OFFLINE'
-              : holdProgress > 0.02
-                ? `HOLDING… ${Math.round(holdProgress * 100)}%`
-                : 'HOLD TO ACTIVATE'}
-          </AppText>
-          {live ? (
-            <>
+            <AppText style={styles.cityLine}>{city.toUpperCase()}</AppText>
+
+            <View style={styles.stage}>
+              <AppText
+                style={[styles.kicker, { fontSize: kickerSize, lineHeight: kickerSize + 6 }]}
+              >
+                YOU'RE LIVE
+              </AppText>
+
+              <View style={[styles.controlWrap, { width: pulseSize, height: pulseSize }]}>
+                <HeartbeatPulse active size={pulseSize} />
+                <DtIconHero
+                  size={iconSize}
+                  mode="live"
+                  progress={100}
+                  live
+                  atmosphere="soft"
+                  onPress={onStop}
+                />
+              </View>
+
+              <AppText style={styles.holdCue}>TAP TO GO OFFLINE</AppText>
               <AppText style={styles.metaLive}>
-                {[formatActivities(liveSession?.activities ?? activities), foodBit || null]
+                {[
+                  formatActivities(liveSession?.activities ?? activities),
+                  foodBit || null,
+                  `within ${radiusLabel} mi`,
+                ]
                   .filter(Boolean)
                   .join(' · ')}
               </AppText>
@@ -539,153 +711,55 @@ export default function LiveHomeScreen() {
               {liveSession?.isBoosted ? (
                 <AppText style={styles.boostedBadge}>BOOSTED · FRONT OF POOL</AppText>
               ) : null}
-              <AppText style={styles.pingHint}>{flowCopy.pingingHint}</AppText>
+              <AppText style={styles.pingHint}>
+                People who match your vibe appear in Ping — within {radiusLabel} miles.
+              </AppText>
               {!liveSession?.isBoosted ? (
                 <Pressable onPress={() => router.push('/paywall/boost')} hitSlop={8}>
                   <AppText style={styles.boostLink}>Tonight Boost · $4.99 →</AppText>
                 </Pressable>
               ) : null}
-            </>
-          ) : null}
-        </View>
-
-        {!live ? (
-          <View style={styles.setup}>
-            <View style={styles.block}>
-              <AppText style={styles.blockLabel}>Tonight</AppText>
-              <View style={styles.planRow}>
-                {PLAN_OPTIONS.map((opt) => {
-                  const on = activities.includes(opt.value);
-                  return (
-                    <Pressable
-                      key={opt.value}
-                      onPress={() => togglePlan(opt.value)}
-                      style={styles.planOpt}
-                    >
-                      <AppText style={[styles.planText, on && styles.planTextOn]}>
-                        {opt.label}
-                      </AppText>
-                      {on ? <View style={styles.planUnderline} /> : <View style={styles.planSpacer} />}
-                    </Pressable>
-                  );
-                })}
-              </View>
             </View>
 
-            <View style={styles.decisionList}>
-              <Pressable style={styles.decisionRow} onPress={() => setSheet('time')}>
-                <AppText style={styles.decisionKey}>Available until</AppText>
-                <AppText style={styles.decisionVal}>{untilLabel}</AppText>
-              </Pressable>
-              <View style={styles.decisionRule} />
-              <Pressable style={styles.decisionRow} onPress={() => setSheet('radius')}>
-                <AppText style={styles.decisionKey}>Distance</AppText>
-                <AppText style={styles.decisionVal}>Within {radiusLabel} miles</AppText>
-              </Pressable>
-              {wantsDinner ? (
-                <>
-                  <View style={styles.decisionRule} />
-                  <Pressable style={styles.decisionRow} onPress={() => setSheet('food')}>
-                    <AppText style={styles.decisionKey}>Dinner preference</AppText>
-                    <AppText style={styles.decisionVal}>
-                      {formatFoodSummary(foodCuisines)} · Change
-                    </AppText>
-                  </Pressable>
-                </>
-              ) : null}
-            </View>
-
-            <View style={styles.block}>
-              <AppText style={styles.blockLabel}>Free later?</AppText>
-              <View style={styles.planRow}>
+            <View style={styles.liveActions}>
+              {newInPing > 0 ? (
                 <Pressable
-                  onPress={() => setLaterTonightHour(null)}
-                  style={styles.planOpt}
+                  onPress={() => router.push('/(tabs)/pings')}
+                  style={styles.newPingBanner}
                 >
-                  <AppText style={[styles.planText, laterTonightHour == null && styles.planTextOn]}>
-                    Live now
+                  <AppText style={styles.newPingText}>
+                    {newInPing} NEW {newInPing === 1 ? 'PERSON' : 'PEOPLE'} IN YOUR PING
                   </AppText>
-                  {laterTonightHour == null ? (
-                    <View style={styles.planUnderline} />
-                  ) : (
-                    <View style={styles.planSpacer} />
-                  )}
                 </Pressable>
-                {LATER_HOURS.map((hour) => {
-                  const on = laterTonightHour === hour;
-                  return (
-                    <Pressable
-                      key={hour}
-                      onPress={() => setLaterTonightHour(hour)}
-                      style={styles.planOpt}
-                    >
-                      <AppText style={[styles.planText, on && styles.planTextOn]}>
-                        {formatLaterHour(hour)}
-                      </AppText>
-                      {on ? <View style={styles.planUnderline} /> : <View style={styles.planSpacer} />}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-
-            <Pressable style={styles.fineTune} onPress={() => router.push('/filters')}>
-              <View style={styles.fineTuneCopy}>
-                <View style={styles.fineTuneTitleRow}>
-                  <AppText style={styles.fineTuneTitle}>{flowCopy.fineTuneTitle}</AppText>
-                  {!plus ? (
-                    <View style={styles.plusBadge}>
-                      <AppText style={styles.plusBadgeText}>PLUS</AppText>
-                    </View>
-                  ) : null}
-                </View>
-                <AppText style={styles.fineTuneBody}>{flowCopy.fineTuneBody}</AppText>
-              </View>
-              <AppText style={styles.fineTuneChevron}>›</AppText>
-            </Pressable>
-
-            <Button
-              label={flowCopy.seeWhosLive}
-              variant="secondary"
-              onPress={() => router.push('/(tabs)/pings')}
-            />
-          </View>
-        ) : (
-          <View style={styles.liveActions}>
-            {newInPing > 0 ? (
-              <Pressable
+              ) : null}
+              <Button
+                label={
+                  pingResultCount > 0
+                    ? `See ${pingResultCount} nearby ${pingResultCount === 1 ? 'match' : 'matches'} →`
+                    : 'See people in your radius →'
+                }
                 onPress={() => router.push('/(tabs)/pings')}
-                style={styles.newPingBanner}
-              >
-                <AppText style={styles.newPingText}>
-                  {newInPing} NEW {newInPing === 1 ? 'PERSON' : 'PEOPLE'} IN YOUR PING
-                </AppText>
-              </Pressable>
-            ) : null}
-            <Button
-              label={
-                pingResultCount > 0
-                  ? `${formatPeopleInPing(pingResultCount)} →`
-                  : flowCopy.viewYourPing
-              }
-              onPress={() => router.push('/(tabs)/pings')}
-            />
-            <View style={styles.row}>
-              <Button
-                label={copy.editTonight}
-                variant="secondary"
-                onPress={() => setSheet('edit')}
-                style={styles.flex}
               />
-              <Button
-                label="GO OFFLINE"
-                variant="ghost"
-                loading={loading}
-                onPress={onStop}
-                style={styles.flex}
-              />
+              <AppText style={styles.goLiveHint}>
+                Open Ping to browse people free tonight who match your plans.
+              </AppText>
+              <View style={styles.row}>
+                <Button
+                  label={copy.editTonight}
+                  variant="secondary"
+                  onPress={() => setSheet('edit')}
+                  style={styles.flex}
+                />
+                <Button
+                  label="GO OFFLINE"
+                  variant="ghost"
+                  loading={loading}
+                  onPress={onStop}
+                  style={styles.flex}
+                />
+              </View>
             </View>
-          </View>
+          </>
         )}
       </ScrollView>
 
@@ -763,7 +837,7 @@ export default function LiveHomeScreen() {
                   Tonight
                 </AppText>
                 <OptionGrid
-                  options={PLAN_OPTIONS}
+                  options={PLAN_OPTIONS.map(({ value, label }) => ({ value, label }))}
                   values={activities}
                   onToggle={(value) => togglePlan(value)}
                 />
@@ -813,13 +887,245 @@ export default function LiveHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-  },
+  scroll: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: spacing.lg,
     gap: spacing.md,
+  },
+  heroMark: {
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  heroCopy: {
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: spacing.sm,
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    textAlign: 'center',
+  },
+  heroTitleAccent: {
+    color: colors.brandBright,
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+  },
+  heroSub: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  heroSubAccent: {
+    color: colors.brandBright,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  section: { gap: 12 },
+  sectionHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sectionLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  sectionHint: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    flexShrink: 1,
+    textAlign: 'right',
+  },
+  planCards: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  planCard: {
+    flex: 1,
+    minHeight: 84,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+  },
+  planCardOn: {
+    borderColor: colors.brandBright,
+    backgroundColor: 'rgba(168,85,247,0.12)',
+    shadowColor: colors.brandBright,
+    shadowOpacity: 0.55,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  planCardLabel: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  planCardLabelOn: {
+    color: colors.brandBright,
+  },
+  settingList: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  settingKey: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  settingVal: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+    maxWidth: '42%',
+    textAlign: 'right',
+  },
+  settingChevron: {
+    color: colors.textSecondary,
+    fontSize: 20,
+    fontWeight: '300',
+  },
+  laterRow: {
+    gap: 8,
+    paddingRight: 8,
+  },
+  laterPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  laterPillOn: {
+    borderColor: colors.brandBright,
+    backgroundColor: 'rgba(168,85,247,0.28)',
+    shadowColor: colors.brandBright,
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  laterPillText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  laterPillTextOn: {
+    color: colors.text,
+  },
+  plusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(168,85,247,0.4)',
+    backgroundColor: 'rgba(168,85,247,0.08)',
+  },
+  plusCopy: { flex: 1, gap: 4 },
+  plusTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  plusTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  plusBody: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  ctaStack: {
+    gap: 10,
+    marginTop: spacing.xs,
+  },
+  goLiveBtn: {
+    minHeight: 56,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  goLiveDisabled: {
+    opacity: 0.55,
+  },
+  goLiveGrad: {
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    overflow: 'hidden',
+  },
+  goLiveFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  goLiveLabel: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    zIndex: 1,
+  },
+  goLiveHint: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: -2,
+  },
+  browseHint: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: -4,
+    opacity: 0.9,
+  },
+  plusBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(168,85,247,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(168,85,247,0.45)',
+  },
+  plusBadgeText: {
+    color: colors.brandBright,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   header: {
     flexDirection: 'row',
@@ -845,9 +1151,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     flexShrink: 0,
   },
-  statusLive: {
-    backgroundColor: 'rgba(34,229,139,0.14)',
-  },
+  statusLive: { backgroundColor: 'rgba(34,229,139,0.14)' },
   statusDot: {
     width: 7,
     height: 7,
@@ -868,12 +1172,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.8,
   },
-  statusTextLive: {
-    color: colors.live,
-  },
-  statusDate: {
-    color: colors.brandBright,
-  },
+  statusTextLive: { color: colors.live },
+  statusDate: { color: colors.brandBright },
   stage: {
     alignItems: 'center',
     gap: 10,
@@ -916,9 +1216,9 @@ const styles = StyleSheet.create({
   },
   holdCue: {
     color: colors.textSecondary,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 1.6,
+    letterSpacing: 1.4,
     textAlign: 'center',
   },
   pingHint: {
@@ -927,123 +1227,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 280,
     lineHeight: 18,
-  },
-  setup: {
-    gap: 18,
-    paddingTop: spacing.xs,
-  },
-  block: {
-    gap: 12,
-  },
-  blockLabel: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-  planRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 4,
-  },
-  planOpt: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  planText: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  planTextOn: {
-    color: colors.text,
-    fontWeight: '700',
-  },
-  planUnderline: {
-    marginTop: 8,
-    height: 2,
-    width: 28,
-    borderRadius: 1,
-    backgroundColor: colors.brandBright,
-  },
-  planSpacer: {
-    marginTop: 8,
-    height: 2,
-    width: 28,
-  },
-  decisionList: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  decisionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-    gap: 12,
-  },
-  decisionRule: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
-  },
-  decisionKey: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  decisionVal: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '600',
-    flexShrink: 1,
-    textAlign: 'right',
-  },
-  fineTune: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 4,
-  },
-  fineTuneCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  fineTuneTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  fineTuneTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  plusBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: 'rgba(168,85,247,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(168,85,247,0.45)',
-  },
-  plusBadgeText: {
-    color: colors.brandBright,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  fineTuneBody: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  fineTuneChevron: {
-    color: colors.textSecondary,
-    fontSize: 22,
-    fontWeight: '300',
   },
   newPingBanner: {
     paddingVertical: 12,
@@ -1064,13 +1247,8 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingTop: spacing.xs,
   },
-  row: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  flex: {
-    flex: 1,
-  },
+  row: { flexDirection: 'row', gap: 10 },
+  flex: { flex: 1 },
   sheetBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -1084,11 +1262,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     maxHeight: '88%',
   },
-  sheetHint: {
-    marginBottom: 4,
-    lineHeight: 18,
-  },
-  sheetTitle: {
-    marginTop: spacing.sm,
-  },
+  sheetHint: { marginBottom: 4, lineHeight: 18 },
+  sheetTitle: { marginTop: spacing.sm },
 });

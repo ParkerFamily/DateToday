@@ -1,10 +1,11 @@
 export const colors = {
   background: '#09090B',
-  elevated: '#101013',
-  card: '#151518',
-  border: '#24242A',
+  elevated: '#12101A',
+  card: '#16131F',
+  border: '#2A2438',
   brand: '#7C3AED',
   brandBright: '#A855F7',
+  brandGlow: 'rgba(168, 85, 247, 0.45)',
   live: '#22E58B',
   text: '#FAFAFA',
   textSecondary: '#92929D',
@@ -16,12 +17,14 @@ export const colors = {
 } as const;
 
 export const gradients = {
-  brand: ['#7C3AED', '#A855F7'] as const,
+  brand: ['#7C3AED', '#C084FC'] as const,
+  brandSoft: ['#5B21B6', '#A855F7'] as const,
+  night: ['#160B28', '#09090B'] as const,
 } as const;
 
 export const radii = {
-  card: 16,
-  surface: 20,
+  card: 18,
+  surface: 22,
   pill: 999,
   input: 14,
 } as const;

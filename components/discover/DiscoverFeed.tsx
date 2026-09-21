@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Dimensions,
   Image,
   Pressable,
   ScrollView,
@@ -24,13 +23,19 @@ import { radiusPresets } from '@/constants/copy';
 import { DEMO_VIDEO_PROMPTS, demoVideoPromptsFor, demoCity } from '@/constants/demoTonight';
 import {
   flowCopy,
-  formatCityTonightTeaser,
   formatLaterHour,
   formatPingMatchLine,
 } from '@/constants/flow';
 import { promptDisplayLabel } from '@/constants/videoPrompts';
 import { foodLabel } from '@/constants/tonightVibe';
 import { colors, radii, spacing } from '@/constants/theme';
+import { DtIconHero } from '@/components/onboarding/DtIconHero';
+import {
+  BlockLabel,
+  LiveAtmosphere,
+  UnderlineTabs,
+  livePad,
+} from '@/components/ui/LiveChrome';
 import { formatDistanceMiles, formatLiveUntil, isLiveSessionActive } from '@/utils/time';
 import type { DiscoveryCard, FoodCuisine, TonightActivity } from '@/types';
 import { useSessionStore } from '@/store/session';
@@ -41,8 +46,7 @@ import { fetchDiscoveryFeed, sendPing } from '@/services/api';
 import { tonightCompatibility } from '@/utils/tonightCompatibility';
 import { canUseAdvancedFilters, canUsePriorityPool } from '@/lib/entitlements';
 import { compareDiscoveryRank } from '@/lib/commerce/sessionCommerce';
-
-const { height: SCREEN_H } = Dimensions.get('window');
+import { useContentLayout } from '@/lib/layout';
 
 const ACTIVITY_EMOJI: Record<string, string> = {
   drinks: '🍸',
@@ -90,6 +94,7 @@ interface DiscoverFeedProps {
 export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { layoutHeight } = useContentLayout();
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
   const [interestedLoading, setInterestedLoading] = useState(false);
@@ -132,16 +137,14 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     [liveSession],
   );
 
-  /** Real feed only — mocks never fill an empty production pool. */
+  /** Real Firestore/Supabase feed only — never invent people when empty. */
   const rawFeed = useMemo((): DiscoveryCard[] => {
     if (!live) return [];
     if (feedQuery.data && feedQuery.data.length > 0) return feedQuery.data;
-    // Intentional preview sandbox only — never a silent production fallback.
-    if (env.useMockData && !feedQuery.isFetching && feedQuery.isFetched) {
-      return DEMO_CARDS;
-    }
+    // Opt-in sandbox only (`EXPO_PUBLIC_USE_MOCK_DATA=true`). Default: empty → low-density UX.
+    if (env.useMockData) return DEMO_CARDS;
     return [];
-  }, [live, feedQuery.data, feedQuery.isFetching, feedQuery.isFetched]);
+  }, [live, feedQuery.data]);
 
   const nearbyBeforeFilters = useMemo(() => {
     return rawFeed
@@ -278,8 +281,8 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     if (!card || interestFlash) return;
     try {
       setInterestedLoading(true);
-      // Mock sandbox only — real builds never invent mutual matches.
-      if (env.useMockData && (!env.supabaseUrl || card.userId.startsWith('demo-'))) {
+      // Never invent mutual matches from demo ids outside explicit mock mode.
+      if (env.useMockData && card.userId.startsWith('demo-')) {
         interestsSentRef.current += 1;
         if (interestsSentRef.current === 1) {
           showInterestSentThenAdvance();
@@ -289,7 +292,7 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
         return;
       }
       if (!env.supabaseUrl) {
-        // Firebase interest path not live yet — still acknowledge ♥ honestly.
+        // Firebase interest path — acknowledge honestly (no fake mutual).
         showInterestSentThenAdvance();
         return;
       }
@@ -345,43 +348,79 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
       profile?.neighborhoodLabel?.split(',')[0]?.trim() ||
       profile?.hometown ||
       demoCity.label;
+    const radiusMi = liveSession?.radiusMiles ?? filters.maxDistanceMiles;
+    const selectedVibe =
+      ((liveSession?.activities?.[0] as string | undefined) ?? 'dinner') as
+        | 'dinner'
+        | 'drinks'
+        | 'coffee'
+        | 'activity';
 
     return (
-      <Screen padded={false}>
-        <LinearGradient
-          colors={['#0A0A0C', '#09090B']}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-        <View style={[styles.quietPad, { paddingTop: insets.top + spacing.md }]}>
+      <Screen padded={false} edges={['top', 'left', 'right']}>
+        <LiveAtmosphere />
+        <ScrollView
+          contentContainerStyle={[
+            styles.offlinePad,
+            livePad,
+            { paddingBottom: Math.max(insets.bottom, 8) + 24 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
           {showClose ? <CloseButton onPress={() => dismissToLive(router)} /> : null}
-          <View style={styles.quiet}>
+
+          <View style={styles.offlineStage}>
+            <DtIconHero size={128} mode="breathe" atmosphere="soft" />
             <AppText style={styles.teaserEyebrow}>TONIGHT · {city.toUpperCase()}</AppText>
-            <View style={styles.radarStub}>
-              <View style={styles.radarRing} />
-              <View style={[styles.radarRing, styles.radarRingMid]} />
-              <Ionicons name="radio-outline" size={28} color={colors.brandBright} />
-            </View>
-            <AppText style={styles.quietTitle}>{flowCopy.quietTitle}</AppText>
-            <AppText variant="secondary" style={styles.quietBody}>
-              {formatCityTonightTeaser(city)}
-            </AppText>
-            <AppText variant="secondary" style={styles.quietBody}>
-              {flowCopy.quietBody}
-            </AppText>
+          </View>
+
+          <View style={styles.offlineBlock}>
+            <BlockLabel>Tonight</BlockLabel>
+            <UnderlineTabs
+              value={selectedVibe}
+              onChange={() => router.push('/(tabs)/live')}
+              options={[
+                { id: 'drinks', label: 'Drinks' },
+                { id: 'dinner', label: 'Dinner' },
+                { id: 'coffee', label: 'Coffee' },
+                { id: 'activity', label: 'Activity' },
+              ]}
+            />
+          </View>
+
+          <View style={styles.quiet}>
+            <AppText style={styles.quietTitleLead}>{flowCopy.quietTitleLead}</AppText>
+            <AppText style={styles.quietTitleAccent}>{flowCopy.quietTitleAccent}</AppText>
+            <AppText style={styles.quietBody}>{flowCopy.quietBody}</AppText>
+            <AppText style={styles.quietMeta}>Within {radiusMi} miles</AppText>
+
             <Button
-              label={flowCopy.beFirstCta}
+              label={flowCopy.beFirstCta.toUpperCase()}
               onPress={() => router.push('/(tabs)/live')}
               style={styles.quietCta}
             />
-            <AppText variant="label" style={styles.radiusLabel}>
-              {flowCopy.tonightIdeas}
-            </AppText>
-            <AppText variant="secondary" style={styles.quietBody}>
-              Dinner · Drinks · Coffee · Something fun
-            </AppText>
+            <Button
+              label={flowCopy.seeWhosLive}
+              variant="secondary"
+              onPress={() => router.push('/(tabs)/live')}
+              style={styles.quietCta}
+            />
           </View>
-        </View>
+
+          <View style={styles.offlineBlock}>
+            <BlockLabel>{flowCopy.tonightIdeas}</BlockLabel>
+            <UnderlineTabs
+              value="dinner"
+              onChange={() => router.push('/(tabs)/live')}
+              options={[
+                { id: 'dinner', label: 'Dinner' },
+                { id: 'drinks', label: 'Drinks' },
+                { id: 'coffee', label: 'Coffee' },
+                { id: 'fun', label: 'Something fun' },
+              ]}
+            />
+          </View>
+        </ScrollView>
       </Screen>
     );
   }
@@ -530,7 +569,7 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     );
   }
 
-  const heroH = SCREEN_H * 0.68;
+  const heroH = Math.min(layoutHeight * 0.68, 620);
   const bottomPad = showClose ? 120 + insets.bottom : 100 + insets.bottom;
 
   return (
@@ -1022,16 +1061,22 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     transform: [{ scale: 0.96 }],
   },
-  quietPad: {
-    flex: 1,
-    paddingHorizontal: spacing.lg,
+  offlinePad: {
+    gap: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  offlineStage: {
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: spacing.sm,
+  },
+  offlineBlock: {
+    gap: 12,
   },
   quiet: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.sm,
+    gap: 12,
+    paddingVertical: spacing.md,
   },
   quietTitle: {
     color: colors.text,
@@ -1039,11 +1084,47 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
   },
-  teaserEyebrow: {
-    color: colors.brandBright,
-    fontSize: 11,
+  quietTitleLead: {
+    color: colors.text,
+    fontSize: 28,
     fontWeight: '800',
-    letterSpacing: 1.2,
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
+  quietTitleAccent: {
+    color: colors.brandBright,
+    fontSize: 28,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: -0.5,
+    marginTop: -4,
+  },
+  teaserEyebrow: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+  },
+  quietBody: {
+    maxWidth: 320,
+    lineHeight: 22,
+    textAlign: 'center',
+    color: colors.textSecondary,
+    fontSize: 15,
+  },
+  quietMeta: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  quietCta: {
+    alignSelf: 'stretch',
+    width: '100%',
+    marginTop: 4,
+  },
+  quietPad: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
   },
   teaserRow: {
     flexDirection: 'row',
@@ -1065,20 +1146,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(9,9,11,0.35)',
   },
-  quietBody: {
-    maxWidth: 320,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  quietCta: {
-    alignSelf: 'stretch',
-    width: '100%',
-    maxWidth: 320,
-    marginTop: spacing.sm,
-  },
   radarStub: {
-    width: 120,
-    height: 120,
+    width: 160,
+    height: 160,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
@@ -1091,11 +1161,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(168,85,247,0.35)',
   },
+  radarRingOuter: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderColor: 'rgba(168,85,247,0.18)',
+  },
   radarRingMid: {
     width: 80,
     height: 80,
     borderRadius: 40,
     borderColor: 'rgba(168,85,247,0.55)',
+  },
+  radarCore: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(168,85,247,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(168,85,247,0.45)',
   },
   radiusLabel: {
     marginTop: spacing.md,
