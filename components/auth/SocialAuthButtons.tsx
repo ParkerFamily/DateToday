@@ -116,9 +116,10 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
           } else {
             Alert.alert(
               'Google needs a real build',
-              'Google blocks Expo Go redirects. Use a simulator/dev build or TestFlight.\n\nApple Sign-In still works here.',
+              Platform.OS === 'android'
+                ? 'Google Sign-In does not work in Expo Go. Install the EAS Android build and try again.'
+                : 'Google blocks Expo Go redirects. Use a simulator/dev build or TestFlight.\n\nApple Sign-In still works here.',
             );
-            setBusy(null);
             return;
           }
           await promptAsync();
@@ -127,6 +128,7 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
             'Google sign-in failed',
             error instanceof Error ? error.message : 'Try again',
           );
+        } finally {
           setBusy(null);
         }
       }}
@@ -173,7 +175,9 @@ function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
         if (expoGo) {
           Alert.alert(
             'Google needs a real build',
-            'Google Sign-In does not work in Expo Go. Use a simulator/dev build or TestFlight.\n\nApple Sign-In still works here.',
+            Platform.OS === 'android'
+              ? 'Google Sign-In does not work in Expo Go. Install the EAS Android build (APK/AAB) and try again.'
+              : 'Google Sign-In does not work in Expo Go. Use a simulator/dev build or TestFlight.\n\nApple Sign-In still works here.',
           );
           return;
         }
@@ -185,8 +189,11 @@ function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
             'Google sign-in failed',
             error instanceof Error
               ? error.message
-              : 'Add an iOS OAuth client ID (EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID) from Firebase / Google Cloud project 626033907762.',
+              : Platform.OS === 'android'
+                ? 'Add your EAS/Play SHA-1 to Firebase → Project settings → Android app, download a fresh google-services.json, and rebuild.'
+                : 'Check EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID / EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID in Firebase / Google Cloud.',
           );
+        } finally {
           setBusy(null);
         }
       }}

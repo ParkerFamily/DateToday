@@ -13,6 +13,7 @@ export default function AccountScreen() {
   const router = useRouter();
   const draft = useOnboardingDraft();
   const userId = useSessionStore((s) => s.userId);
+  const setAuth = useSessionStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);
   const alreadySignedIn =
     Boolean(userId) ||
@@ -47,12 +48,13 @@ export default function AccountScreen() {
     try {
       setLoading(true);
       draft.setAuthProvider('email');
-      await signUpWithEmail({
+      const created = await signUpWithEmail({
         email: draft.email.trim(),
         password: draft.password,
         dateOfBirth: draft.dateOfBirth,
         ageConfirmed: true,
       });
+      setAuth(created.user.id, created.user.email ?? null);
       router.push('/(onboarding)/gender');
     } catch (error) {
       Alert.alert('Could not save', error instanceof Error ? error.message : 'Try again');

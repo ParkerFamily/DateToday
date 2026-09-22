@@ -20,6 +20,7 @@ type Extra = {
   firebaseMessagingSenderId?: string;
   firebaseAppId?: string;
   firebaseAndroidAppId?: string;
+  firebaseAndroidApiKey?: string;
 };
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
@@ -104,6 +105,12 @@ export const env = {
     'EXPO_PUBLIC_FIREBASE_ANDROID_APP_ID',
     process.env.EXPO_PUBLIC_FIREBASE_ANDROID_APP_ID ?? extra.firebaseAndroidAppId,
     '1:626033907762:android:a4854e9d7bd75de6ea442b',
+  ),
+  /** Android API key from google-services.json — do not use the iOS plist key on Android. */
+  firebaseAndroidApiKey: pick(
+    'EXPO_PUBLIC_FIREBASE_ANDROID_API_KEY',
+    process.env.EXPO_PUBLIC_FIREBASE_ANDROID_API_KEY ?? extra.firebaseAndroidApiKey,
+    'AIzaSyBxYcxpL6CZDPsYc5BIwipSmSSt_1yxXo4',
   ),
   appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development',
   isDev: (process.env.EXPO_PUBLIC_APP_ENV ?? extra.appEnv ?? 'development') !== 'production',

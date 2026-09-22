@@ -227,7 +227,9 @@ export async function signInWithGoogleNative(): Promise<SocialAuthResult> {
     const message = error instanceof Error ? error.message : String(error);
     if (/10:|DEVELOPER_ERROR|ApiException: 10/i.test(message)) {
       throw new Error(
-        'Android Google Sign-In misconfigured. Add your EAS/Play SHA-1 fingerprint to Firebase → Project settings → Your Android app (com.parkerfamily.datetoday).',
+        'Android Google Sign-In needs SHA fingerprints in Firebase. ' +
+          'Firebase Console → Project settings → Your apps → Android (com.parkerfamily.datetoday) → Add fingerprint. ' +
+          'Add BOTH the EAS upload-keystore SHA-1 and the Play App Signing SHA-1, then download a new google-services.json and rebuild.',
       );
     }
     if (/cancel|12501|SIGN_IN_CANCELLED/i.test(message)) {

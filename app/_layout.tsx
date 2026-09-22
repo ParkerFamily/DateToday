@@ -175,7 +175,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
 
     if (!userId) {
-      if (!inAuth) router.replace('/(auth)/welcome');
+      // Email CREATE ACCOUNT walks onboarding before Firebase auth exists
+      // (account step creates the user). Do not bounce those screens to welcome.
+      if (inAuth || inOnboarding) return;
+      router.replace('/(auth)/welcome');
       return;
     }
 

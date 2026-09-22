@@ -13,10 +13,14 @@ import { env } from '@/lib/env';
 
 /**
  * Firebase JS SDK — works in Expo Go + EAS.
- * Native GoogleService-Info.plist is also referenced in app.json for EAS builds.
+ * Native GoogleService-Info.plist / google-services.json referenced in app.json for EAS builds.
+ * Android must use the Android appId + Android API key from google-services.json.
  */
 const firebaseConfig = {
-  apiKey: env.firebaseApiKey,
+  apiKey:
+    Platform.OS === 'android' && env.firebaseAndroidApiKey
+      ? env.firebaseAndroidApiKey
+      : env.firebaseApiKey,
   authDomain: env.firebaseAuthDomain,
   projectId: env.firebaseProjectId,
   storageBucket: env.firebaseStorageBucket,
