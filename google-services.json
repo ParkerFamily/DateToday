@@ -38,6 +38,14 @@
           }
         },
         {
+          "client_id": "626033907762-pp7eqd4781jdebt69kcuq9roc34imcic.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.parkerfamily.datetoday",
+            "certificate_hash": "1e7d811a6240fad655aad10b041df1fccf4daa1e"
+          }
+        },
+        {
           "client_id": "626033907762-6c3mb8spcs4ppomfsjm4um135t5t443o.apps.googleusercontent.com",
           "client_type": 3
         }
