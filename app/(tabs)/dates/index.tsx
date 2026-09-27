@@ -11,8 +11,6 @@ import { useRouter } from 'expo-router';
 import { useMemo, useCallback, useRef } from 'react';
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TypingDots } from '@/components/chat/TypingDots';
-import { useTheirChatState } from '@/features/matches/useTheirChatState';
 
 function timeAgo(date: Date | null): string {
   if (!date) return '';
@@ -40,16 +38,10 @@ function Avatar({ uri, size }: { uri: string | null | undefined; size: number })
 function NewMatchItem({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
   const theirId = otherUserId(match, uid);
   const other = match.users[theirId];
-  const { typing } = useTheirChatState(match.id, theirId);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.newItem, pressed && styles.pressed]}>
       <View style={styles.newRing}>
         <Avatar uri={other?.mainPhotoUrl} size={68} />
-        {typing ? (
-          <View style={styles.newTyping}>
-            <TypingDots size={5} color="#fff" />
-          </View>
-        ) : null}
       </View>
       <AppText style={styles.newName} numberOfLines={1}>
         {other?.displayName ?? 'Match'}
@@ -58,32 +50,18 @@ function NewMatchItem({ match, uid, onPress }: { match: MatchDoc; uid: string; o
   );
 }
 
-function TypingLine() {
-  return (
-    <View style={styles.typingLine}>
-      <AppText style={styles.typingText}>typing</AppText>
-      <TypingDots size={5} />
-    </View>
-  );
-}
-
 function DateRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
   const theirId = otherUserId(match, uid);
   const other = match.users[theirId];
-  const { typing } = useTheirChatState(match.id, theirId);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.dateCard, pressed && styles.pressed]}>
       <Avatar uri={other?.mainPhotoUrl} size={52} />
       <View style={styles.rowBody}>
         <AppText style={styles.dateEyebrow}>IT’S A DATE</AppText>
         <AppText style={styles.rowName}>{other?.displayName ?? 'Match'}</AppText>
-        {typing ? (
-          <TypingLine />
-        ) : (
-          <AppText style={styles.dateLine} numberOfLines={2}>
-            {proposalSummary(match.nextDate)}
-          </AppText>
-        )}
+        <AppText style={styles.dateLine} numberOfLines={2}>
+          {proposalSummary(match.nextDate)}
+        </AppText>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
     </Pressable>
@@ -93,7 +71,6 @@ function DateRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPres
 function ThreadRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
   const theirId = otherUserId(match, uid);
   const other = match.users[theirId];
-  const { typing } = useTheirChatState(match.id, theirId);
   const unread = match.unread[uid] ?? 0;
   const mine = match.lastMessage?.senderId === uid;
   return (
@@ -107,16 +84,10 @@ function ThreadRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPr
           <AppText style={styles.time}>{timeAgo(match.lastActivityAt)}</AppText>
         </View>
         <View style={styles.threadTop}>
-          {typing ? (
-            <View style={styles.flex}>
-              <TypingLine />
-            </View>
-          ) : (
-            <AppText style={[styles.preview, unread > 0 && styles.previewUnread]} numberOfLines={1}>
-              {mine && match.lastMessage?.type === 'text' ? 'You: ' : ''}
-              {match.lastMessage?.text}
-            </AppText>
-          )}
+          <AppText style={[styles.preview, unread > 0 && styles.previewUnread]} numberOfLines={1}>
+            {mine && match.lastMessage?.type === 'text' ? 'You: ' : ''}
+            {match.lastMessage?.text}
+          </AppText>
           {unread > 0 ? (
             <View style={styles.unread}>
               <AppText style={styles.unreadText}>{unread > 99 ? '99+' : unread}</AppText>
@@ -336,20 +307,7 @@ const styles = StyleSheet.create({
     borderColor: colors.brandBright,
   },
   newName: { color: colors.text, fontSize: 13, fontWeight: '700' },
-  newTyping: {
-    position: 'absolute',
-    right: -4,
-    bottom: -2,
-    paddingHorizontal: 7,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: colors.brandBright,
-    borderWidth: 2,
-    borderColor: colors.background,
-  },
   flex: { flex: 1 },
-  typingLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  typingText: { color: colors.brandBright, fontSize: 14, fontWeight: '700', fontStyle: 'italic' },
   dateCard: {
     flexDirection: 'row',
     alignItems: 'center',
