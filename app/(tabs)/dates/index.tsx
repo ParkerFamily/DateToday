@@ -147,11 +147,9 @@ export default function MatchesScreen() {
   const navigatingRef = useRef(false);
   const openChat = useCallback((matchId: string) => {
     if (navigatingRef.current) {
-      console.log('[DateToday] Navigation already in progress, ignoring tap');
       return;
     }
     navigatingRef.current = true;
-    console.log('[DateToday] Navigating to chat:', matchId);
     router.push(`/chat/${matchId}`);
     // Reset after a delay to allow navigation to complete
     setTimeout(() => {
@@ -236,6 +234,10 @@ export default function MatchesScreen() {
             keyExtractor={(row) => row.key}
             contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 8) + 24 }}
             showsVerticalScrollIndicator={false}
+            initialNumToRender={8}
+            maxToRenderPerBatch={5}
+            windowSize={5}
+            removeClippedSubviews={true}
             renderItem={({ item: row }) => {
               if (row.type === 'section') return <BlockLabel>{row.title}</BlockLabel>;
 
