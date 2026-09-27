@@ -176,6 +176,7 @@ export default function ChatScreen() {
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
+      setSending(false);
       setActiveChat(matchId);
       if (matchId) {
         if (AppState.currentState === 'active') void markRead(matchId);
@@ -243,17 +244,17 @@ export default function ChatScreen() {
   const sendBody = (body: string) => {
     const text = body.trim();
     if (!text || sending) return;
+    setSending(true);
     void (async () => {
-      const gate = await canMessageMatch(entitlements, matchId);
-      if (!gate.ok) {
-        setMessageLocked(true);
-        openUpgrade(router, 'message');
-        return;
-      }
-      setSending(true);
-      setDraft('');
-      stopTyping();
       try {
+        const gate = await canMessageMatch(entitlements, matchId);
+        if (!gate.ok) {
+          setMessageLocked(true);
+          openUpgrade(router, 'message');
+          return;
+        }
+        setDraft('');
+        stopTyping();
         await sendMatchMessage(matchId, text);
         if (!isPlusActive(entitlements)) await recordMessagedMatch(matchId);
       } catch (error) {
