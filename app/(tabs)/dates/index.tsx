@@ -8,7 +8,7 @@ import { useMatchesStore, usePendingLikes, useVisibleMatches } from '@/store/mat
 import { useSessionStore } from '@/store/session';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useCallback, useRef } from 'react';
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TypingDots } from '@/components/chat/TypingDots';
@@ -143,7 +143,21 @@ export default function MatchesScreen() {
   const matches = useVisibleMatches();
   const likesCount = usePendingLikes()?.length ?? 0;
 
-  const openChat = (matchId: string) => router.push(`/chat/${matchId}`);
+  // Prevent rapid navigation taps that cause multiple screen opens
+  const navigatingRef = useRef(false);
+  const openChat = useCallback((matchId: string) => {
+    if (navigatingRef.current) {
+      console.log('[DateToday] Navigation already in progress, ignoring tap');
+      return;
+    }
+    navigatingRef.current = true;
+    console.log('[DateToday] Navigating to chat:', matchId);
+    router.push(`/chat/${matchId}`);
+    // Reset after a delay to allow navigation to complete
+    setTimeout(() => {
+      navigatingRef.current = false;
+    }, 1000);
+  }, [router]);
 
   const rows = useMemo<Row[]>(() => {
     const withDate = matches.filter((m) => m.nextDate);

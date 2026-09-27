@@ -42,15 +42,24 @@ export function useMatchesSubscription() {
     }
     const unsubHidden = subscribeHiddenUsers(uid);
     store.set({ loaded: false, error: null, likedMe: null });
+    console.log('[DateToday] Matches: subscribing for user', uid);
     const unsubMatches = subscribeMatches(
       uid,
-      (matches) => useMatchesStore.getState().set({ matches, loaded: true, error: null }),
-      (error) => useMatchesStore.getState().set({ loaded: true, error: error.message }),
+      (matches) => {
+        console.log('[DateToday] Matches: received update', { count: matches.length });
+        useMatchesStore.getState().set({ matches, loaded: true, error: null });
+      },
+      (error) => {
+        console.error('[DateToday] Matches: subscription error', error);
+        useMatchesStore.getState().set({ loaded: true, error: error.message });
+      },
     );
-    const unsubLikes = subscribeReceivedInterests(uid, (likedMe) =>
-      useMatchesStore.getState().set({ likedMe }),
-    );
+    const unsubLikes = subscribeReceivedInterests(uid, (likedMe) => {
+      console.log('[DateToday] Matches: received likes update', { count: likedMe.length });
+      useMatchesStore.getState().set({ likedMe });
+    });
     return () => {
+      console.log('[DateToday] Matches: unsubscribing');
       unsubMatches();
       unsubLikes();
       unsubHidden();

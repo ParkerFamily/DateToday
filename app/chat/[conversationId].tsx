@@ -147,16 +147,27 @@ export default function ChatScreen() {
       setMatchState('missing');
       return;
     }
+    console.log('[DateToday] ChatScreen: subscribing to match and messages', matchId);
     const unsubMatch = subscribeMatch(
       matchId,
       (m) => {
+        console.log('[DateToday] ChatScreen: match updated', { matchId, exists: Boolean(m) });
         setMatch(m);
         setMatchState(m ? 'ready' : 'missing');
       },
-      () => setMatchState('missing'),
+      (error) => {
+        console.error('[DateToday] ChatScreen: match subscription error', error);
+        setMatchState('missing');
+      },
     );
-    const unsubMessages = subscribeMessages(matchId, setMessages);
+    const unsubMessages = subscribeMessages(matchId, (msgs) => {
+      console.log('[DateToday] ChatScreen: messages updated', { matchId, count: msgs.length });
+      setMessages(msgs);
+    }, (error) => {
+      console.error('[DateToday] ChatScreen: messages subscription error', error);
+    });
     return () => {
+      console.log('[DateToday] ChatScreen: unsubscribing', matchId);
       unsubMatch();
       unsubMessages();
     };
