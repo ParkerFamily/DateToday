@@ -113,6 +113,7 @@ export default function ChatScreen() {
   const [match, setMatch] = useState<MatchDoc | null>(null);
   const [matchState, setMatchState] = useState<'loading' | 'ready' | 'missing'>('loading');
   const [messages, setMessages] = useState<MatchMessage[]>([]);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
@@ -147,11 +148,10 @@ export default function ChatScreen() {
       setMatchState('missing');
       return;
     }
-    console.log('[DateToday] ChatScreen: subscribing to match and messages', matchId);
+    setMessagesLoaded(false);
     const unsubMatch = subscribeMatch(
       matchId,
       (m) => {
-        console.log('[DateToday] ChatScreen: match updated', { matchId, exists: Boolean(m) });
         setMatch(m);
         setMatchState(m ? 'ready' : 'missing');
       },
@@ -161,13 +161,13 @@ export default function ChatScreen() {
       },
     );
     const unsubMessages = subscribeMessages(matchId, (msgs) => {
-      console.log('[DateToday] ChatScreen: messages updated', { matchId, count: msgs.length });
       setMessages(msgs);
+      setMessagesLoaded(true);
     }, (error) => {
       console.error('[DateToday] ChatScreen: messages subscription error', error);
+      setMessagesLoaded(true);
     });
     return () => {
-      console.log('[DateToday] ChatScreen: unsubscribing', matchId);
       unsubMatch();
       unsubMessages();
     };
@@ -223,7 +223,7 @@ export default function ChatScreen() {
   };
 
   const openers = useMemo(() => icebreakersFor({ food: '', name: theirName }), [theirName]);
-  const showIcebreakers = matchState === 'ready' && messages.length === 0;
+  const showIcebreakers = matchState === 'ready' && messagesLoaded && messages.length === 0;
   const mySentCount = messages.filter((m) => m.senderId === userId && m.type === 'text').length;
   const hasProposal = messages.some((m) => m.type === 'date_proposal');
 
@@ -421,7 +421,12 @@ export default function ChatScreen() {
           keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           ListHeaderComponent={
-            showIcebreakers ? (
+            !messagesLoaded ? (
+              <View style={styles.loadingMessages}>
+                <ActivityIndicator color={colors.brandBright} />
+                <AppText style={styles.loadingText}>Loading messages…</AppText>
+              </View>
+            ) : showIcebreakers ? (
               <View style={styles.ice}>
                 <AppText style={styles.iceTitle}>
                   YOU MATCHED WITH {theirName.toUpperCase()} · {flowCopy.breakTheIce}
@@ -657,6 +662,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   blockedCopy: { marginBottom: spacing.md },
+  loadingMessages: {
+    paddingVertical: spacing.xl,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
   pressed: { opacity: 0.8 },
   list: { padding: spacing.lg, gap: spacing.sm, flexGrow: 1 },
   ice: {
