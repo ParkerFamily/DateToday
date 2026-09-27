@@ -145,12 +145,16 @@ export async function registerPushTokenAsync(options: { prompt?: boolean } = {})
       });
     }
     if (!perm.granted) {
+      console.log('[DateToday] push notifications not granted');
       await markStoredTokenDisabled();
       return false;
     }
 
     const pid = projectId();
-    if (!pid) return false;
+    if (!pid) {
+      console.warn('[DateToday] no Expo project ID');
+      return false;
+    }
 
     const token = (await Notifications.getExpoPushTokenAsync({ projectId: pid })).data;
     const id = tokenDocId(token);
@@ -184,9 +188,10 @@ export async function registerPushTokenAsync(options: { prompt?: boolean } = {})
       await deleteDoc(doc(getDb(), 'pushTokens', previous)).catch(() => undefined);
     }
     await AsyncStorage.setItem(TOKEN_DOC_KEY, id).catch(() => undefined);
+    console.log('[DateToday] push token registered successfully');
     return true;
   } catch (error) {
-    console.warn('[DateToday] push registration failed', error);
+    console.error('[DateToday] push registration failed', error);
     return false;
   }
 }

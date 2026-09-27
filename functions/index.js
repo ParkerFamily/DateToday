@@ -1126,41 +1126,65 @@ function proposalSummary(p) {
 exports.onMatchMessageCreated = onDocumentCreated(
   'matches/{matchId}/messages/{messageId}',
   async (event) => {
-    const msg = event.data && event.data.data();
-    if (!msg) return;
-    const { matchId, messageId } = event.params;
-    const db = getFirestore();
-    const matchRef = db.collection('matches').doc(matchId);
-    const matchSnap = await matchRef.get();
-    if (!matchSnap.exists) return;
-    const match = matchSnap.data();
-    const senderId = msg.senderId;
-    const otherId = (match.userIds || []).find((u) => u !== senderId);
-    if (!otherId) return;
+    try {
+      const msg = event.data && event.data.data();
+      if (!msg) {
+        console.warn('onMatchMessageCreated: no message data', event.params);
+        return;
+      }
+      const { matchId, messageId } = event.params;
+      const db = getFirestore();
+      const matchRef = db.collection('matches').doc(matchId);
+      const matchSnap = await matchRef.get();
+      if (!matchSnap.exists) {
+        console.warn('onMatchMessageCreated: match not found', { matchId, messageId });
+        return;
+      }
+      const match = matchSnap.data();
+      const senderId = msg.senderId;
+      const otherId = (match.userIds || []).find((u) => u !== senderId);
+      if (!otherId) {
+        console.warn('onMatchMessageCreated: no other user', { matchId, messageId, senderId });
+        return;
+      }
 
-    const isProposal = msg.type === 'date_proposal';
-    const preview = isProposal
-      ? `Date idea: ${proposalSummary(msg.proposal)}`
-      : String(msg.text || '').slice(0, 140);
+      const isProposal = msg.type === 'date_proposal';
+      const preview = isProposal
+        ? `Date idea: ${proposalSummary(msg.proposal)}`
+        : String(msg.text || '').slice(0, 140);
 
-    await matchRef.update({
-      lastMessage: { text: preview, senderId, type: msg.type || 'text', messageId },
-      lastActivityAt: FieldValue.serverTimestamp(),
-      [`unread.${otherId}`]: FieldValue.increment(1),
-    });
-
-    const senderName = match.users?.[senderId]?.displayName || 'Your match';
-    await pushToUser(db, otherId, isProposal
-      ? {
-          title: `${senderName} wants to plan a date`,
-          body: proposalSummary(msg.proposal),
-          data: { type: 'date_proposal', matchId, url: `/chat/${matchId}` },
-        }
-      : {
-          title: senderName,
-          body: preview,
-          data: { type: 'message', matchId, url: `/chat/${matchId}` },
+      try {
+        await matchRef.update({
+          lastMessage: { text: preview, senderId, type: msg.type || 'text', messageId },
+          lastActivityAt: FieldValue.serverTimestamp(),
+          [`unread.${otherId}`]: FieldValue.increment(1),
         });
+      } catch (error) {
+        console.error('onMatchMessageCreated: match update failed', { matchId, messageId, error: String(error) });
+        throw error;
+      }
+
+      const senderName = match.users?.[senderId]?.displayName || 'Your match';
+      try {
+        await pushToUser(db, otherId, isProposal
+          ? {
+              title: `${senderName} wants to plan a date`,
+              body: proposalSummary(msg.proposal),
+              data: { type: 'date_proposal', matchId, url: `/chat/${matchId}` },
+            }
+          : {
+              title: senderName,
+              body: preview,
+              data: { type: 'message', matchId, url: `/chat/${matchId}` },
+            });
+      } catch (error) {
+        // Don't fail the function if push fails — the message is already saved.
+        console.error('onMatchMessageCreated: push failed', { matchId, messageId, otherId, error: String(error) });
+      }
+    } catch (error) {
+      console.error('onMatchMessageCreated: function failed', { params: event.params, error: String(error) });
+      throw error;
+    }
   },
 );
 
