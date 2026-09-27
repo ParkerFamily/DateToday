@@ -569,7 +569,11 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                     }
                   >
                     {p.mainPhotoUrl ? (
-                      <Image source={{ uri: p.mainPhotoUrl }} style={styles.laterAvatar} />
+                      <Image 
+                        source={{ uri: p.mainPhotoUrl, cache: 'force-cache' }} 
+                        style={styles.laterAvatar}
+                        resizeMode="cover"
+                      />
                     ) : (
                       <View style={[styles.laterAvatar, styles.laterAvatarPh]} />
                     )}
@@ -640,7 +644,11 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         >
           <View style={[styles.hero, { height: heroH * 0.92 }]}>
             {card.mainPhotoUrl ? (
-              <Image source={{ uri: card.mainPhotoUrl }} style={styles.media} />
+              <Image 
+                source={{ uri: card.mainPhotoUrl, cache: 'force-cache' }} 
+                style={styles.media}
+                resizeMode="cover"
+              />
             ) : (
               <View style={[styles.media, styles.mediaPlaceholder]}>
                 <AppText style={styles.videoHint}>VIDEO</AppText>
@@ -723,8 +731,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             <View style={styles.videoFrame}>
               {(signature?.thumbnailUrl ?? card.mainPhotoUrl) ? (
                 <Image
-                  source={{ uri: signature?.thumbnailUrl ?? card.mainPhotoUrl! }}
+                  source={{ uri: signature?.thumbnailUrl ?? card.mainPhotoUrl!, cache: 'force-cache' }}
                   style={styles.media}
+                  resizeMode="cover"
                 />
               ) : null}
               <View style={styles.playBtn}>
@@ -736,7 +745,11 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
           {card.mainPhotoUrl ? (
             <View style={styles.photoBlock}>
-              <Image source={{ uri: card.mainPhotoUrl }} style={styles.midPhoto} />
+              <Image 
+                source={{ uri: card.mainPhotoUrl, cache: 'force-cache' }} 
+                style={styles.midPhoto}
+                resizeMode="cover"
+              />
             </View>
           ) : null}
 
@@ -757,8 +770,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             <View style={[styles.videoFrame, styles.videoFrameAlt]}>
               {(about?.thumbnailUrl ?? card.mainPhotoUrl) ? (
                 <Image
-                  source={{ uri: about?.thumbnailUrl ?? card.mainPhotoUrl! }}
+                  source={{ uri: about?.thumbnailUrl ?? card.mainPhotoUrl!, cache: 'force-cache' }}
                   style={styles.media}
+                  resizeMode="cover"
                 />
               ) : null}
               <View style={styles.playBtn}>

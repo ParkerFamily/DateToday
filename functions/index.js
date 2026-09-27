@@ -1173,7 +1173,7 @@ exports.onMatchMessageCreated = onDocumentCreated(
               data: { type: 'date_proposal', matchId, url: `/chat/${matchId}` },
             }
           : {
-              title: senderName,
+              title: `New message from ${senderName}`,
               body: preview,
               data: { type: 'message', matchId, url: `/chat/${matchId}` },
             });
