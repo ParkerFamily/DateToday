@@ -789,7 +789,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
   },
-  send: { minHeight: 48, width: 88, flexGrow: 0, flexShrink: 0 },
+  send: { minHeight: 48, minWidth: 80, paddingHorizontal: 20, flexGrow: 0, flexShrink: 0 },
   lockedComposer: {
     flexDirection: 'row',
     alignItems: 'center',
