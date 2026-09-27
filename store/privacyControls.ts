@@ -16,6 +16,11 @@ export type PrivacyControls = {
   pauseDiscovery: boolean;
   /** Show dating intentions/vibes on public profile. */
   showIntentions: boolean;
+  /**
+   * Read receipts + typing, reciprocal: when off you don't share yours or see anyone's.
+   * Enforced by Firestore rules on matches/{id}/members (read as `privacyControls.readReceipts`).
+   */
+  readReceipts: boolean;
 };
 
 const DEFAULTS: PrivacyControls = {
@@ -23,6 +28,7 @@ const DEFAULTS: PrivacyControls = {
   hideDistance: false,
   pauseDiscovery: false,
   showIntentions: true,
+  readReceipts: true,
 };
 
 type State = PrivacyControls & {
@@ -62,6 +68,7 @@ export const usePrivacyControls = create<State>((set, get) => ({
       hideDistance: next.hideDistance,
       pauseDiscovery: next.pauseDiscovery,
       showIntentions: next.showIntentions,
+      readReceipts: next.readReceipts,
     };
     set({ ...controls });
     await persist(controls);

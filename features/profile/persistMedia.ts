@@ -1,10 +1,14 @@
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { getFirebaseAuth, getDb, getFirebaseStorage } from '@/lib/firebase/client';
+import { getPromptById, TONIGHT_SIGNATURE_PROMPT } from '@/constants/videoPrompts';
 import { isBackendConfigured } from '@/lib/env';
+import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
+import {
+  describeUploadError,
+  remoteMediaUrlOrNull,
+  uploadLocalMedia,
+} from '@/lib/firebase/uploadLocalMedia';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
-import { getPromptById, TONIGHT_SIGNATURE_PROMPT } from '@/constants/videoPrompts';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 
 async function uploadMedia(
   uid: string,
@@ -12,13 +16,61 @@ async function uploadMedia(
   path: string,
   contentType: string,
 ): Promise<string> {
-  if (localUri.startsWith('http://') || localUri.startsWith('https://')) return localUri;
-  const storage = getFirebaseStorage();
-  const objectRef = ref(storage, path);
-  const response = await fetch(localUri);
-  const blob = await response.blob();
-  await uploadBytes(objectRef, blob, { contentType });
-  return getDownloadURL(objectRef);
+  return uploadLocalMedia(path, localUri, contentType);
+}
+
+/**
+ * Save one re-recorded prompt video from Settings: upload it, then write only that slot so a
+ * missing or stale copy of the other video can't block or wipe it.
+ */
+export async function persistPromptVideoSlot(slot: 'about' | 'tonight', localUri: string): Promise<void> {
+  if (!isBackendConfigured()) return;
+  const uid =
+    useSessionStore.getState().userId || getFirebaseAuth().currentUser?.uid || null;
+  if (!uid) throw new Error('You are signed out. Sign in again, then retry.');
+
+  let url: string;
+  try {
+    url = await uploadMedia(uid, localUri, `users/${uid}/videos/${slot}.mp4`, 'video/mp4');
+  } catch (error) {
+    console.warn(`[DateToday] ${slot} video upload failed`, error);
+    throw new Error(describeUploadError(error));
+  }
+
+  const draft = useOnboardingDraft.getState();
+  const aboutPrompt = draft.aboutPromptId ? getPromptById(draft.aboutPromptId) : undefined;
+  const fields =
+    slot === 'about'
+      ? {
+          aboutPromptId: draft.aboutPromptId,
+          aboutPromptText: aboutPrompt?.text ?? null,
+          aboutVideoUrl: url,
+        }
+      : {
+          tonightPromptId: TONIGHT_SIGNATURE_PROMPT.id,
+          tonightPromptText: TONIGHT_SIGNATURE_PROMPT.text,
+          tonightVideoUrl: url,
+        };
+
+  await setDoc(doc(getDb(), 'users', uid), { ...fields, updatedAt: serverTimestamp() }, { merge: true });
+  await setDoc(doc(getDb(), 'profiles', uid), { ...fields, updatedAt: serverTimestamp() }, { merge: true });
+  if (slot === 'about') draft.setAboutVideoUri(url);
+  else draft.setTonightVideoUri(url);
+
+  const profile = useSessionStore.getState().profile;
+  if (profile) {
+    const next = { ...profile, ...fields, updatedAt: new Date().toISOString() };
+    useSessionStore.getState().setProfile({
+      ...next,
+      profileCompletion: {
+        ...profile.profileCompletion,
+        videos: Boolean(next.aboutVideoUrl && next.tonightVideoUrl),
+      },
+    });
+  }
+
+  const { refreshLiveProfileFields } = await import('@/features/live/firestoreLive');
+  await refreshLiveProfileFields(fields).catch(() => undefined);
 }
 
 /**
@@ -31,10 +83,11 @@ export async function persistPromptVideosToAccount(): Promise<void> {
   if (!uid) return;
 
   const draft = useOnboardingDraft.getState();
-  let aboutVideoUrl = draft.aboutVideoUri;
-  let tonightVideoUrl = draft.tonightVideoUri;
+  let aboutVideoUrl = remoteMediaUrlOrNull(draft.aboutVideoUri) ?? draft.aboutVideoUri;
+  let tonightVideoUrl = remoteMediaUrlOrNull(draft.tonightVideoUri) ?? draft.tonightVideoUri;
+  let firstError: unknown = null;
 
-  if (aboutVideoUrl) {
+  if (aboutVideoUrl && !remoteMediaUrlOrNull(aboutVideoUrl)) {
     try {
       aboutVideoUrl = await uploadMedia(
         uid,
@@ -43,11 +96,13 @@ export async function persistPromptVideosToAccount(): Promise<void> {
         'video/mp4',
       );
       draft.setAboutVideoUri(aboutVideoUrl);
-    } catch {
-      /* keep local */
+    } catch (error) {
+      console.warn('[DateToday] about video upload failed', error);
+      firstError ??= error;
+      aboutVideoUrl = remoteMediaUrlOrNull(draft.aboutVideoUri);
     }
   }
-  if (tonightVideoUrl) {
+  if (tonightVideoUrl && !remoteMediaUrlOrNull(tonightVideoUrl)) {
     try {
       tonightVideoUrl = await uploadMedia(
         uid,
@@ -56,10 +111,19 @@ export async function persistPromptVideosToAccount(): Promise<void> {
         'video/mp4',
       );
       draft.setTonightVideoUri(tonightVideoUrl);
-    } catch {
-      /* keep local */
+    } catch (error) {
+      console.warn('[DateToday] tonight video upload failed', error);
+      firstError ??= error;
+      tonightVideoUrl = remoteMediaUrlOrNull(draft.tonightVideoUri);
     }
   }
+
+  // Successful uploads are already stored in the draft; write nothing until every video is up,
+  // otherwise a failed one would overwrite the previously saved URL with null.
+  if (firstError) throw new Error(describeUploadError(firstError));
+
+  aboutVideoUrl = remoteMediaUrlOrNull(aboutVideoUrl);
+  tonightVideoUrl = remoteMediaUrlOrNull(tonightVideoUrl);
 
   const aboutPrompt = draft.aboutPromptId ? getPromptById(draft.aboutPromptId) : undefined;
   const payload = {

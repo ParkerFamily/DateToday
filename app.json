@@ -2,7 +2,7 @@
   "expo": {
     "name": "DateToday",
     "slug": "date-today",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "datetoday",
@@ -141,7 +141,17 @@
           "icon": "./assets/images/icon.png",
           "color": "#7C3AED"
         }
-      ]
+      ],
+      "@react-native-firebase/app",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "dynamic"
+          }
+        }
+      ],
+      "expo-widgets"
     ],
     "experiments": {
       "typedRoutes": true

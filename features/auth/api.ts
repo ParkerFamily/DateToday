@@ -106,8 +106,39 @@ export async function signInWithEmail(input: LoginInput) {
   return { user: { id: cred.user.uid, email: cred.user.email } };
 }
 
+/** Cleanup must never block sign-out: offline Firestore writes can hang indefinitely. */
+async function bestEffort(task: () => Promise<unknown>, ms = 4000) {
+  try {
+    await Promise.race([task(), new Promise((resolve) => setTimeout(resolve, ms))]);
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function signOut() {
   if (!isFirebaseConfigured()) return;
+  const { useSessionStore } = await import('@/store/session');
+  const live = useSessionStore.getState().liveSession;
+  await Promise.all([
+    live
+      ? bestEffort(async () => {
+          const { endFirestoreLiveSession } = await import('@/features/live/firestoreLive');
+          await endFirestoreLiveSession(live.id);
+        })
+      : Promise.resolve(),
+    bestEffort(async () => {
+      const { unregisterPushTokenAsync } = await import('@/features/notifications/push');
+      await unregisterPushTokenAsync();
+    }),
+    bestEffort(async () => {
+      const { endLiveActivity } = await import('@/features/live/liveActivity');
+      await endLiveActivity();
+    }),
+    bestEffort(async () => {
+      const { signOutGoogle } = await import('@/features/auth/social');
+      await signOutGoogle();
+    }),
+  ]);
   await firebaseSignOut(getFirebaseAuth());
 }
 

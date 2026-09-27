@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
@@ -10,6 +11,7 @@ import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { spacing } from '@/constants/theme';
 import type { ReportReason } from '@/types';
 import { reportUser } from '@/features/safety/api';
+import { BLOCK_EXPLAINER, leaveAfterBlock } from '@/features/safety/blockFlow';
 
 const REASONS: { value: ReportReason; label: string }[] = [
   { value: 'harassment', label: 'Harassment' },
@@ -34,7 +36,12 @@ const MIN_PROBLEM_DETAILS = 20;
 
 export default function ReportScreen() {
   const router = useRouter();
-  const { userId, name } = useLocalSearchParams<{ userId?: string; name?: string }>();
+  const { userId, name, block } = useLocalSearchParams<{
+    userId?: string;
+    name?: string;
+    block?: string;
+  }>();
+  const blockFirst = block === '1';
   const [reason, setReason] = useState<string[]>([]);
   const [details, setDetails] = useState('');
   const [loading, setLoading] = useState(false);
@@ -79,12 +86,12 @@ export default function ReportScreen() {
       Alert.alert(
         'Thanks',
         alsoBlock
-          ? 'Report submitted. They’re blocked and won’t show up again.'
+          ? 'Report submitted. They’re blocked, your chat is deleted, and you’ll never see each other again.'
           : 'Our team will review this report.',
-        [{ text: 'OK', onPress: () => router.back() }],
+        [{ text: 'OK', onPress: () => (alsoBlock ? leaveAfterBlock(router) : router.back()) }],
       );
     } catch (error) {
-      Alert.alert('Could not submit', error instanceof Error ? error.message : 'Try again');
+      Alert.alert('Could not submit', friendlyError(error, 'Try again'));
     } finally {
       setLoading(false);
     }
@@ -93,12 +100,13 @@ export default function ReportScreen() {
   return (
     <Screen padded={false}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <SettingsHeader title="Report" />
+        <SettingsHeader title={blockFirst ? 'Report & block' : 'Report'} />
         <AppText variant="secondary">
           {resolvedUserId
             ? 'Reports are confidential. False reports may affect your account.'
             : 'Reporting a general problem? Add enough detail (20+ characters), or open Report from a profile.'}
         </AppText>
+        {resolvedUserId ? <AppText variant="caption">{BLOCK_EXPLAINER}</AppText> : null}
 
         <AppText variant="label">Reason</AppText>
         <OptionGrid
@@ -118,13 +126,34 @@ export default function ReportScreen() {
         />
 
         <View style={styles.actions}>
-          <Button label="Submit report" loading={loading} onPress={() => void submit(false)} />
-          <Button
-            label="Report & block"
-            variant="danger"
-            loading={loading}
-            onPress={() => void submit(true)}
-          />
+          {blockFirst ? (
+            <>
+              <Button
+                label="Report & block"
+                variant="danger"
+                loading={loading}
+                onPress={() => void submit(true)}
+              />
+              <Button
+                label="Report without blocking"
+                variant="secondary"
+                loading={loading}
+                onPress={() => void submit(false)}
+              />
+            </>
+          ) : (
+            <>
+              <Button label="Submit report" loading={loading} onPress={() => void submit(false)} />
+              {resolvedUserId ? (
+                <Button
+                  label="Report & block"
+                  variant="danger"
+                  loading={loading}
+                  onPress={() => void submit(true)}
+                />
+              ) : null}
+            </>
+          )}
           <Button label="Cancel" variant="ghost" onPress={() => router.back()} />
         </View>
       </ScrollView>

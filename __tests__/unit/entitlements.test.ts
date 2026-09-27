@@ -1,9 +1,9 @@
 import {
   DEFAULT_ENTITLEMENTS,
   canSeeAllReceivedPings,
+  conversationAllowance,
   hasEntitlement,
-  messageAllowance,
-  pingMinutesAllowance,
+  matchAllowance,
   maxRadiusMiles,
   type EntitlementState,
 } from '@/lib/entitlements';
@@ -12,8 +12,8 @@ describe('entitlements', () => {
   const plusActive: EntitlementState = {
     plan: 'plus',
     subscriptionStatus: 'active',
-    freePingMinutesPerDay: 30,
-    freeOutgoingMessagesPerDay: 10,
+    freeMatchesPerDay: 1,
+    freeConversationsPerDay: 1,
     plusPlanId: 'monthly',
     productId: 'com.parkerfamily.datetoday.plus.monthly',
     expiresAt: '2026-10-01T00:00:00.000Z',
@@ -25,8 +25,8 @@ describe('entitlements', () => {
   const plusCanceled: EntitlementState = {
     plan: 'plus',
     subscriptionStatus: 'canceled',
-    freePingMinutesPerDay: 30,
-    freeOutgoingMessagesPerDay: 10,
+    freeMatchesPerDay: 1,
+    freeConversationsPerDay: 1,
     plusPlanId: 'weekly',
     productId: 'com.parkerfamily.datetoday.plus.weekly',
     expiresAt: null,
@@ -35,25 +35,25 @@ describe('entitlements', () => {
     billingIssueDetected: false,
   };
 
-  it('free plan meters Ping time and messages', () => {
-    expect(pingMinutesAllowance(DEFAULT_ENTITLEMENTS)).toBe(30);
-    expect(messageAllowance(DEFAULT_ENTITLEMENTS)).toBe(10);
+  it('free plan allows one match and one conversation a day', () => {
+    expect(matchAllowance(DEFAULT_ENTITLEMENTS)).toBe(1);
+    expect(conversationAllowance(DEFAULT_ENTITLEMENTS)).toBe(1);
     expect(maxRadiusMiles(DEFAULT_ENTITLEMENTS)).toBe(25);
     expect(canSeeAllReceivedPings(DEFAULT_ENTITLEMENTS)).toBe(false);
-    expect(hasEntitlement(DEFAULT_ENTITLEMENTS, 'unlimited_pings')).toBe(false);
+    expect(hasEntitlement(DEFAULT_ENTITLEMENTS, 'unlimited_matches')).toBe(false);
   });
 
-  it('active DateToday+ unlocks unlimited Ping + messages', () => {
-    expect(pingMinutesAllowance(plusActive)).toBe('unlimited');
-    expect(messageAllowance(plusActive)).toBe('unlimited');
+  it('active DateToday+ unlocks unlimited matches + messages', () => {
+    expect(matchAllowance(plusActive)).toBe('unlimited');
+    expect(conversationAllowance(plusActive)).toBe('unlimited');
     expect(maxRadiusMiles(plusActive)).toBe(50);
     expect(canSeeAllReceivedPings(plusActive)).toBe(true);
     expect(hasEntitlement(plusActive, 'priority_discovery')).toBe(true);
   });
 
   it('canceled plus does not grant entitlements', () => {
-    expect(hasEntitlement(plusCanceled, 'unlimited_pings')).toBe(false);
-    expect(pingMinutesAllowance(plusCanceled)).toBe(30);
-    expect(messageAllowance(plusCanceled)).toBe(10);
+    expect(hasEntitlement(plusCanceled, 'unlimited_matches')).toBe(false);
+    expect(matchAllowance(plusCanceled)).toBe(1);
+    expect(conversationAllowance(plusCanceled)).toBe(1);
   });
 });

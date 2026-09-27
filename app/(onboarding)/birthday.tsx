@@ -1,23 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { AppText } from '@/components/ui/AppText';
+import { ONBOARD_PROGRESS, OnboardingChrome } from '@/components/onboarding/OnboardingChrome';
+import { friendlyError } from '@/lib/errors';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
-import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
+import { AppText } from '@/components/ui/AppText';
 import { colors } from '@/constants/theme';
-import { useOnboardingDraft } from '@/store/onboardingDraft';
-import { useSessionStore } from '@/store/session';
-import { calculateAge, isAtLeast18 } from '@/utils/time';
 import { syncOnboardingFromFirebaseAuth } from '@/features/auth/social';
 import { persistAgeConfirmation } from '@/features/profile/persistAge';
+import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { useSessionStore } from '@/store/session';
 import { hasEnteredApp } from '@/utils/accountEntry';
+import { calculateAge, isAtLeast18 } from '@/utils/time';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+    Alert,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
+    ScrollView,
+    StyleSheet,
+    View,
+} from 'react-native';
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const ITEM_H = 44;
@@ -116,7 +117,7 @@ export default function BirthdayScreen() {
       }
       router.push('/(onboarding)/agreements');
     } catch (error) {
-      Alert.alert('Could not save age', error instanceof Error ? error.message : 'Try again');
+      Alert.alert('Could not save age', friendlyError(error, 'Try again'));
     } finally {
       setSaving(false);
     }

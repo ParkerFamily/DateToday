@@ -3,6 +3,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { OptionChip } from '@/components/ui/OptionChip';
@@ -127,7 +128,7 @@ export default function DatingPreferencesScreen() {
         { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (e) {
-      Alert.alert('Could not save', e instanceof Error ? e.message : 'Try again.');
+      Alert.alert('Could not save', friendlyError(e, 'Try again.'));
     } finally {
       setSaving(false);
     }

@@ -23,13 +23,14 @@ export default function ItsADateScreen() {
     name?: string;
     venue?: string;
     time?: string;
+    when?: string;
     activity?: string;
     conversationId?: string;
   }>();
 
   const name = params.name ?? 'them';
   const venue = params.venue ?? 'Tonight';
-  const time = params.time ?? '8:30';
+  const when = params.when || `${params.time ?? '8:30'} PM · Tonight`;
 
   const lockDate = (pause: boolean) => {
     setDatePlannedTonight(true);
@@ -53,7 +54,7 @@ export default function ItsADateScreen() {
           <AppText style={styles.title}>{flowCopy.itsADate}</AppText>
           <AppText style={styles.pair}>You + {name}</AppText>
           <AppText style={styles.venue}>{venue}</AppText>
-          <AppText style={styles.time}>{time} PM · Tonight</AppText>
+          <AppText style={styles.time}>{when}</AppText>
         </View>
 
         <View style={styles.actions}>
@@ -79,12 +80,13 @@ export default function ItsADateScreen() {
             variant="ghost"
             onPress={() => {
               lockDate(true);
+              if (router.canGoBack()) {
+                router.back();
+                return;
+              }
               router.replace({
                 pathname: '/chat/[conversationId]',
-                params: {
-                  conversationId: String(params.conversationId ?? 'new'),
-                  name,
-                },
+                params: { conversationId: String(params.conversationId ?? '') },
               });
             }}
           />

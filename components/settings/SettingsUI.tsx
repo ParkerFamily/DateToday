@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
@@ -87,6 +87,42 @@ export function SettingsRow({
       </View>
       <AppText variant="secondary">›</AppText>
     </Pressable>
+  );
+}
+
+export function SettingsToggleRow({
+  label,
+  detail,
+  value,
+  onValueChange,
+  disabled,
+  last,
+}: {
+  label: string;
+  detail?: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  disabled?: boolean;
+  last?: boolean;
+}) {
+  return (
+    <View style={[styles.row, last && styles.rowLast]}>
+      <View style={styles.rowText}>
+        <AppText color={colors.text}>{label}</AppText>
+        {detail ? (
+          <AppText variant="secondary" style={styles.detail}>
+            {detail}
+          </AppText>
+        ) : null}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        disabled={disabled}
+        trackColor={{ true: colors.brandBright, false: colors.border }}
+        accessibilityLabel={label}
+      />
+    </View>
   );
 }
 

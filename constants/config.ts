@@ -1,16 +1,13 @@
 /**
  * DateToday+ commerce + free allowances.
- * One core meter: Ping time (Go Live = enter tonight’s pool).
+ * Going live is free and untimed; the free meter is people, not minutes.
  */
 export const commerceConfig = {
-  /** Free Ping / Go Live minutes per calendar day (local). */
-  freePingMinutesPerDay: 30,
+  /** Free new matches per calendar day (local). */
+  freeMatchesPerDay: 1,
 
-  /** Soft upsell when this many minutes remain on a free Ping. */
-  freePingWarningMinutes: 5,
-
-  /** Free outgoing messages per calendar day. */
-  freeOutgoingMessagesPerDay: 10,
+  /** Free distinct people you can message per calendar day (local). */
+  freeConversationsPerDay: 1,
 
   /** RevenueCat entitlement for DateToday+ */
   plusEntitlementId: 'datetoday_pro',

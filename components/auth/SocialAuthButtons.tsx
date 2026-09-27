@@ -20,6 +20,7 @@ import {
   useGoogleAuthRequest,
 } from '@/features/auth/social';
 import { env } from '@/lib/env';
+import { friendlyError } from '@/lib/errors';
 import { colors, radii } from '@/constants/theme';
 
 type Props = {
@@ -36,8 +37,8 @@ type Props = {
 };
 
 /**
- * AuthSession Google fallback — only mount when iosClientId exists.
- * expo-auth-session crashes on iOS if iosClientId is undefined.
+ * AuthSession Google — iOS only (reverse-client-id scheme).
+ * Android must use native Google Sign-In; Web-client AuthSession rejects custom schemes.
  */
 function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
   const [busy, setBusy] = useState<'apple' | 'google' | null>(null);
@@ -68,7 +69,7 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
       } catch (error) {
         Alert.alert(
           'Google sign-in failed',
-          error instanceof Error ? error.message : 'Try again',
+          friendlyError(error, 'Try again'),
         );
       } finally {
         setBusy(null);
@@ -89,7 +90,7 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
           onSuccess(await signInWithApple());
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Try again';
-          if (!/cancel/i.test(message)) Alert.alert('Apple sign-in failed', message);
+          if (!/cancel/i.test(message)) Alert.alert('Apple sign-in failed', friendlyError(error, 'Try again'));
         } finally {
           setBusy(null);
         }
@@ -116,9 +117,7 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
           } else {
             Alert.alert(
               'Google needs a real build',
-              Platform.OS === 'android'
-                ? 'Google Sign-In does not work in Expo Go. Install the EAS Android build and try again.'
-                : 'Google blocks Expo Go redirects. Use a simulator/dev build or TestFlight.\n\nApple Sign-In still works here.',
+              'Google blocks Expo Go redirects. Use a simulator/dev build or TestFlight.\n\nApple Sign-In still works here.',
             );
             return;
           }
@@ -126,7 +125,7 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
         } catch (error) {
           Alert.alert(
             'Google sign-in failed',
-            error instanceof Error ? error.message : 'Try again',
+            friendlyError(error, 'Try again'),
           );
         } finally {
           setBusy(null);
@@ -136,7 +135,7 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
   );
 }
 
-/** Native Google only — no AuthSession hook (avoids iosClientId crash). */
+/** Native Google only — Android + iOS without iosClientId. */
 function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
   const [busy, setBusy] = useState<'apple' | 'google' | null>(null);
   const [appleOk, setAppleOk] = useState(false);
@@ -159,7 +158,7 @@ function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
           onSuccess(await signInWithApple());
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Try again';
-          if (!/cancel/i.test(message)) Alert.alert('Apple sign-in failed', message);
+          if (!/cancel/i.test(message)) Alert.alert('Apple sign-in failed', friendlyError(error, 'Try again'));
         } finally {
           setBusy(null);
         }
@@ -176,7 +175,7 @@ function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
           Alert.alert(
             'Google needs a real build',
             Platform.OS === 'android'
-              ? 'Google Sign-In does not work in Expo Go. Install the EAS Android build (APK/AAB) and try again.'
+              ? 'Google Sign-In does not work in Expo Go. Install the Play / EAS build and try again.'
               : 'Google Sign-In does not work in Expo Go. Use a simulator/dev build or TestFlight.\n\nApple Sign-In still works here.',
           );
           return;
@@ -185,13 +184,12 @@ function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
           setBusy('google');
           onSuccess(await signInWithGoogleNative());
         } catch (error) {
+          const raw = error instanceof Error ? error.message : '';
+          if (/cancel/i.test(raw)) return;
+          console.warn('[DateToday] Google sign-in failed', error);
           Alert.alert(
             'Google sign-in failed',
-            error instanceof Error
-              ? error.message
-              : Platform.OS === 'android'
-                ? 'Add your EAS/Play SHA-1 to Firebase → Project settings → Android app, download a fresh google-services.json, and rebuild.'
-                : 'Check EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID / EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID in Firebase / Google Cloud.',
+            friendlyError(error, 'Google sign-in didn’t work. Try again, or sign up with email.'),
           );
         } finally {
           setBusy(null);
@@ -273,9 +271,11 @@ function SocialAuthChrome({
 }
 
 export function SocialAuthButtons(props: Props) {
-  // Android: always native Google (Play Services). AuthSession+iosClientId is iOS-oriented.
-  // iOS: AuthSession hook only when iosClientId exists (otherwise native-only).
-  if (Platform.OS === 'android' || !env.googleIosClientId) {
+  // Android: native Google Sign-In only. Web AuthSession + custom scheme is rejected by Google.
+  if (Platform.OS === 'android') {
+    return <SocialAuthNativeOnly {...props} />;
+  }
+  if (!env.googleIosClientId) {
     return <SocialAuthNativeOnly {...props} />;
   }
   return <SocialAuthWithGoogleSession {...props} />;

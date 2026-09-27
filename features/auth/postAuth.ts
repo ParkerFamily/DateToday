@@ -71,6 +71,9 @@ export async function continueAfterSocialAuth(
       if (saved.hasLegalConsent) {
         draft.acceptLegalConsent();
       }
+      if (saved.profile.legalName && !draft.legalName.trim()) {
+        draft.setLegalName(saved.profile.legalName);
+      }
       if (saved.profile.displayName && !draft.displayName.trim()) {
         draft.setDisplayName(saved.profile.displayName);
       }

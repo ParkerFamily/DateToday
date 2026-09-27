@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText, BrandMark } from '@/components/ui/AppText';
 import { TextField } from '@/components/ui/TextField';
 import { Button } from '@/components/ui/Button';
@@ -66,7 +67,7 @@ export default function LoginScreen() {
         router.replace('/(onboarding)/name');
       }
     } catch (error) {
-      Alert.alert('Login failed', error instanceof Error ? error.message : 'Try again');
+      Alert.alert('Login failed', friendlyError(error, 'Try again'));
     } finally {
       setLoading(false);
     }

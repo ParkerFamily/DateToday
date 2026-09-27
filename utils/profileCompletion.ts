@@ -1,5 +1,8 @@
 import type { ProfileCompletionRequirements } from '@/types';
 
+/** Counted in completion % but not required to Go Live. */
+const OPTIONAL_FOR_LIVE: ReadonlySet<keyof ProfileCompletionRequirements> = new Set(['videos']);
+
 export function missingLiveRequirements(
   requirements: ProfileCompletionRequirements,
 ): string[] {
@@ -15,7 +18,7 @@ export function missingLiveRequirements(
   };
 
   return (Object.keys(requirements) as (keyof ProfileCompletionRequirements)[])
-    .filter((key) => !requirements[key])
+    .filter((key) => !requirements[key] && !OPTIONAL_FOR_LIVE.has(key))
     .map((key) => labels[key]);
 }
 

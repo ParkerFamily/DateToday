@@ -1,42 +1,40 @@
+import {
+    ProfileMediaViewer,
+    PromptVideoTile,
+    type MediaViewerItem,
+} from '@/components/profile/ProfileMediaViewer';
+import { SettingsHeader } from '@/components/settings/SettingsUI';
+import { AppText } from '@/components/ui/AppText';
+import { Screen } from '@/components/ui/Screen';
+import { colors, radii, spacing } from '@/constants/theme';
+import { TONIGHT_SIGNATURE_PROMPT, getPromptById } from '@/constants/videoPrompts';
+import { isBackendConfigured } from '@/lib/env';
+import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
+import {
+    describeUploadError,
+    remoteMediaUrlOrNull,
+    uploadLocalMedia,
+} from '@/lib/firebase/uploadLocalMedia';
+import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { useSessionStore } from '@/store/session';
+import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { Screen } from '@/components/ui/Screen';
-import { AppText } from '@/components/ui/AppText';
-import { SettingsHeader } from '@/components/settings/SettingsUI';
-import {
-  ProfileMediaViewer,
-  PromptVideoTile,
-  type MediaViewerItem,
-} from '@/components/profile/ProfileMediaViewer';
-import { TONIGHT_SIGNATURE_PROMPT, getPromptById } from '@/constants/videoPrompts';
-import { colors, radii, spacing } from '@/constants/theme';
-import { useSessionStore } from '@/store/session';
-import { useOnboardingDraft } from '@/store/onboardingDraft';
-import { getFirebaseAuth, getDb, getFirebaseStorage } from '@/lib/firebase/client';
-import { isBackendConfigured } from '@/lib/env';
 
 const MAX_PHOTOS = 3;
 
 async function uploadSlot(uid: string, localUri: string, path: string, contentType: string) {
-  if (localUri.startsWith('http://') || localUri.startsWith('https://')) return localUri;
-  const storage = getFirebaseStorage();
-  const objectRef = ref(storage, path);
-  const response = await fetch(localUri);
-  const blob = await response.blob();
-  await uploadBytes(objectRef, blob, { contentType });
-  return getDownloadURL(objectRef);
+  return uploadLocalMedia(path, localUri, contentType);
 }
 
 function normalizePhotos(profilePhotos: string[] | undefined, main: string | null | undefined) {
@@ -97,14 +95,15 @@ export default function MediaSettingsScreen() {
     const uid =
       useSessionStore.getState().userId ||
       (isBackendConfigured() ? getFirebaseAuth().currentUser?.uid : null);
-    const main = next[0] ?? null;
+    const remoteNext = next.map((u) => remoteMediaUrlOrNull(u)).filter(Boolean) as string[];
+    const main = remoteNext[0] ?? remoteMediaUrlOrNull(next[0]) ?? null;
     setPhotos(next);
-    draft.setMainPhotoUri(main);
+    draft.setMainPhotoUri(main ?? next[0] ?? null);
     if (profile) {
       setProfile({
         ...profile,
         mainPhotoUrl: main,
-        photoUrls: next,
+        photoUrls: remoteNext.length ? remoteNext : next,
         updatedAt: new Date().toISOString(),
         profileCompletion: {
           ...profile.profileCompletion,
@@ -117,7 +116,7 @@ export default function MediaSettingsScreen() {
         doc(getDb(), 'users', uid),
         {
           mainPhotoUrl: main,
-          photoUrls: next,
+          photoUrls: remoteNext,
           updatedAt: serverTimestamp(),
         },
         { merge: true },
@@ -126,7 +125,7 @@ export default function MediaSettingsScreen() {
         doc(getDb(), 'profiles', uid),
         {
           mainPhotoUrl: main,
-          photoUrls: next,
+          photoUrls: remoteNext,
           updatedAt: serverTimestamp(),
         },
         { merge: true },
@@ -141,32 +140,60 @@ export default function MediaSettingsScreen() {
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [3, 4],
-        quality: 0.85,
+        quality: 0.75,
+        // iCloud "Optimize Storage" photos aren't on-device; without this iOS returns no usable file.
+        shouldDownloadFromNetwork: true,
       });
       if (result.canceled || !result.assets[0]?.uri) return;
-
-      let url = result.assets[0].uri;
-      const uid =
-        useSessionStore.getState().userId ||
-        (isBackendConfigured() ? getFirebaseAuth().currentUser?.uid : null);
-
-      if (isBackendConfigured() && uid) {
-        try {
-          url = await uploadSlot(uid, url, `users/${uid}/photos/${slot}.jpg`, 'image/jpeg');
-        } catch {
-          // Keep local URI if Storage upload fails.
-        }
-      }
-
-      const next = [...photos];
-      while (next.length <= slot) next.push('');
-      next[slot] = url;
-      await persistPhotos(next.filter(Boolean).slice(0, MAX_PHOTOS));
+      await uploadPhoto(slot, result.assets[0].uri);
     } catch {
       Alert.alert('Could not update photo');
     } finally {
       setBusySlot(null);
     }
+  };
+
+  /** Upload first; the profile only ever receives the Storage download URL. */
+  const uploadPhoto = async (slot: number, localUri: string) => {
+    let url = localUri;
+    const uid =
+      useSessionStore.getState().userId ||
+      (isBackendConfigured() ? getFirebaseAuth().currentUser?.uid : null);
+
+    if (isBackendConfigured() && uid) {
+      try {
+        url = await uploadSlot(uid, localUri, `users/${uid}/photos/${slot}.jpg`, 'image/jpeg');
+      } catch (error) {
+        console.warn('[DateToday] photo upload failed', error);
+        Alert.alert(
+          'Photo upload failed',
+          `${describeUploadError(error)}\n\nYour photo is still selected, so you won’t need to pick it again.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Try again',
+              onPress: () => {
+                setBusySlot(slot);
+                void uploadPhoto(slot, localUri)
+                  .catch(() => Alert.alert('Could not update photo'))
+                  .finally(() => setBusySlot(null));
+              },
+            },
+          ],
+        );
+        return;
+      }
+    }
+
+    if (isBackendConfigured() && !remoteMediaUrlOrNull(url)) {
+      Alert.alert('Photo upload failed', 'Check your connection and try again.');
+      return;
+    }
+
+    const next = [...photos];
+    while (next.length <= slot) next.push('');
+    next[slot] = url;
+    await persistPhotos(next.filter(Boolean).slice(0, MAX_PHOTOS));
   };
 
   const removePhoto = (slot: number) => {

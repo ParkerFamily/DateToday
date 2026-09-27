@@ -43,6 +43,8 @@ export async function activateTonightBoost(): Promise<LiveSession> {
   };
   useSessionStore.getState().setLiveSession(next);
   await writeBoost({ sessionId: session.id, boostedAt });
+  const { syncLiveSessionPatch } = await import('@/features/live/restoreLiveSession');
+  await syncLiveSessionPatch({ isBoosted: true, boostedAt });
   return next;
 }
 
@@ -110,6 +112,13 @@ export function extendPingForPlusUnlock(): LiveSession | null {
     availabilityLabel: liveSession.availabilityLabel ?? 'DateToday+',
   };
   setLiveSession(next);
+  void import('@/features/live/restoreLiveSession').then(({ syncLiveSessionPatch }) =>
+    syncLiveSessionPatch({
+      expiresAt: next.expiresAt,
+      availableUntil: next.availableUntil,
+      availabilityLabel: next.availabilityLabel,
+    }),
+  );
   return next;
 }
 

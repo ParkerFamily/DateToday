@@ -1,52 +1,62 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '@/components/ui/Screen';
+import { DtIconHero } from '@/components/onboarding/DtIconHero';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { CloseButton, dismissToLive } from '@/components/ui/CloseButton';
 import { LiveBadge } from '@/components/ui/LiveBadge';
-import { VerificationTag } from '@/components/ui/VerificationTag';
-import { OptionChip } from '@/components/ui/OptionChip';
-import { radiusPresets } from '@/constants/copy';
-import { DEMO_VIDEO_PROMPTS, demoVideoPromptsFor, demoCity } from '@/constants/demoTonight';
 import {
-  flowCopy,
-  formatLaterHour,
-  formatPingMatchLine,
-} from '@/constants/flow';
-import { promptDisplayLabel } from '@/constants/videoPrompts';
-import { foodLabel } from '@/constants/tonightVibe';
-import { colors, radii, spacing } from '@/constants/theme';
-import { DtIconHero } from '@/components/onboarding/DtIconHero';
-import {
-  BlockLabel,
-  LiveAtmosphere,
-  UnderlineTabs,
-  livePad,
+    BlockLabel,
+    LiveAtmosphere,
+    UnderlineTabs,
+    livePad,
 } from '@/components/ui/LiveChrome';
-import { formatDistanceMiles, formatLiveUntil, isLiveSessionActive } from '@/utils/time';
-import type { DiscoveryCard, FoodCuisine, TonightActivity } from '@/types';
-import { useSessionStore } from '@/store/session';
-import { useDiscoverFilters } from '@/store/discoverFilters';
-import { useBlocksStore } from '@/store/blocks';
-import { env, isBackendConfigured } from '@/lib/env';
-import { fetchDiscoveryFeed, sendPing } from '@/services/api';
-import { tonightCompatibility } from '@/utils/tonightCompatibility';
-import { canUseAdvancedFilters, canUsePriorityPool } from '@/lib/entitlements';
+import { OptionChip } from '@/components/ui/OptionChip';
+import { Screen } from '@/components/ui/Screen';
+import { VerificationTag } from '@/components/ui/VerificationTag';
+import { radiusPresets } from '@/constants/copy';
+import { DEMO_VIDEO_PROMPTS, demoCity, demoVideoPromptsFor } from '@/constants/demoTonight';
+import {
+    flowCopy,
+    formatLaterHour,
+    formatPingMatchLine,
+} from '@/constants/flow';
+import { colors, radii, spacing } from '@/constants/theme';
+import { foodLabel } from '@/constants/tonightVibe';
+import { promptDisplayLabel } from '@/constants/videoPrompts';
 import { compareDiscoveryRank } from '@/lib/commerce/sessionCommerce';
+import { openUpgrade } from '@/lib/commerce/upgradePrompt';
+import { canMatchToday } from '@/lib/usage/dailyLimits';
+import { applyDiscoverFilters } from '@/features/discover/applyFilters';
+import { sharedInterests } from '@/constants/interests';
+import { FilterBar } from '@/components/discover/FilterBar';
+import { canUseAdvancedFilters, canUsePriorityPool } from '@/lib/entitlements';
+import { env, isBackendConfigured } from '@/lib/env';
 import { useContentLayout } from '@/lib/layout';
+import { fetchDiscoveryFeed, sendPing } from '@/services/api';
+import { subscribeActiveLiveSessions } from '@/features/live/firestoreLive';
+import { sendInterest, subscribeSentInterests } from '@/features/matches/api';
+import { registerPushTokenAsync } from '@/features/notifications/push';
+import { useHiddenUserMap } from '@/store/blocks';
+import { useDiscoverFilters } from '@/store/discoverFilters';
+import { useMatchesStore } from '@/store/matches';
+import { useSessionStore } from '@/store/session';
+import type { DiscoveryCard, FoodCuisine, TonightActivity } from '@/types';
+import { formatDistanceMiles, formatLiveUntil, isLiveSessionActive } from '@/utils/time';
+import { tonightCompatibility } from '@/utils/tonightCompatibility';
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+    Alert,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const ACTIVITY_EMOJI: Record<string, string> = {
   drinks: '🍸',
@@ -89,18 +99,28 @@ function activityLabel(a: string): string {
 interface DiscoverFeedProps {
   /** When true, show close control (modal route). Tab hides it. */
   showClose?: boolean;
+  /** Rendered above the feed (Live tab status bar). The feed then skips its own top safe-area padding. */
+  liveHeader?: ReactNode;
 }
 
-export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
+export const DiscoverFeed = memo(DiscoverFeedInner);
+
+function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const topPad = liveHeader ? 0 : insets.top;
   const { layoutHeight } = useContentLayout();
   const scrollRef = useRef<ScrollView>(null);
-  const [index, setIndex] = useState(0);
+  /** People passed or hearted this Live session — never shown again after a feed refresh. */
+  const [handled, setHandled] = useState<Set<string>>(() => new Set());
+  const [sentTo, setSentTo] = useState<Set<string>>(() => new Set());
   const [interestedLoading, setInterestedLoading] = useState(false);
   const [interestFlash, setInterestFlash] = useState(false);
   /** Preview: first ♥ is one-way interest; second ♥ simulates mutual match */
   const interestsSentRef = useRef(0);
+  const uid = useSessionStore((s) => s.userId);
+  const matches = useMatchesStore((s) => s.matches);
   const liveSession = useSessionStore((s) => s.liveSession);
   const discoveryPaused = useSessionStore((s) => s.discoveryPaused);
   const setDiscoverAttention = useSessionStore((s) => s.setDiscoverAttention);
@@ -109,7 +129,7 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
   const profile = useSessionStore((s) => s.profile);
   const entitlements = useSessionStore((s) => s.entitlements);
   const filters = useDiscoverFilters();
-  const blockedMap = useBlocksStore((s) => s.byId);
+  const blockedMap = useHiddenUserMap();
   const live = liveSession ? isLiveSessionActive(liveSession, new Date()) : false;
   const priorityPool = canUsePriorityPool(entitlements);
   const plusFoods = canUseAdvancedFilters(entitlements);
@@ -129,6 +149,37 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     refetchInterval: live ? 45_000 : false,
   });
 
+  useEffect(() => {
+    setHandled(new Set());
+  }, [liveSession?.id]);
+
+  useEffect(() => {
+    if (!live || !uid || !isBackendConfigured()) return;
+    return subscribeSentInterests(uid, setSentTo);
+  }, [live, uid]);
+
+  // Someone going live nearby shows up without waiting for the 45s poll.
+  useEffect(() => {
+    if (!live || !isBackendConfigured()) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = subscribeActiveLiveSessions(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ['discovery-feed'] });
+      }, 1500);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsub();
+    };
+  }, [live, queryClient]);
+
+  const matchedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of matches) for (const u of m.userIds) if (u !== uid) ids.add(u);
+    return ids;
+  }, [matches, uid]);
+
   const myVibe = useMemo(
     () => ({
       activities: (liveSession?.activities ?? []) as TonightActivity[],
@@ -136,6 +187,7 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     }),
     [liveSession],
   );
+  const myInterests = profile?.interests ?? null;
 
   /** Real Firestore/Supabase feed only — never invent people when empty. */
   const rawFeed = useMemo((): DiscoveryCard[] => {
@@ -149,58 +201,30 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
   const nearbyBeforeFilters = useMemo(() => {
     return rawFeed
       .filter((c) => c.distanceMiles <= filters.maxDistanceMiles)
-      .filter((c) => !blockedMap[c.userId]);
-  }, [rawFeed, filters.maxDistanceMiles, blockedMap]);
+      .filter((c) => !blockedMap[c.userId])
+      .filter((c) => !handled.has(c.userId) && !sentTo.has(c.userId) && !matchedIds.has(c.userId));
+  }, [rawFeed, filters.maxDistanceMiles, blockedMap, handled, sentTo, matchedIds]);
 
   const cards = useMemo(() => {
-    let list = [...nearbyBeforeFilters];
-
-    if (filters.verifiedOnly) {
-      list = list.filter((c) => c.verificationStatus === 'verified');
-    }
-
-    if (filters.vibeFilter.length) {
-      const matchAll = filters.matchAllFilters && plusFoods;
-      list = list.filter((c) =>
-        matchAll
-          ? filters.vibeFilter.every((v) => c.activities.includes(v))
-          : c.activities.some((a) => filters.vibeFilter.includes(a)),
-      );
-    }
-    if (filters.foodFilter.length) {
-      const foods = plusFoods ? filters.foodFilter : filters.foodFilter.slice(0, 1);
-      const matchAll = filters.matchAllFilters && plusFoods;
-      list = list.filter((c) => {
-        const theirs = c.foodCuisines ?? [];
-        if (matchAll) {
-          return foods.every((f) => theirs.includes(f) || theirs.includes('anything'));
-        }
-        return theirs.some((f) => foods.includes(f) || f === 'anything');
-      });
-    }
-    if (filters.freeUntilHour != null) {
-      list = list.filter((c) => new Date(c.liveUntil).getHours() >= filters.freeUntilHour!);
-    }
+    let list = applyDiscoverFilters(nearbyBeforeFilters, filters, { plus: plusFoods, myInterests });
 
     // Live Now first; Later Tonight stays in pool but ranked after.
     list = list.filter((c) => c.availabilityMode !== 'later');
 
+    // Each shared interest is worth a bit less than a shared plan for tonight.
+    const score = (c: DiscoveryCard) =>
+      tonightCompatibility(myVibe, { activities: c.activities, foodCuisines: c.foodCuisines }).score +
+      sharedInterests(myInterests, c.interests).length * 4;
     return [...list].sort((a, b) => {
-      const sa = tonightCompatibility(myVibe, {
-        activities: a.activities,
-        foodCuisines: a.foodCuisines,
-      }).score;
-      const sb = tonightCompatibility(myVibe, {
-        activities: b.activities,
-        foodCuisines: b.foodCuisines,
-      }).score;
+      const sa = score(a);
+      const sb = score(b);
       return compareDiscoveryRank(
         { isBoosted: a.isBoosted, distanceMiles: a.distanceMiles, compatScore: sa },
         { isBoosted: b.isBoosted, distanceMiles: b.distanceMiles, compatScore: sb },
         { priorityPool },
       );
     });
-  }, [nearbyBeforeFilters, filters, myVibe, priorityPool, plusFoods]);
+  }, [nearbyBeforeFilters, filters, myVibe, priorityPool, plusFoods, myInterests]);
 
   const laterTonight = useMemo(() => {
     return nearbyBeforeFilters
@@ -216,10 +240,6 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     if (live) setPingResults(cards.length);
   }, [live, cards.length, setPingResults]);
 
-  useEffect(() => {
-    setIndex(0);
-  }, [filters.maxDistanceMiles, filters.verifiedOnly, filters.freeUntilHour, filters.vibeFilter, filters.foodFilter]);
-
   const pingSummary = useMemo(() => {
     const acts = (liveSession?.activities ?? []).map(
       (a) => a.charAt(0).toUpperCase() + a.slice(1),
@@ -234,37 +254,42 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
     return bits.join(' · ');
   }, [liveSession, filters.maxDistanceMiles]);
 
-  const card = cards[index];
+  const card = cards[0];
   const compat = card
     ? tonightCompatibility(myVibe, {
         activities: card.activities,
         foodCuisines: card.foodCuisines,
       })
     : null;
+  const commonInterests = card ? sharedInterests(myInterests, card.interests) : [];
   const prompts = card?.videoPrompts ?? [];
   const signature = prompts.find((p) => p.kind === 'tonight_signature') ?? prompts[0];
   const about = prompts.find((p) => p.kind === 'about_you') ?? prompts[1];
   const tonightFeeling = (card?.activities ?? []).map(activityLabel).join(' · ');
 
-  const goNext = () => {
+  const markHandled = (userId: string) => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
-    if (index < cards.length - 1) setIndex((i) => i + 1);
-    else setIndex(cards.length);
+    setHandled((prev) => new Set(prev).add(userId));
   };
 
-  const showInterestSentThenAdvance = () => {
+  const goNext = () => {
+    if (card) markHandled(card.userId);
+  };
+
+  const showInterestSentThenAdvance = (userId: string) => {
     setInterestFlash(true);
     setTimeout(() => {
       setInterestFlash(false);
-      goNext();
+      markHandled(userId);
     }, 1100);
   };
 
-  const openMatch = (target: DiscoveryCard) => {
+  const openMatch = (target: DiscoveryCard, matchId: string) => {
     const matchCompat = tonightCompatibility(myVibe, {
       activities: target.activities,
       foodCuisines: target.foodCuisines,
     });
+    markHandled(target.userId);
     router.push({
       pathname: '/mutual',
       params: {
@@ -272,40 +297,46 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
         photo: target.mainPhotoUrl ?? '',
         food: matchCompat.sharedFood[0] ?? '',
         activities: (target.activities ?? []).join(','),
-        conversationId: `preview-${target.userId}`,
+        matchId,
       },
     });
   };
 
   const onInterested = async () => {
     if (!card || interestFlash) return;
+    if (!canMatchToday(entitlements, matches).ok) {
+      openUpgrade(router, 'match');
+      return;
+    }
     try {
       setInterestedLoading(true);
       // Never invent mutual matches from demo ids outside explicit mock mode.
       if (env.useMockData && card.userId.startsWith('demo-')) {
         interestsSentRef.current += 1;
         if (interestsSentRef.current === 1) {
-          showInterestSentThenAdvance();
+          showInterestSentThenAdvance(card.userId);
         } else {
-          openMatch(card);
+          openMatch(card, `preview-${card.userId}`);
         }
         return;
       }
-      if (!env.supabaseUrl) {
-        // Firebase interest path — acknowledge honestly (no fake mutual).
-        showInterestSentThenAdvance();
+      if (isBackendConfigured()) {
+        void registerPushTokenAsync({ prompt: true });
+        const result = await sendInterest(card.userId);
+        if (result.mutual && result.matchId) openMatch(card, result.matchId);
+        else showInterestSentThenAdvance(card.userId);
         return;
       }
       const result = await sendPing(card.userId);
-      if (result.mutual) {
-        openMatch(card);
+      if (result.mutual && result.matchId) {
+        openMatch(card, result.matchId);
       } else {
-        showInterestSentThenAdvance();
+        showInterestSentThenAdvance(card.userId);
       }
     } catch (error) {
       Alert.alert(
         'Could not send interest',
-        error instanceof Error ? error.message : 'Try again',
+        friendlyError(error, 'Try again'),
       );
     } finally {
       setInterestedLoading(false);
@@ -314,13 +345,14 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
 
   if (live && discoveryPaused) {
     return (
-      <Screen padded={false}>
+      <Screen padded={false} edges={liveHeader ? ['left', 'right'] : undefined}>
         <LinearGradient
           colors={['#0A0A0C', '#09090B']}
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
-        <View style={[styles.quietPad, { paddingTop: insets.top + spacing.md }]}>
+        {liveHeader}
+        <View style={[styles.quietPad, { paddingTop: topPad + spacing.md }]}>
           <View style={styles.quiet}>
             <AppText style={styles.quietTitle}>Discovery paused.</AppText>
             <AppText variant="secondary" style={styles.quietBody}>
@@ -332,7 +364,7 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
               style={styles.quietCta}
             />
             <Button
-              label="VIEW DATES"
+              label="VIEW MATCHES"
               variant="secondary"
               onPress={() => router.push('/(tabs)/dates')}
               style={styles.quietCta}
@@ -431,16 +463,18 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
       radiusPresets.find((mi) => mi > radiusMi) ?? radiusPresets[radiusPresets.length - 1];
 
     return (
-      <Screen padded={false}>
+      <Screen padded={false} edges={liveHeader ? ['left', 'right'] : undefined}>
         <LinearGradient
           colors={['#0A0A0C', '#09090B']}
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
+        {liveHeader}
+        {liveHeader ? <FilterBar /> : null}
         <ScrollView
           contentContainerStyle={[
             styles.quietPad,
-            { paddingTop: insets.top + spacing.md, paddingBottom: 48 },
+            { paddingTop: topPad + spacing.md, paddingBottom: 48 },
           ]}
         >
           {showClose ? <CloseButton onPress={() => dismissToLive(router)} /> : null}
@@ -575,7 +609,8 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
   return (
     <Screen padded={false} edges={['left', 'right']}>
       <View style={styles.stage}>
-        <View style={[styles.pingHeader, { paddingTop: insets.top + 8 }]}>
+        {liveHeader}
+        <View style={[styles.pingHeader, { paddingTop: topPad + 8 }]}>
           <View style={styles.pingHeaderLeft}>
             <AppText style={styles.pingHeaderEyebrow}>{flowCopy.yourPing}</AppText>
             <AppText style={styles.pingHeaderTitle}>
@@ -593,15 +628,9 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
             >
               <Ionicons name="heart-outline" size={18} color={colors.brandBright} />
             </Pressable>
-            <Pressable
-              onPress={() => router.push('/filters')}
-              style={styles.filterBtn}
-              accessibilityLabel="Filters"
-            >
-              <Ionicons name="options-outline" size={18} color={colors.text} />
-            </Pressable>
           </View>
         </View>
+        <FilterBar />
 
         <ScrollView
           ref={scrollRef}
@@ -665,9 +694,19 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
                   </View>
                 ))}
               </View>
+              {commonInterests.length ? (
+                <View style={styles.sharedRow}>
+                  <Ionicons name="heart" size={12} color={colors.brandBright} />
+                  <AppText style={styles.sharedText} numberOfLines={1}>
+                    {commonInterests.length} in common · {commonInterests.slice(0, 3).join(', ')}
+                    {commonInterests.length > 3 ? '…' : ''}
+                  </AppText>
+                </View>
+              ) : null}
             </View>
           </View>
 
+          {signature ? (
           <View style={styles.block}>
             <View style={styles.promptHead}>
               <Ionicons name="videocam" size={14} color={colors.live} />
@@ -693,6 +732,7 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
               </View>
             </View>
           </View>
+          ) : null}
 
           {card.mainPhotoUrl ? (
             <View style={styles.photoBlock}>
@@ -700,6 +740,7 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
             </View>
           ) : null}
 
+          {about ? (
           <View style={styles.block}>
             <View style={styles.promptHead}>
               <Ionicons name="videocam" size={14} color={colors.brandBright} />
@@ -725,6 +766,7 @@ export function DiscoverFeed({ showClose = false }: DiscoverFeedProps) {
               </View>
             </View>
           </View>
+          ) : null}
 
           <View style={styles.block}>
             <AppText style={styles.sectionLabel}>Tonight</AppText>
@@ -892,6 +934,25 @@ const styles = StyleSheet.create({
     color: colors.live,
     fontSize: 13,
     fontWeight: '700',
+  },
+  sharedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(124,58,237,0.28)',
+    borderWidth: 1,
+    borderColor: 'rgba(168,85,247,0.55)',
+    maxWidth: '100%',
+  },
+  sharedText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    flexShrink: 1,
   },
   heroMeta: {
     position: 'absolute',

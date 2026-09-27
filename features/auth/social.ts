@@ -15,7 +15,7 @@ import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
 import { assertFirebaseConfigured, env } from '@/lib/env';
 import { analytics } from '@/lib/analytics';
-import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { firstName, useOnboardingDraft } from '@/store/onboardingDraft';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -45,6 +45,16 @@ export function googleIosRedirectUri(): string | undefined {
   const guid = iosClientId.replace(/\.apps\.googleusercontent\.com$/i, '');
   if (!guid || guid === iosClientId) return undefined;
   return `com.googleusercontent.apps.${guid}:/oauthredirect`;
+}
+
+/** Forget the cached Google account so the next "Continue with Google" shows the picker. */
+export async function signOutGoogle(): Promise<void> {
+  if (Platform.OS !== 'android' || isExpoGo()) return;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { GoogleSignin } = require('@react-native-google-signin/google-signin') as {
+    GoogleSignin: { signOut: () => Promise<null> };
+  };
+  await GoogleSignin.signOut();
 }
 
 export function isExpoGo(): boolean {
@@ -176,8 +186,11 @@ export async function signInWithApple(): Promise<SocialAuthResult> {
 }
 
 /**
- * Native Google Sign-In (dev/production builds). Falls back to AuthSession outside Expo Go.
+ * Native Google Sign-In (dev/production builds).
  * Expo Go cannot complete Google OAuth (redirect URI is blocked by Google).
+ *
+ * Android Play builds need the Play App Signing SHA-1 in Firebase/GCP.
+ * webClientId must be the Web OAuth client (type 3) — required for idToken.
  */
 export async function signInWithGoogleNative(): Promise<SocialAuthResult> {
   assertFirebaseConfigured();
@@ -187,24 +200,36 @@ export async function signInWithGoogleNative(): Promise<SocialAuthResult> {
     );
   }
 
+  // Public Web client from google-services.json (client_type 3). Safe to embed —
+  // required so Play builds still get an idToken even if env inlining fails.
+  const FIREBASE_WEB_CLIENT_ID =
+    '626033907762-6c3mb8spcs4ppomfsjm4um135t5t443o.apps.googleusercontent.com';
+
   // Lazy require so Expo Go doesn't crash on import if native module is missing.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { GoogleSignin } = require('@react-native-google-signin/google-signin') as {
     GoogleSignin: {
       configure: (opts: Record<string, unknown>) => void;
       hasPlayServices: (opts?: { showPlayServicesUpdateDialog?: boolean }) => Promise<boolean>;
-      signIn: () => Promise<{ data?: { idToken?: string | null } | null; idToken?: string | null }>;
+      signIn: () => Promise<
+        | { type: 'success'; data: { idToken: string | null } }
+        | { type: 'cancelled'; data: null }
+      >;
+      signOut: () => Promise<null>;
+      getTokens: () => Promise<{ idToken: string; accessToken: string }>;
     };
   };
 
-  if (!env.googleWebClientId) {
+  const webClientId = (env.googleWebClientId || FIREBASE_WEB_CLIENT_ID).trim();
+  if (!webClientId || !webClientId.includes('.apps.googleusercontent.com')) {
     throw new Error(
-      'Missing EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID. Create a Web OAuth client in Google Cloud (not the iOS one) and paste its Client ID.',
+      'Missing Google Web client ID. Use the Web OAuth client from Firebase (not the Android one).',
     );
   }
 
   GoogleSignin.configure({
-    webClientId: env.googleWebClientId,
+    webClientId,
+    scopes: ['openid', 'profile', 'email'],
     ...(env.googleIosClientId ? { iosClientId: env.googleIosClientId } : {}),
     offlineAccess: false,
   });
@@ -220,16 +245,25 @@ export async function signInWithGoogleNative(): Promise<SocialAuthResult> {
   }
 
   analytics.track('signup_started', { provider: 'google' });
-  let response: { data?: { idToken?: string | null } | null; idToken?: string | null };
+
+  // Clear stale session so a prior partial sign-in cannot return a user without idToken.
+  try {
+    await GoogleSignin.signOut();
+  } catch {
+    // ignore — no prior session
+  }
+
+  let response: { type: 'success'; data: { idToken: string | null } } | { type: 'cancelled'; data: null };
   try {
     response = await GoogleSignin.signIn();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/10:|DEVELOPER_ERROR|ApiException: 10/i.test(message)) {
       throw new Error(
-        'Android Google Sign-In needs SHA fingerprints in Firebase. ' +
-          'Firebase Console → Project settings → Your apps → Android (com.parkerfamily.datetoday) → Add fingerprint. ' +
-          'Add BOTH the EAS upload-keystore SHA-1 and the Play App Signing SHA-1, then download a new google-services.json and rebuild.',
+        'Google blocked this Android install (error 10). ' +
+          'Play Console → App integrity → App signing key certificate SHA-1 must be in Firebase ' +
+          'AND Google Cloud → Credentials → Android OAuth client. ' +
+          'Expected: 1E:7D:81:1A:62:40:FA:D6:55:AA:D1:0B:04:1D:F1:FC:CF:4D:AA:1E',
       );
     }
     if (/cancel|12501|SIGN_IN_CANCELLED/i.test(message)) {
@@ -237,19 +271,45 @@ export async function signInWithGoogleNative(): Promise<SocialAuthResult> {
     }
     throw error instanceof Error ? error : new Error(message);
   }
-  const idToken = response.data?.idToken ?? response.idToken;
+
+  if (response.type === 'cancelled') {
+    throw new Error('Google sign-in was cancelled.');
+  }
+
+  let idToken = response.data?.idToken ?? null;
   if (!idToken) {
-    throw new Error('Google did not return an ID token. Check that webClientId is your Web OAuth client.');
+    try {
+      const tokens = await GoogleSignin.getTokens();
+      idToken = tokens.idToken || null;
+    } catch (tokenError) {
+      console.warn('[DateToday] Google getTokens failed', tokenError);
+    }
+  }
+
+  if (!idToken) {
+    throw new Error(
+      'Google signed in but returned no ID token. ' +
+        'On a Play Store install this usually means the Play App Signing SHA-1 is missing ' +
+        'from Firebase / Google Cloud (emulator uses a different key, so it can still work). ' +
+        'Play Console → App integrity → copy App signing SHA-1 → Firebase Android app fingerprints.',
+    );
   }
 
   return finishGoogleSignIn(idToken);
 }
 
 /**
- * Browser AuthSession hook — only call when `env.googleIosClientId` is set.
- * On iOS, expo-auth-session throws if iosClientId is missing (render crash).
+ * Browser AuthSession hook — iOS only.
+ * Android must use native Google Sign-In; Google rejects custom-scheme redirects
+ * for WEB OAuth clients ("Custom scheme URIs are not allowed for 'WEB' client type").
  */
 export function useGoogleAuthRequest() {
+  if (Platform.OS === 'android') {
+    throw new Error(
+      'useGoogleAuthRequest is iOS-only. Use signInWithGoogleNative() on Android.',
+    );
+  }
+
   const iosClientId = env.googleIosClientId;
   if (!iosClientId) {
     throw new Error(
@@ -307,6 +367,13 @@ export function currentUserIsSocial(): boolean {
   }
 }
 
+function prefillNames(name: string | null): void {
+  if (!name?.trim()) return;
+  const draft = useOnboardingDraft.getState();
+  if (!draft.legalName.trim()) draft.setLegalName(name.trim());
+  if (!draft.displayName.trim()) draft.setDisplayName(firstName(name));
+}
+
 /** Prefill onboarding draft from Firebase — only fills empty fields (won't undo edits). */
 export function syncOnboardingFromFirebaseAuth(): void {
   try {
@@ -320,15 +387,11 @@ export function syncOnboardingFromFirebaseAuth(): void {
         draft.setAuthProvider(google ? 'google' : 'apple');
       }
       if (!draft.email.trim() && user.email) draft.setEmail(user.email);
-      if (!draft.displayName.trim() && user.displayName) {
-        draft.setDisplayName(user.displayName);
-      }
+      prefillNames(user.displayName);
       return;
     }
     if (user.email && !draft.email.trim()) draft.setEmail(user.email);
-    if (user.displayName && !draft.displayName.trim()) {
-      draft.setDisplayName(user.displayName);
-    }
+    prefillNames(user.displayName);
   } catch {
     // ignore
   }

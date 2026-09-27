@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Platform, StyleSheet, View, type ColorValue } from 'react-native';
+import { Platform, StyleSheet, Text, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +12,10 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { colors } from '@/constants/theme';
+import { useLiveActivitySync } from '@/features/live/liveActivity';
+import { useLiveSessionResync } from '@/features/live/restoreLiveSession';
+import { useTonightNudgeOptIn } from '@/features/notifications/nudgeOptIn';
+import { useMatchesSubscription, useUnreadMatchCount } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
 import { isLiveSessionActive } from '@/utils/time';
 
@@ -57,7 +61,7 @@ function LiveTabIcon({
   );
 }
 
-function DiscoverTabIcon({
+function MatchesTabIcon({
   color,
   size,
   focused,
@@ -66,17 +70,25 @@ function DiscoverTabIcon({
   size: number;
   focused: boolean;
 }) {
-  const attention = useSessionStore((s) => s.discoverAttention);
+  const unread = useUnreadMatchCount();
 
   return (
     <View>
-      <Ionicons name={focused ? 'heart' : 'heart-outline'} size={size} color={color} />
-      {attention ? <View style={styles.badge} /> : null}
+      <Ionicons name={focused ? 'chatbubbles' : 'chatbubbles-outline'} size={size} color={color} />
+      {unread > 0 ? (
+        <View style={styles.countBadge}>
+          <Text style={styles.countText}>{unread > 99 ? '99+' : unread}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 export default function TabsLayout() {
+  useMatchesSubscription();
+  useLiveSessionResync();
+  useLiveActivitySync();
+  useTonightNudgeOptIn();
   const insets = useSafeAreaInsets();
   const liveSession = useSessionStore((s) => s.liveSession);
   const live = liveSession ? isLiveSessionActive(liveSession, new Date()) : false;
@@ -111,20 +123,12 @@ export default function TabsLayout() {
           tabBarIcon: (props) => <LiveTabIcon {...props} />,
         }}
       />
-      <Tabs.Screen
-        name="pings/index"
-        options={{
-          title: 'Ping',
-          tabBarIcon: (props) => <DiscoverTabIcon {...props} />,
-        }}
-      />
+      <Tabs.Screen name="pings/index" options={{ href: null }} />
       <Tabs.Screen
         name="dates/index"
         options={{
-          title: 'Dates',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar-outline" size={size} color={color} />
-          ),
+          title: 'Matches',
+          tabBarIcon: (props) => <MatchesTabIcon {...props} />,
         }}
       />
       <Tabs.Screen
@@ -142,13 +146,21 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  badge: {
+  countBadge: {
     position: 'absolute',
-    top: -1,
-    right: -4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: -4,
+    right: -10,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.brandBright,
+  },
+  countText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
   },
 });

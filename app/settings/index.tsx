@@ -8,7 +8,8 @@ import {
   View,
 } from 'react-native';
 import Constants from 'expo-constants';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
+import { levelName } from '@/features/compatibility/quiz';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
@@ -31,6 +32,7 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const verified = profile?.verificationStatus === 'verified';
+  const quizLevel = profile?.quizLevel ?? 0;
   const plusLabel = plusStatusLabel(entitlements);
 
   const leaveToWelcome = () => {
@@ -47,13 +49,16 @@ export default function SettingsScreen() {
         style: 'destructive',
         onPress: () => {
           void (async () => {
+            setBusy(true);
             try {
-              setBusy(true);
               if (isBackendConfigured()) await signOut();
-            } finally {
+            } catch {
               setBusy(false);
-              leaveToWelcome();
+              Alert.alert("Couldn't log out", 'Check your connection and try again.');
+              return;
             }
+            setBusy(false);
+            leaveToWelcome();
           })();
         },
       },
@@ -110,6 +115,13 @@ export default function SettingsScreen() {
           <SettingsRow
             label="Discovery filters"
             onPress={() => router.push('/settings/discovery')}
+          />
+          <SettingsRow
+            label="Compatibility quiz"
+            detail={
+              quizLevel ? `${levelName(quizLevel)} done · see your match %` : 'Optional · see your match % with people'
+            }
+            onPress={() => router.push('/settings/quiz' as Href)}
           />
           <SettingsRow
             label={verified ? 'Verification · Verified' : 'Get verified'}

@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { SettingsHeader } from '@/components/settings/SettingsUI';
@@ -30,7 +31,7 @@ export default function BlockedUsersScreen() {
           createdAt: e.blockedAt,
         })),
       );
-      Alert.alert('Couldn’t sync blocks', error instanceof Error ? error.message : 'Showing local list.');
+      Alert.alert('Couldn’t sync blocks', friendlyError(error, 'Showing local list.'));
     } finally {
       setLoading(false);
     }
@@ -54,7 +55,7 @@ export default function BlockedUsersScreen() {
               await unblockUser(blockedId);
               setRows((prev) => prev.filter((r) => r.blockedId !== blockedId));
             } catch (error) {
-              Alert.alert('Couldn’t unblock', error instanceof Error ? error.message : 'Try again.');
+              Alert.alert('Couldn’t unblock', friendlyError(error, 'Try again.'));
             } finally {
               setBusyId(null);
             }

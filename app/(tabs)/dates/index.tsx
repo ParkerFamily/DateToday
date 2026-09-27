@@ -1,250 +1,220 @@
-import React, { useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import {
-  BlockLabel,
-  LiveAtmosphere,
-  UnderlineTabs,
-  livePad,
-} from '@/components/ui/LiveChrome';
-import { DEMO_DATES } from '@/constants/demoTonight';
+import { BlockLabel, LiveAtmosphere, livePad } from '@/components/ui/LiveChrome';
+import { Screen } from '@/components/ui/Screen';
 import { colors, radii, spacing } from '@/constants/theme';
-import { env } from '@/lib/env';
-import { useBlocksStore } from '@/store/blocks';
-import type { DateStatus } from '@/types';
+import { otherUserId, proposalSummary, type MatchDoc } from '@/features/matches/api';
+import { useMatchesStore, usePendingLikes, useVisibleMatches } from '@/store/matches';
+import { useSessionStore } from '@/store/session';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
+import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TypingDots } from '@/components/chat/TypingDots';
+import { useTheirChatState } from '@/features/matches/useTheirChatState';
 
-interface DateListItem {
-  id: string;
-  partnerId?: string;
-  partnerName: string;
-  scheduledAt: string;
-  venueName: string | null;
-  neighborhood: string | null;
-  activityLabel: string | null;
-  status: DateStatus;
-  section: 'tonight' | 'upcoming' | 'past';
-  photoUrl?: string;
+function timeAgo(date: Date | null): string {
+  if (!date) return '';
+  const mins = Math.floor((Date.now() - date.getTime()) / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-type DatesTab = 'upcoming' | 'requests' | 'past';
-
-const useDemo = env.useMockData;
-
-const ACTIVITY_EMOJI: Record<string, string> = {
-  Drinks: '🍸',
-  Dinner: '🍽',
-  Coffee: '☕',
-  Activity: '🎳',
-};
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
-function formatDay(iso: string): string {
-  return new Date(iso).toLocaleDateString([], {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function openDateDetail(item: DateListItem) {
-  return {
-    pathname: '/dates/[dateId]' as const,
-    params: {
-      dateId: item.id,
-      partner: item.partnerName,
-      when: `${formatDay(item.scheduledAt)} · ${formatTime(item.scheduledAt)}`,
-      venue: item.venueName ?? '',
-      neighborhood: item.neighborhood ?? '',
-      activity: item.activityLabel ?? '',
-    },
-  };
-}
-
-function activityLine(label: string | null): string {
-  if (!label) return '';
-  const emoji = ACTIVITY_EMOJI[label] ?? '';
-  return emoji ? `${emoji} ${label}` : label;
-}
-
-function EmptyPanel({
-  icon,
-  title,
-  subtitle,
-  emptyTitle,
-  emptyBody,
-  cta,
-  onCta,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  subtitle: string;
-  emptyTitle: string;
-  emptyBody: string;
-  cta?: string;
-  onCta?: () => void;
-}) {
-  return (
-    <View style={styles.panel}>
-      <View style={styles.panelHead}>
-        <Ionicons name={icon} size={18} color={colors.brandBright} />
-        <View style={{ flex: 1 }}>
-          <AppText style={styles.panelTitle}>{title}</AppText>
-          <AppText style={styles.panelSub}>{subtitle}</AppText>
-        </View>
-      </View>
-      <View style={styles.emptyGraphic}>
-        <View style={styles.emptyCircle}>
-          <Ionicons name={icon} size={26} color={colors.brandBright} />
-        </View>
-      </View>
-      <AppText style={styles.emptyTitle}>{emptyTitle}</AppText>
-      <AppText style={styles.emptyBody}>{emptyBody}</AppText>
-      {cta && onCta ? (
-        <Button label={cta} onPress={onCta} style={{ marginTop: spacing.sm }} />
-      ) : null}
+function Avatar({ uri, size }: { uri: string | null | undefined; size: number }) {
+  const style = { width: size, height: size, borderRadius: size / 2 };
+  return uri ? (
+    <Image source={{ uri }} style={[styles.avatar, style]} />
+  ) : (
+    <View style={[styles.avatar, styles.avatarEmpty, style]}>
+      <Ionicons name="person" size={size * 0.45} color={colors.textSecondary} />
     </View>
   );
 }
 
-export default function DatesScreen() {
+function NewMatchItem({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
+  const theirId = otherUserId(match, uid);
+  const other = match.users[theirId];
+  const { typing } = useTheirChatState(match.id, theirId);
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.newItem, pressed && styles.pressed]}>
+      <View style={styles.newRing}>
+        <Avatar uri={other?.mainPhotoUrl} size={68} />
+        {typing ? (
+          <View style={styles.newTyping}>
+            <TypingDots size={5} color="#fff" />
+          </View>
+        ) : null}
+      </View>
+      <AppText style={styles.newName} numberOfLines={1}>
+        {other?.displayName ?? 'Match'}
+      </AppText>
+    </Pressable>
+  );
+}
+
+function TypingLine() {
+  return (
+    <View style={styles.typingLine}>
+      <AppText style={styles.typingText}>typing</AppText>
+      <TypingDots size={5} />
+    </View>
+  );
+}
+
+function DateRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
+  const theirId = otherUserId(match, uid);
+  const other = match.users[theirId];
+  const { typing } = useTheirChatState(match.id, theirId);
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.dateCard, pressed && styles.pressed]}>
+      <Avatar uri={other?.mainPhotoUrl} size={52} />
+      <View style={styles.rowBody}>
+        <AppText style={styles.dateEyebrow}>IT’S A DATE</AppText>
+        <AppText style={styles.rowName}>{other?.displayName ?? 'Match'}</AppText>
+        {typing ? (
+          <TypingLine />
+        ) : (
+          <AppText style={styles.dateLine} numberOfLines={2}>
+            {proposalSummary(match.nextDate)}
+          </AppText>
+        )}
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+    </Pressable>
+  );
+}
+
+function ThreadRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
+  const theirId = otherUserId(match, uid);
+  const other = match.users[theirId];
+  const { typing } = useTheirChatState(match.id, theirId);
+  const unread = match.unread[uid] ?? 0;
+  const mine = match.lastMessage?.senderId === uid;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.thread, pressed && styles.pressed]}>
+      <Avatar uri={other?.mainPhotoUrl} size={56} />
+      <View style={styles.rowBody}>
+        <View style={styles.threadTop}>
+          <AppText style={styles.rowName} numberOfLines={1}>
+            {other?.displayName ?? 'Match'}
+          </AppText>
+          <AppText style={styles.time}>{timeAgo(match.lastActivityAt)}</AppText>
+        </View>
+        <View style={styles.threadTop}>
+          {typing ? (
+            <View style={styles.flex}>
+              <TypingLine />
+            </View>
+          ) : (
+            <AppText style={[styles.preview, unread > 0 && styles.previewUnread]} numberOfLines={1}>
+              {mine && match.lastMessage?.type === 'text' ? 'You: ' : ''}
+              {match.lastMessage?.text}
+            </AppText>
+          )}
+          {unread > 0 ? (
+            <View style={styles.unread}>
+              <AppText style={styles.unreadText}>{unread > 99 ? '99+' : unread}</AppText>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+type Row =
+  | { type: 'section'; key: string; title: string }
+  | { type: 'date'; key: string; match: MatchDoc }
+  | { type: 'new'; key: string; matches: MatchDoc[] }
+  | { type: 'thread'; key: string; match: MatchDoc };
+
+export default function MatchesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [tab, setTab] = useState<DatesTab>('upcoming');
-  const blockedMap = useBlocksStore((s) => s.byId);
-  const data = useMemo(() => {
-    const raw = useDemo ? ([...DEMO_DATES] as DateListItem[]) : [];
-    return raw.filter((d) => {
-      if (d.partnerId && blockedMap[d.partnerId]) return false;
-      return !Object.values(blockedMap).some(
-        (b) =>
-          (b.displayName &&
-            b.displayName.toLowerCase() === d.partnerName.toLowerCase()) ||
-          b.blockedId === d.id,
-      );
-    });
-  }, [blockedMap]);
+  const uid = useSessionStore((s) => s.userId) ?? '';
+  const loaded = useMatchesStore((s) => s.loaded);
+  const error = useMatchesStore((s) => s.error);
+  const matches = useVisibleMatches();
+  const likesCount = usePendingLikes()?.length ?? 0;
 
-  const tonight = useMemo(() => data.filter((d) => d.section === 'tonight'), [data]);
-  const upcoming = useMemo(() => data.filter((d) => d.section === 'upcoming'), [data]);
-  const past = useMemo(() => data.filter((d) => d.section === 'past'), [data]);
+  const openChat = (matchId: string) => router.push(`/chat/${matchId}`);
 
-  const upcomingItems = useMemo(() => [...tonight, ...upcoming], [tonight, upcoming]);
-  const listForTab =
-    tab === 'upcoming' ? upcomingItems : tab === 'past' ? past : ([] as DateListItem[]);
-  const isEmpty = listForTab.length === 0;
-
-  const rows = useMemo(() => {
-    const out: Array<
-      | { type: 'section'; title: string; key: string }
-      | { type: 'item'; item: DateListItem; key: string; featured?: boolean }
-    > = [];
-
-    if (tab === 'upcoming') {
-      if (tonight.length) {
-        out.push({ type: 'section', title: 'TONIGHT', key: 'tonight' });
-        tonight.forEach((d) =>
-          out.push({ type: 'item', item: d, key: d.id, featured: true }),
-        );
-      }
-      if (upcoming.length) {
-        out.push({ type: 'section', title: 'UPCOMING', key: 'up' });
-        upcoming.forEach((d) => out.push({ type: 'item', item: d, key: d.id }));
-      }
-    } else if (tab === 'past') {
-      past.forEach((d) => out.push({ type: 'item', item: d, key: d.id }));
+  const rows = useMemo<Row[]>(() => {
+    const withDate = matches.filter((m) => m.nextDate);
+    const fresh = matches.filter((m) => !m.lastMessage);
+    const threads = matches.filter((m) => m.lastMessage);
+    const out: Row[] = [];
+    if (withDate.length) {
+      out.push({ type: 'section', key: 's-dates', title: 'UPCOMING DATES' });
+      withDate.forEach((m) => out.push({ type: 'date', key: `d-${m.id}`, match: m }));
+    }
+    if (fresh.length) {
+      out.push({ type: 'section', key: 's-new', title: 'NEW MATCHES' });
+      out.push({ type: 'new', key: 'new-row', matches: fresh });
+    }
+    if (threads.length) {
+      out.push({ type: 'section', key: 's-msgs', title: 'MESSAGES' });
+      threads.forEach((m) => out.push({ type: 'thread', key: `t-${m.id}`, match: m }));
     }
     return out;
-  }, [tab, tonight, upcoming, past]);
+  }, [matches]);
 
   return (
     <Screen padded={false} edges={['top', 'left', 'right']}>
       <LiveAtmosphere />
       <View style={[styles.pad, livePad, { paddingTop: spacing.sm }]}>
-        <AppText style={styles.header}>Dates</AppText>
-        <AppText style={styles.subheader}>Plans, invites, and upcoming meetups.</AppText>
+        <AppText style={styles.header}>Matches</AppText>
+        <AppText style={styles.subheader}>People who liked you back. Chat and plan a date.</AppText>
 
-        <UnderlineTabs
-          value={tab}
-          onChange={setTab}
-          options={[
-            { id: 'upcoming', label: 'Upcoming' },
-            { id: 'requests', label: 'Requests' },
-            { id: 'past', label: 'Past' },
-          ]}
-        />
+        {likesCount > 0 ? (
+          <Pressable
+            onPress={() => router.push('/likes')}
+            style={({ pressed }) => [styles.likesRow, pressed && styles.pressed]}
+          >
+            <View style={styles.likesIcon}>
+              <Ionicons name="heart" size={18} color="#fff" />
+            </View>
+            <View style={styles.rowBody}>
+              <AppText style={styles.rowName}>
+                {likesCount} {likesCount === 1 ? 'person likes' : 'people like'} you
+              </AppText>
+              <AppText style={styles.dateLine}>Like them back to match</AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+          </Pressable>
+        ) : null}
 
-        {isEmpty ? (
+        {!loaded ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.brandBright} />
+          </View>
+        ) : matches.length === 0 ? (
           <ScrollView
-            contentContainerStyle={{
-              gap: spacing.md,
-              paddingBottom: Math.max(insets.bottom, 8) + 24,
-              paddingTop: spacing.sm,
-            }}
+            contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 8) + 24, paddingTop: spacing.md }}
             showsVerticalScrollIndicator={false}
           >
-            {tab === 'upcoming' ? (
-              <>
-                <EmptyPanel
-                  icon="calendar-outline"
-                  title="Planned tonight"
-                  subtitle="Your upcoming date plans"
-                  emptyTitle="No date plans yet"
-                  emptyBody="You don't need to be live to plan dates. Save your matches, set up plans, and meet up later tonight or another day."
-                  cta="PLAN A DATE →"
-                  onCta={() => router.push('/(tabs)/pings')}
-                />
-                <EmptyPanel
-                  icon="paper-plane-outline"
-                  title="Pending invites"
-                  subtitle="Dates you've been invited to"
-                  emptyTitle="No pending invites"
-                  emptyBody="When someone invites you to a date, it'll show up here."
-                />
-                <Pressable
-                  style={styles.discoverRow}
-                  onPress={() => router.push('/(tabs)/pings')}
-                >
-                  <Ionicons name="sparkles-outline" size={18} color={colors.brandBright} />
-                  <View style={{ flex: 1 }}>
-                    <AppText style={styles.panelTitle}>Discover people to date</AppText>
-                    <AppText style={styles.panelSub}>
-                      Find new matches and start planning.
-                    </AppText>
-                  </View>
-                  <AppText style={styles.chevron}>›</AppText>
-                </Pressable>
-                <Button
-                  label="BROWSE PING"
-                  variant="secondary"
-                  onPress={() => router.push('/(tabs)/pings')}
-                />
-              </>
-            ) : tab === 'requests' ? (
-              <EmptyPanel
-                icon="paper-plane-outline"
-                title="Pending invites"
-                subtitle="Dates you've been invited to"
-                emptyTitle="No pending invites"
-                emptyBody="When someone invites you to a date, it'll show up here."
+            <View style={styles.panel}>
+              <View style={styles.emptyCircle}>
+                <Ionicons name="heart-outline" size={28} color={colors.brandBright} />
+              </View>
+              <AppText style={styles.emptyTitle}>No matches yet</AppText>
+              <AppText style={styles.emptyBody}>
+                {error
+                  ? 'Couldn’t load your matches. Check your connection.'
+                  : 'Go Live and tap Interested on people you like. When they like you back, you’ll match here and can chat and plan a date.'}
+              </AppText>
+              <Button
+                label="GO TO LIVE"
+                onPress={() => router.navigate('/(tabs)/live')}
+                style={{ marginTop: spacing.sm, alignSelf: 'stretch' }}
               />
-            ) : (
-              <EmptyPanel
-                icon="calendar-outline"
-                title="Past dates"
-                subtitle="Where you've been"
-                emptyTitle="No past dates yet"
-                emptyBody="After you go out, your plans will live here."
-              />
-            )}
+            </View>
           </ScrollView>
         ) : (
           <FlatList
@@ -253,77 +223,27 @@ export default function DatesScreen() {
             contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 8) + 24 }}
             showsVerticalScrollIndicator={false}
             renderItem={({ item: row }) => {
-              if (row.type === 'section') {
-                return <BlockLabel>{row.title}</BlockLabel>;
-              }
-              const item = row.item;
-              if (row.featured) {
+              if (row.type === 'section') return <BlockLabel>{row.title}</BlockLabel>;
+
+              if (row.type === 'new') {
                 return (
-                  <Pressable
-                    style={styles.pass}
-                    onPress={() => router.push(openDateDetail(item))}
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.newRow}
                   >
-                    {item.photoUrl ? (
-                      <Image source={{ uri: item.photoUrl }} style={styles.passPhoto} />
-                    ) : null}
-                    <LinearGradient
-                      colors={['rgba(9,9,11,0.2)', 'rgba(9,9,11,0.94)']}
-                      style={styles.passScrim}
-                    />
-                    <View style={styles.passBody}>
-                      <AppText style={styles.passEyebrow}>TONIGHT</AppText>
-                      <AppText style={styles.passTime}>{formatTime(item.scheduledAt)}</AppText>
-                      <AppText style={styles.passName}>{item.partnerName.toUpperCase()}</AppText>
-                      {item.activityLabel ? (
-                        <AppText style={styles.passActivity}>
-                          {activityLine(item.activityLabel)}
-                        </AppText>
-                      ) : null}
-                      {item.venueName ? (
-                        <AppText style={styles.passVenue}>
-                          {item.venueName}
-                          {item.neighborhood ? ` · ${item.neighborhood}` : ''}
-                        </AppText>
-                      ) : null}
-                      <View style={styles.passActions}>
-                        <Button
-                          label="MESSAGE"
-                          variant="secondary"
-                          onPress={() => router.push('/chat/preview')}
-                          style={styles.half}
-                        />
-                        <Button
-                          label="DATE DETAILS"
-                          onPress={() => router.push(openDateDetail(item))}
-                          style={styles.half}
-                        />
-                      </View>
-                    </View>
-                  </Pressable>
+                    {row.matches.map((m) => (
+                      <NewMatchItem key={m.id} match={m} uid={uid} onPress={() => openChat(m.id)} />
+                    ))}
+                  </ScrollView>
                 );
               }
-              return (
-                <Pressable
-                  style={styles.card}
-                  onPress={() => router.push(openDateDetail(item))}
-                >
-                  {item.photoUrl ? (
-                    <Image source={{ uri: item.photoUrl }} style={styles.cardPhoto} />
-                  ) : (
-                    <View style={[styles.cardPhoto, styles.cardPhotoEmpty]} />
-                  )}
-                  <View style={styles.cardBody}>
-                    <AppText style={styles.cardName}>{item.partnerName}</AppText>
-                    <AppText style={styles.cardWhen}>
-                      {formatDay(item.scheduledAt)} · {formatTime(item.scheduledAt)}
-                    </AppText>
-                    <AppText style={styles.cardWhere}>
-                      {[item.activityLabel, item.venueName].filter(Boolean).join(' · ') ||
-                        'Details TBD'}
-                    </AppText>
-                  </View>
-                </Pressable>
-              );
+
+              const m = row.match;
+              if (row.type === 'date') {
+                return <DateRow match={m} uid={uid} onPress={() => openChat(m.id)} />;
+              }
+              return <ThreadRow match={m} uid={uid} onPress={() => openChat(m.id)} />;
             }}
           />
         )}
@@ -333,9 +253,7 @@ export default function DatesScreen() {
 }
 
 const styles = StyleSheet.create({
-  pad: {
-    flex: 1,
-  },
+  pad: { flex: 1 },
   header: {
     color: colors.text,
     fontSize: 30,
@@ -345,9 +263,11 @@ const styles = StyleSheet.create({
   subheader: {
     color: colors.textSecondary,
     fontSize: 14,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
     marginTop: 4,
   },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  pressed: { opacity: 0.8 },
   panel: {
     borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.04)',
@@ -355,25 +275,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.lg,
     gap: 10,
-  },
-  panelHead: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-  },
-  panelTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  panelSub: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  emptyGraphic: {
-    alignItems: 'center',
-    paddingVertical: spacing.md,
   },
   emptyCircle: {
     width: 72,
@@ -384,100 +286,89 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(168,85,247,0.1)',
+    marginVertical: spacing.sm,
   },
-  emptyTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  emptyBody: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-  },
-  discoverRow: {
+  emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  emptyBody: { color: colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  likesRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
-  },
-  chevron: {
-    color: colors.textSecondary,
-    fontSize: 22,
-    fontWeight: '300',
-  },
-  pass: {
-    height: 420,
-    borderRadius: radii.surface,
-    overflow: 'hidden',
-    backgroundColor: colors.elevated,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  passPhoto: { ...StyleSheet.absoluteFill },
-  passScrim: { ...StyleSheet.absoluteFill },
-  passBody: {
-    position: 'absolute',
-    left: 18,
-    right: 18,
-    bottom: 18,
-    gap: 6,
-  },
-  passEyebrow: {
-    color: colors.live,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-  },
-  passTime: {
-    color: colors.text,
-    fontSize: 42,
-    fontWeight: '900',
-    letterSpacing: -1,
-    lineHeight: 46,
-  },
-  passName: {
-    color: colors.text,
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  passActivity: {
-    color: colors.brandBright,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  passVenue: {
-    color: colors.textSecondary,
-    fontSize: 15,
-  },
-  passActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  half: { flex: 1 },
-  card: {
-    flexDirection: 'row',
-    gap: 14,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 14,
     padding: 12,
     marginBottom: spacing.sm,
-    alignItems: 'center',
+    borderRadius: radii.card,
+    backgroundColor: 'rgba(168,85,247,0.12)',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(168,85,247,0.45)',
   },
-  cardPhoto: { width: 72, height: 72, borderRadius: 14 },
-  cardPhotoEmpty: { backgroundColor: colors.card },
-  cardBody: { flex: 1, gap: 4 },
-  cardName: { color: colors.text, fontSize: 18, fontWeight: '800' },
-  cardWhen: { color: colors.brandBright, fontSize: 13, fontWeight: '600' },
-  cardWhere: { color: colors.textSecondary, fontSize: 13 },
+  likesIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brandBright,
+  },
+  avatar: { backgroundColor: colors.card },
+  avatarEmpty: { alignItems: 'center', justifyContent: 'center' },
+  newRow: { gap: 14, paddingVertical: 4, paddingRight: spacing.md },
+  newItem: { width: 76, alignItems: 'center', gap: 6 },
+  newRing: {
+    padding: 2,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: colors.brandBright,
+  },
+  newName: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  newTyping: {
+    position: 'absolute',
+    right: -4,
+    bottom: -2,
+    paddingHorizontal: 7,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: colors.brandBright,
+    borderWidth: 2,
+    borderColor: colors.background,
+  },
+  flex: { flex: 1 },
+  typingLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  typingText: { color: colors.brandBright, fontSize: 14, fontWeight: '700', fontStyle: 'italic' },
+  dateCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    marginBottom: spacing.sm,
+    borderRadius: radii.card,
+    backgroundColor: 'rgba(34,229,139,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,229,139,0.35)',
+  },
+  dateEyebrow: { color: colors.live, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  dateLine: { color: colors.textSecondary, fontSize: 13 },
+  rowBody: { flex: 1, minWidth: 0, gap: 3 },
+  rowName: { color: colors.text, fontSize: 17, fontWeight: '800', flexShrink: 1 },
+  thread: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  threadTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  time: { color: colors.textSecondary, fontSize: 12, marginLeft: 'auto' },
+  preview: { color: colors.textSecondary, fontSize: 14, flex: 1 },
+  previewUnread: { color: colors.text, fontWeight: '700' },
+  unread: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brandBright,
+  },
+  unreadText: { color: '#fff', fontSize: 11, fontWeight: '800' },
 });

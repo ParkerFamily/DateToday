@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { AppText } from '@/components/ui/AppText';
+import { ONBOARD_PROGRESS, OnboardingChrome } from '@/components/onboarding/OnboardingChrome';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
-import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
 import { SkipVideosButton } from '@/components/onboarding/SkipVideosButton';
-import { ABOUT_YOU_PROMPTS } from '@/constants/videoPrompts';
+import { AppText } from '@/components/ui/AppText';
 import { colors, radii, spacing } from '@/constants/theme';
+import { ABOUT_YOU_PROMPTS } from '@/constants/videoPrompts';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 /**
  * Show us your vibe — pick 1 curated ABOUT YOU prompt.

@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { AppText } from '@/components/ui/AppText';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
@@ -50,7 +50,7 @@ export default function IntentionScreen() {
             label="Continue"
             showArrow={false}
             disabled={vibes.length === 0}
-            onPress={() => router.push('/(onboarding)/distance')}
+            onPress={() => router.push('/(onboarding)/interests' as Href)}
           />
         </View>
       }

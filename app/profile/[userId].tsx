@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -9,6 +10,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { CloseButton } from '@/components/ui/CloseButton';
@@ -19,14 +21,24 @@ import {
   type MediaViewerItem,
 } from '@/components/profile/ProfileMediaViewer';
 import { TONIGHT_SIGNATURE_PROMPT } from '@/constants/videoPrompts';
+import { normalizeInterests, sharedInterests } from '@/constants/interests';
+import { formatHeight } from '@/features/discover/applyFilters';
 import { copy } from '@/constants/copy';
 import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
+import { useMatchesStore } from '@/store/matches';
+import { useBlocksStore } from '@/store/blocks';
+import { sendInterest } from '@/features/matches/api';
+import { confirmBlockAndReport } from '@/features/safety/blockFlow';
+import { registerPushTokenAsync } from '@/features/notifications/push';
 import { getDb } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
+import { openUpgrade } from '@/lib/commerce/upgradePrompt';
+import { canMatchToday } from '@/lib/usage/dailyLimits';
 import { calculateAge } from '@/utils/time';
 import type { Profile } from '@/types';
 import { useContentLayout } from '@/lib/layout';
+import { CompatibilityCard } from '@/components/profile/CompatibilityCard';
 
 function photosFromProfile(p: Profile | null | undefined): string[] {
   if (!p) return [];
@@ -45,6 +57,9 @@ export default function PublicProfileScreen() {
     userId && (userId === 'me' || userId === sessionUid || userId === sessionProfile?.userId),
   );
 
+  const isHidden = useBlocksStore((s) =>
+    Boolean(userId && (s.byId[String(userId)] || s.hidden[String(userId)])),
+  );
   const [remote, setRemote] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(!isSelf);
   const [viewer, setViewer] = useState<{ open: boolean; index: number }>({
@@ -94,6 +109,9 @@ export default function PublicProfileScreen() {
           smoking: (d.smoking as string | null) ?? null,
           interests: Array.isArray(d.interests) ? (d.interests as string[]) : null,
           foodPreference: (d.foodPreference as string | null) ?? null,
+          exercise: (d.exercise as string | null) ?? null,
+          kids: (d.kids as string | null) ?? null,
+          pets: (d.pets as string | null) ?? null,
           verificationStatus:
             (d.verificationStatus as Profile['verificationStatus']) ?? 'unverified',
           mainPhotoUrl: (d.mainPhotoUrl as string | null) ?? photoUrls[0] ?? null,
@@ -120,6 +138,49 @@ export default function PublicProfileScreen() {
 
   const profile: Profile | null = isSelf ? sessionProfile : remote;
   const photos = photosFromProfile(profile);
+
+  const existingMatch = useMatchesStore((s) =>
+    s.matches.find((m) => Boolean(userId) && m.userIds.includes(String(userId))),
+  );
+  const [interestSent, setInterestSent] = useState(false);
+  const [sendingInterest, setSendingInterest] = useState(false);
+
+  React.useEffect(() => {
+    if (isSelf || !sessionUid || !userId || !isBackendConfigured()) return;
+    getDoc(doc(getDb(), 'interests', `${sessionUid}_${userId}`))
+      .then((snap) => setInterestSent(snap.exists()))
+      .catch(() => undefined);
+  }, [isSelf, sessionUid, userId]);
+
+  const onInterested = async () => {
+    if (!profile || !userId) return;
+    const { entitlements } = useSessionStore.getState();
+    if (!canMatchToday(entitlements, useMatchesStore.getState().matches).ok) {
+      openUpgrade(router, 'match');
+      return;
+    }
+    setSendingInterest(true);
+    try {
+      void registerPushTokenAsync({ prompt: true });
+      const result = await sendInterest(String(userId));
+      if (result.mutual && result.matchId) {
+        router.replace({
+          pathname: '/mutual',
+          params: {
+            matchId: result.matchId,
+            name: profile.displayName,
+            photo: profile.mainPhotoUrl ?? '',
+          },
+        });
+        return;
+      }
+      setInterestSent(true);
+    } catch (error) {
+      Alert.alert('Couldn’t send interest', friendlyError(error, 'Try again.'));
+    } finally {
+      setSendingInterest(false);
+    }
+  };
 
   const age = useMemo(() => {
     if (!isSelf || !sessionProfile?.dateOfBirth) return null;
@@ -167,7 +228,7 @@ export default function PublicProfileScreen() {
     );
   }
 
-  if (!profile) {
+  if (!profile || (!isSelf && isHidden)) {
     return (
       <Screen>
         <CloseButton onPress={() => router.back()} />
@@ -181,6 +242,17 @@ export default function PublicProfileScreen() {
 
   const nameLine =
     age != null ? `${profile.displayName}, ${age}` : profile.displayName;
+  const theirInterests = normalizeInterests(profile.interests);
+  const shared = isSelf ? [] : sharedInterests(sessionProfile?.interests, theirInterests);
+  const interestList = [...shared, ...theirInterests.filter((i) => !shared.includes(i))];
+  const lifestyle = [
+    profile.heightCm ? formatHeight(profile.heightCm) : null,
+    profile.exercise ? `Works out: ${profile.exercise}` : null,
+    profile.drinking ? `Drinks: ${profile.drinking}` : null,
+    profile.smoking ? `Smokes: ${profile.smoking}` : null,
+    profile.kids ? `Kids: ${profile.kids}` : null,
+    profile.pets ?? null,
+  ].filter(Boolean) as string[];
 
   return (
     <Screen padded={false}>
@@ -234,16 +306,45 @@ export default function PublicProfileScreen() {
             <AppText variant="caption">{String(profile.datingIntention).replace(/_/g, ' ')}</AppText>
           ) : null}
 
-          {profile.interests?.length ? (
-            <View style={styles.chips}>
-              {profile.interests.map((a) => (
-                <View key={a} style={styles.chip}>
-                  <AppText variant="caption" style={styles.chipText}>
-                    {a}
-                  </AppText>
-                </View>
-              ))}
-            </View>
+          {!isSelf && userId && isBackendConfigured() ? <CompatibilityCard otherUid={userId} /> : null}
+
+          {interestList.length ? (
+            <>
+              <AppText variant="label" style={styles.section}>
+                {!isSelf && shared.length
+                  ? `Interests · ${shared.length} in common`
+                  : 'Interests'}
+              </AppText>
+              <View style={styles.chips}>
+                {interestList.map((a) => {
+                  const common = !isSelf && shared.includes(a);
+                  return (
+                    <View key={a} style={[styles.chip, common && styles.chipShared]}>
+                      <AppText variant="caption" style={[styles.chipText, common && styles.chipTextShared]}>
+                        {common ? `✓ ${a}` : a}
+                      </AppText>
+                    </View>
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
+
+          {lifestyle.length ? (
+            <>
+              <AppText variant="label" style={styles.section}>
+                Lifestyle
+              </AppText>
+              <View style={styles.chips}>
+                {lifestyle.map((item) => (
+                  <View key={item} style={styles.chip}>
+                    <AppText variant="caption" style={styles.chipText}>
+                      {item}
+                    </AppText>
+                  </View>
+                ))}
+              </View>
+            </>
           ) : null}
 
           {profile.bio ? (
@@ -285,24 +386,26 @@ export default function PublicProfileScreen() {
 
           {!isSelf ? (
             <>
+              {existingMatch ? (
+                <Button
+                  label={`Message ${profile.displayName}`}
+                  onPress={() => router.push(`/chat/${existingMatch.id}`)}
+                  style={styles.cta}
+                />
+              ) : (
+                <Button
+                  label={interestSent ? 'Interest sent ✓' : `♥ ${copy.interested}`}
+                  loading={sendingInterest}
+                  disabled={interestSent}
+                  onPress={() => void onInterested()}
+                  style={styles.cta}
+                />
+              )}
               <Button
-                label={`♥ ${copy.interested}`}
-                onPress={() =>
-                  router.push({
-                    pathname: '/mutual',
-                    params: { name: profile.displayName },
-                  })
-                }
-                style={styles.cta}
-              />
-              <Button
-                label="Report / Block"
+                label="Block & report"
                 variant="ghost"
                 onPress={() =>
-                  router.push({
-                    pathname: '/safety/report',
-                    params: { userId: String(userId), name: profile.displayName },
-                  })
+                  confirmBlockAndReport(router, { uid: String(userId), name: profile.displayName })
                 }
               />
             </>
@@ -396,6 +499,14 @@ const styles = StyleSheet.create({
   },
   chipText: {
     color: colors.textSecondary,
+  },
+  chipShared: {
+    borderColor: colors.brandBright,
+    backgroundColor: 'rgba(124, 58, 237, 0.25)',
+  },
+  chipTextShared: {
+    color: colors.text,
+    fontWeight: '700',
   },
   section: {
     marginTop: spacing.md,

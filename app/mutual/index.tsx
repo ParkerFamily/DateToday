@@ -109,7 +109,7 @@ export default function MutualMatchScreen() {
   const theirName = params.name ?? 'them';
   const theirPhoto = typeof params.photo === 'string' ? params.photo : '';
   const myPhoto = profile?.mainPhotoUrl ?? null;
-  const conversationId = params.conversationId ?? 'new';
+  const conversationId = params.matchId ?? params.conversationId ?? '';
 
   const activities = useMemo(() => {
     if (typeof params.activities === 'string' && params.activities.length) {
@@ -127,14 +127,6 @@ export default function MutualMatchScreen() {
       ? (params.food as FoodCuisine)
       : null;
   const foodHeadline = sharedFood ? sharedFoodHeadline([sharedFood]) : null;
-
-  const chatParams = {
-    name: theirName,
-    photo: theirPhoto,
-    food: sharedFood ?? '',
-    activities: activities.join(','),
-    icebreakers: '1',
-  };
 
   return (
     <Screen padded={false} edges={['left', 'right']}>
@@ -202,15 +194,19 @@ export default function MutualMatchScreen() {
             onPress={() =>
               router.replace({
                 pathname: '/chat/[conversationId]',
-                params: { conversationId, ...chatParams },
+                params: { conversationId },
               })
             }
           />
           <Button
             label={flowCopy.makeAPlan}
             variant="secondary"
-            onPress={() =>
+            onPress={() => {
               router.replace({
+                pathname: '/chat/[conversationId]',
+                params: { conversationId },
+              });
+              router.push({
                 pathname: '/dates/plan',
                 params: {
                   name: theirName,
@@ -219,8 +215,13 @@ export default function MutualMatchScreen() {
                   conversationId,
                   mode: sharedFood ? 'spot' : 'plan',
                 },
-              })
-            }
+              });
+            }}
+          />
+          <Button
+            label="Keep browsing"
+            variant="ghost"
+            onPress={() => dismissToLive(router)}
           />
         </View>
       </View>

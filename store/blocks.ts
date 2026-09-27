@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -12,7 +13,10 @@ export type BlockedEntry = {
 
 type BlocksState = {
   byId: Record<string, BlockedEntry>;
+  /** From hiddenUsers/{uid}: includes people who blocked me, who I must never see. */
+  hidden: Record<string, true>;
   hydrated: boolean;
+  setHidden: (uids: string[]) => void;
   hydrate: () => Promise<void>;
   isBlocked: (userId: string | null | undefined) => boolean;
   list: () => BlockedEntry[];
@@ -32,7 +36,14 @@ async function persist(byId: Record<string, BlockedEntry>) {
 
 export const useBlocksStore = create<BlocksState>((set, get) => ({
   byId: {},
+  hidden: {},
   hydrated: false,
+
+  setHidden: (uids) => {
+    const hidden: Record<string, true> = {};
+    for (const id of uids) if (id) hidden[id] = true;
+    set({ hidden });
+  },
 
   hydrate: async () => {
     try {
@@ -50,7 +61,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
 
   isBlocked: (userId) => {
     if (!userId) return false;
-    return Boolean(get().byId[userId]);
+    return Boolean(get().byId[userId] || get().hidden[userId]);
   },
 
   list: () => Object.values(get().byId).sort((a, b) => b.blockedAt.localeCompare(a.blockedAt)),
@@ -83,17 +94,24 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
     await persist(next);
   },
 
-  reset: () => set({ byId: {}, hydrated: false }),
+  reset: () => set({ byId: {}, hidden: {}, hydrated: false }),
 }));
+
+/** Everyone who must not appear anywhere: my blocks + people who blocked me. */
+export function useHiddenUserMap(): Record<string, unknown> {
+  const byId = useBlocksStore((s) => s.byId);
+  const hidden = useBlocksStore((s) => s.hidden);
+  return useMemo(() => ({ ...hidden, ...byId }), [byId, hidden]);
+}
 
 /** Filter helper for discovery / dates / chats. */
 export function excludeBlockedIds<T extends { userId?: string; id?: string; partnerId?: string }>(
   rows: T[],
   getId: (row: T) => string | undefined = (row) => row.userId ?? row.partnerId ?? row.id,
 ): T[] {
-  const blocked = useBlocksStore.getState().byId;
+  const { byId, hidden } = useBlocksStore.getState();
   return rows.filter((row) => {
     const id = getId(row);
-    return !id || !blocked[id];
+    return !id || (!byId[id] && !hidden[id]);
   });
 }

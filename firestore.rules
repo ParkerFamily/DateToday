@@ -61,9 +61,55 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId);
-      allow create: if isOwner(userId) && verificationNotForged() && entitlementsNotForged();
-      allow update: if isOwner(userId) && verificationNotForged() && entitlementsNotForged();
+      allow create: if isOwner(userId) && verificationNotForged() && entitlementsNotForged()
+        && legalNameValid();
+      allow update: if isOwner(userId) && verificationNotForged() && entitlementsNotForged()
+        && legalNameValid() && legalNameLocked();
       allow delete: if isOwner(userId);
+
+      function legalNameValid() {
+        return !('legalName' in request.resource.data)
+          || (request.resource.data.legalName is string
+            && request.resource.data.legalName.size() <= 80);
+      }
+
+      // Set once during onboarding; the name on your ID can't be edited afterwards.
+      function legalNameLocked() {
+        return !('legalName' in resource.data)
+          || request.resource.data.get('legalName', null) == resource.data.legalName;
+      }
+    }
+
+    // One doc per device (id derived from the Expo token), so a phone only ever
+    // notifies the account currently signed in on it. Read by Cloud Functions.
+    match /pushTokens/{tokenId} {
+      allow read, delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create, update: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.token is string
+        && request.resource.data.token.size() < 300
+        && request.resource.data.get('enabled', true) is bool
+        && request.resource.data.keys().hasOnly([
+          'uid', 'token', 'platform', 'enabled', 'appVersion', 'deviceName', 'deviceModel',
+          'manufacturer', 'osName', 'osVersion', 'isPhysicalDevice', 'createdAt', 'updatedAt',
+          'lastError', 'invalidatedAt'
+        ]);
+    }
+
+    // Per-user notification choices; read by Cloud Functions before every push.
+    match /notificationPrefs/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'matches', 'messages', 'likes', 'dateRequests', 'dateUpdates', 'reminders',
+          'promotions', 'system', 'updatedAt'
+        ]);
+      allow delete: if isOwner(userId);
+    }
+
+    // Expo push tickets awaiting receipt checks — Cloud Functions only.
+    match /pushTickets/{ticketId} {
+      allow read, write: if false;
     }
 
     match /profiles/{userId} {
@@ -79,14 +125,16 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
+    // Written only by the blockUser / unblockUser functions so the mutual hide stays consistent.
     match /blocks/{blockId} {
       allow read: if signedIn() && resource.data.blockerId == request.auth.uid;
-      allow create: if signedIn()
-        && request.resource.data.blockerId == request.auth.uid
-        && request.resource.data.blockedId is string
-        && request.resource.data.blockerId != request.resource.data.blockedId;
-      allow delete: if signedIn() && resource.data.blockerId == request.auth.uid;
-      allow update: if false;
+      allow write: if false;
+    }
+
+    // Everyone this user must never see: people they blocked + people who blocked them.
+    match /hiddenUsers/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
     }
 
     match /reports/{reportId} {
@@ -103,6 +151,97 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create, update: if isOwner(userId);
       allow delete: if isOwner(userId);
+    }
+
+    // Hearts. Written only by the sendInterest Cloud Function (mutual check + push).
+    match /interests/{interestId} {
+      allow read: if signedIn()
+        && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow write: if false;
+    }
+
+    // Cached quiz match % per pair; read and written only by getCompatibility.
+    match /compatibility/{pairId} {
+      allow read, write: if false;
+    }
+
+    // Place search results cache; searchPlaces only.
+    match /placeCache/{key} {
+      allow read, write: if false;
+    }
+
+    // Mutual matches; created only by Cloud Functions. Members may reset their own unread count.
+    match /matches/{matchId} {
+      function isMember() {
+        return signedIn() && request.auth.uid in resource.data.userIds;
+      }
+
+      function isMatchMember() {
+        return signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/matches/$(matchId)).data.userIds;
+      }
+
+      allow read: if isMember();
+      allow update: if isMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unread'])
+        && request.resource.data.unread.diff(resource.data.unread).affectedKeys().hasOnly([request.auth.uid])
+        && request.resource.data.unread[request.auth.uid] == 0;
+      allow create, delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isMatchMember();
+
+        allow create: if isMatchMember()
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && (
+            (
+              request.resource.data.type == 'text'
+              && request.resource.data.text is string
+              && request.resource.data.text.size() > 0
+              && request.resource.data.text.size() <= 2000
+            )
+            || (
+              request.resource.data.type == 'date_proposal'
+              && request.resource.data.status == 'proposed'
+              && request.resource.data.proposal is map
+            )
+          );
+
+        // Only the recipient answers a date proposal, once.
+        allow update: if isMatchMember()
+          && resource.data.type == 'date_proposal'
+          && resource.data.senderId != request.auth.uid
+          && resource.data.status == 'proposed'
+          && request.resource.data.status in ['accepted', 'declined']
+          && request.resource.data.respondedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt', 'respondedBy'])
+          && request.resource.data.respondedBy == request.auth.uid;
+
+        allow delete: if false;
+      }
+
+      // Read receipts + typing. Each member writes only their own doc.
+      // Reciprocal: you can read someone else's only while you both have receipts on.
+      match /members/{memberId} {
+        function receiptsOn(uid) {
+          let path = /databases/$(database)/documents/users/$(uid);
+          return !exists(path)
+            || get(path).data.get('privacyControls', {}).get('readReceipts', true) != false;
+        }
+
+        allow read: if isMatchMember()
+          && (memberId == request.auth.uid
+            || (receiptsOn(request.auth.uid) && receiptsOn(memberId)));
+        allow create, update: if isMatchMember()
+          && memberId == request.auth.uid
+          && request.resource.data.keys().hasOnly(['lastReadAt', 'typingAt'])
+          && (request.resource.data.get('lastReadAt', null) == null
+            || (request.resource.data.lastReadAt is timestamp && request.resource.data.lastReadAt <= request.time))
+          && (request.resource.data.get('typingAt', null) == null
+            || (request.resource.data.typingAt is timestamp && request.resource.data.typingAt <= request.time));
+        allow delete: if false;
+      }
     }
   }
 }

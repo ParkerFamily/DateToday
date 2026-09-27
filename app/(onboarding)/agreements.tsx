@@ -1,17 +1,27 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { AppText } from '@/components/ui/AppText';
+import { ONBOARD_PROGRESS, OnboardingChrome } from '@/components/onboarding/OnboardingChrome';
+import { friendlyError } from '@/lib/errors';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
-import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
-import { colors, spacing } from '@/constants/theme';
+import { AppText } from '@/components/ui/AppText';
 import { LEGAL_VERSIONS } from '@/constants/legal';
+import { colors, spacing } from '@/constants/theme';
+import { needsEmailOtp } from '@/features/auth/emailOtp';
+import { currentUserIsSocial } from '@/features/auth/social';
+import { recordLegalConsent } from '@/features/consent/recordConsent';
+import { isBackendConfigured } from '@/lib/env';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
-import { recordLegalConsent } from '@/features/consent/recordConsent';
-import { currentUserIsSocial } from '@/features/auth/social';
-import { isBackendConfigured } from '@/lib/env';
+import { useRouter, type Href } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
+const ACCOUNT_HREF = '/(onboarding)/account' as Href;
+const EMAIL_VERIFY_HREF = '/(onboarding)/email-verify' as Href;
+const GENDER_HREF = '/(onboarding)/gender' as Href;
+
+function nextAfterAgreements(skipAccount: boolean): Href {
+  if (!skipAccount) return ACCOUNT_HREF;
+  return needsEmailOtp() ? EMAIL_VERIFY_HREF : GENDER_HREF;
+}
 /**
  * Affirmative legal consent — required before account creation / continuing setup.
  * Checkboxes start unchecked (App Store / Play expectation).
@@ -38,7 +48,7 @@ export default function AgreementsScreen() {
 
   useEffect(() => {
     if (alreadyAccepted) {
-      router.replace(skipAccount ? '/(onboarding)/gender' : '/(onboarding)/account');
+      router.replace(nextAfterAgreements(skipAccount));
     }
   }, [alreadyAccepted, router, skipAccount]);
 
@@ -56,11 +66,11 @@ export default function AgreementsScreen() {
       if (isBackendConfigured() && (userId || currentUserIsSocial())) {
         await recordLegalConsent('onboarding_agreements');
       }
-      router.push(skipAccount ? '/(onboarding)/gender' : '/(onboarding)/account');
+      router.push(nextAfterAgreements(skipAccount));
     } catch (error) {
       Alert.alert(
         'Could not save agreements',
-        error instanceof Error ? error.message : 'Try again',
+        friendlyError(error, 'Try again'),
       );
     } finally {
       setSaving(false);

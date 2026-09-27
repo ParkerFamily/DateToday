@@ -1,31 +1,69 @@
-import 'react-native-gesture-handler';
-import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import {
-  useFonts,
-  Inter_400Regular,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  Inter_800ExtraBold,
-} from '@expo-google-fonts/inter';
-import { Caveat_600SemiBold } from '@expo-google-fonts/caveat';
-import * as SplashScreen from 'expo-splash-screen';
 import { colors } from '@/constants/theme';
 import { subscribeAuth, waitForAuthUser } from '@/features/auth/api';
+import {
+    configureNotificationHandler,
+    listenForPushTokenChanges,
+    notificationUrl,
+    registerPushTokenAsync,
+} from '@/features/notifications/push';
+import { installNotificationActions, isNotificationAction } from '@/features/notifications/actions';
+import * as Notifications from 'expo-notifications';
 import { loadUserProfile } from '@/features/profile/saveOnboarding';
-import { useSessionStore } from '@/store/session';
-import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { isBackendConfigured } from '@/lib/env';
+import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { useSessionStore } from '@/store/session';
 import { hasEnteredApp } from '@/utils/accountEntry';
+import { Caveat_600SemiBold } from '@expo-google-fonts/caveat';
+import {
+    Inter_400Regular,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+    useFonts,
+} from '@expo-google-fonts/inter';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Stack, useRouter, useSegments } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Platform, View } from 'react-native';
+import 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 export { ErrorBoundary } from 'expo-router';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
+// A throw at module scope kills the app before anything renders, so startup extras must never throw.
+try {
+  configureNotificationHandler();
+} catch (error) {
+  console.warn('[DateToday] notification handler failed', error);
+}
+try {
+  installNotificationActions();
+} catch (error) {
+  console.warn('[DateToday] notification actions failed', error);
+}
+
+function withTimeout<T>(task: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([task, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+}
+
+/** Runs behind the splash screen; slow networks fall through and the update applies next launch. */
+async function pullOtaUpdate() {
+  if (__DEV__) return;
+  try {
+    const Updates = await import('expo-updates');
+    if (!Updates.isEnabled) return;
+    const result = await withTimeout(Updates.checkForUpdateAsync(), 4000);
+    if (!result?.isAvailable) return;
+    const fetched = await withTimeout(Updates.fetchUpdateAsync(), 10000);
+    if (fetched?.isNew) await Updates.reloadAsync();
+  } catch {
+    /* offline */
+  }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,6 +98,11 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
     await useBlocksStore.getState().hydrate();
     const { refreshBlockedUsers } = await import('@/features/safety/api');
     await refreshBlockedUsers().catch(() => undefined);
+    const { restoreLiveSession } = await import('@/features/live/restoreLiveSession');
+    await restoreLiveSession(uid);
+    const { hydrateTonightBoostForSession } = await import('@/lib/commerce/sessionCommerce');
+    const restored = useSessionStore.getState().liveSession;
+    if (restored && !restored.isBoosted) await hydrateTonightBoostForSession(restored);
   } catch {
     // Profile may not exist yet (mid-onboarding).
   } finally {
@@ -82,6 +125,8 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     async function bootstrap() {
       // Local block list applies even before auth finishes.
       void import('@/store/blocks').then((m) => m.useBlocksStore.getState().hydrate());
+      await pullOtaUpdate();
+      SplashScreen.hideAsync().catch(() => undefined);
       try {
         if (!isBackendConfigured()) {
           if (mounted) setReady(true);
@@ -224,6 +269,41 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [ready, userId, profile, profileHydration, segments, router]);
 
+  const entered = hasEnteredApp(profile);
+
+  useEffect(() => {
+    if (!ready || !userId) return;
+    void registerPushTokenAsync();
+    return listenForPushTokenChanges();
+  }, [ready, userId]);
+
+  // Open the screen a notification points at: cold start (killed app), background, and foreground taps.
+  const handledColdStart = useRef(false);
+  const lastHandledResponse = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ready || !userId || profileHydration === 'loading' || !entered) return;
+    const open = (response: Notifications.NotificationResponse | null) => {
+      // Reply / Mark as read are handled in the background by installNotificationActions.
+      if (isNotificationAction(response)) return;
+      const url = notificationUrl(response);
+      if (!response || !url) return;
+      const id = `${response.notification.request.identifier}:${response.actionIdentifier}`;
+      if (lastHandledResponse.current === id) return;
+      lastHandledResponse.current = id;
+      router.push(url as never);
+    };
+    if (!handledColdStart.current) {
+      handledColdStart.current = true;
+      const initial = Notifications.getLastNotificationResponse();
+      if (initial) {
+        Notifications.clearLastNotificationResponse();
+        open(initial);
+      }
+    }
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
+    return () => sub.remove();
+  }, [ready, userId, profileHydration, entered, router]);
+
   if (!ready) {
     return (
       <View
@@ -243,21 +323,26 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_600SemiBold,
     Inter_700Bold,
     Inter_800ExtraBold,
     Caveat_600SemiBold,
   });
+  const [fontTimeout, setFontTimeout] = useState(false);
 
+  // AuthGate hides the splash once bootstrap finishes; this is only a backstop.
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync().catch(() => undefined);
-    }
-  }, [fontsLoaded]);
+    const fonts = setTimeout(() => setFontTimeout(true), 5000);
+    const splash = setTimeout(() => SplashScreen.hideAsync().catch(() => undefined), 20000);
+    return () => {
+      clearTimeout(fonts);
+      clearTimeout(splash);
+    };
+  }, []);
 
-  if (!fontsLoaded) {
+  if (!fontsLoaded && !fontError && !fontTimeout) {
     return (
       <View
         style={{

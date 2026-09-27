@@ -31,9 +31,12 @@ describe('profileCompletion', () => {
     };
     expect(completionPercent(partial)).toBe(75);
     expect(isProfileReadyForLive(partial)).toBe(false);
-    expect(missingLiveRequirements(partial)).toEqual([
-      'Record 2 video prompts (About You + Tonight)',
-      'Allow location access',
-    ]);
+    expect(missingLiveRequirements(partial)).toEqual(['Allow location access']);
+  });
+
+  it('does not require videos to go live', () => {
+    const noVideos: ProfileCompletionRequirements = { ...complete, videos: false };
+    expect(isProfileReadyForLive(noVideos)).toBe(true);
+    expect(missingLiveRequirements(noVideos)).toEqual([]);
   });
 });

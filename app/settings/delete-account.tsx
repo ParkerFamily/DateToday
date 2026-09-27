@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
@@ -94,7 +95,7 @@ export default function DeleteAccountScreen() {
                 );
                 return;
               }
-              Alert.alert('Couldn’t delete account', message);
+              Alert.alert('Couldn’t delete account', friendlyError(error, 'Try again.'));
             } finally {
               setBusy(false);
             }

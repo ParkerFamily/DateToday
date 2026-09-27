@@ -1,13 +1,15 @@
 import {
   addDoc,
   collection,
-  deleteDoc,
+  doc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   where,
 } from 'firebase/firestore';
 import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
+import { functionsUrl } from '@/features/matches/api';
 import { assertFirebaseConfigured, isBackendConfigured, env } from '@/lib/env';
 import type { ReportReason } from '@/types';
 import { analytics } from '@/lib/analytics';
@@ -30,17 +32,52 @@ function requireUid(): string {
   return uid;
 }
 
+async function callSafetyFunction(name: 'blockUser' | 'unblockUser', body: Record<string, unknown>) {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Not signed in');
+  const token = await user.getIdToken();
+  const res = await fetch(functionsUrl(name), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(json.error || 'Something went wrong. Try again.');
+}
+
 /**
- * Block a user permanently from your experience:
- * discovery, pings, dates list, and chat — until you unblock.
+ * Block someone for good. The server deletes the conversation, removes hearts
+ * both ways, hides each person from the other everywhere, and prevents any
+ * future match. Pass `report` to also file a report (the chat is kept on the
+ * report as evidence before it's deleted).
  */
 export async function blockUser(
   blockedId: string,
   reason?: string,
   displayName?: string | null,
+  report?: { reason: ReportReason; details?: string },
 ): Promise<void> {
   if (!blockedId || blockedId === 'unknown') {
     throw new Error('Missing user to block.');
+  }
+
+  if (isBackendConfigured()) {
+    const uid = requireUid();
+    if (uid === blockedId) throw new Error('You can’t block yourself.');
+    await callSafetyFunction('blockUser', {
+      targetUid: blockedId,
+      displayName: displayName ?? null,
+      reason: reason ?? null,
+      report: report ? { reason: report.reason, details: report.details?.trim() || null } : null,
+    });
+    await useBlocksStore.getState().addLocal({
+      blockedId,
+      displayName: displayName ?? null,
+      reason: report?.reason ?? reason ?? null,
+    });
+    analytics.track('user_blocked');
+    if (report) analytics.track('report_submitted', { reason: report.reason });
+    return;
   }
 
   await useBlocksStore.getState().addLocal({
@@ -48,20 +85,6 @@ export async function blockUser(
     displayName: displayName ?? null,
     reason: reason ?? null,
   });
-
-  if (isBackendConfigured()) {
-    const uid = requireUid();
-    if (uid === blockedId) throw new Error('You can’t block yourself.');
-    await addDoc(collection(getDb(), 'blocks'), {
-      blockerId: uid,
-      blockedId,
-      displayName: displayName ?? null,
-      reason: reason ?? null,
-      createdAt: serverTimestamp(),
-    });
-    analytics.track('user_blocked');
-    return;
-  }
   if (env.supabaseUrl) {
     const { blockUserSupabase } = await import('./supabaseSafety');
     await blockUserSupabase(blockedId, reason);
@@ -70,19 +93,13 @@ export async function blockUser(
 }
 
 export async function unblockUser(blockedId: string): Promise<void> {
-  await useBlocksStore.getState().removeLocal(blockedId);
-
   if (isBackendConfigured()) {
-    const uid = requireUid();
-    const q = query(
-      collection(getDb(), 'blocks'),
-      where('blockerId', '==', uid),
-      where('blockedId', '==', blockedId),
-    );
-    const snap = await getDocs(q);
-    await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+    requireUid();
+    await callSafetyFunction('unblockUser', { targetUid: blockedId });
+    await useBlocksStore.getState().removeLocal(blockedId);
     return;
   }
+  await useBlocksStore.getState().removeLocal(blockedId);
   if (env.supabaseUrl) {
     const { unblockUserSupabase } = await import('./supabaseSafety');
     await unblockUserSupabase(blockedId);
@@ -136,6 +153,18 @@ export async function refreshBlockedUsers(): Promise<void> {
   await listBlockedUsers();
 }
 
+/** Keeps the store's hidden set in sync: people I blocked + people who blocked me. */
+export function subscribeHiddenUsers(uid: string) {
+  return onSnapshot(
+    doc(getDb(), 'hiddenUsers', uid),
+    (snap) => {
+      const uids = snap.data()?.uids;
+      useBlocksStore.getState().setHidden(Array.isArray(uids) ? uids.map(String) : []);
+    },
+    () => undefined,
+  );
+}
+
 export async function reportUser(input: {
   reportedId: string;
   reason: ReportReason;
@@ -148,6 +177,14 @@ export async function reportUser(input: {
 }): Promise<void> {
   if (!input.reportedId || input.reportedId === 'unknown') {
     throw new Error('Pick someone to report from their profile, or describe the issue in details.');
+  }
+
+  if (input.alsoBlock && isBackendConfigured()) {
+    await blockUser(input.reportedId, input.reason, input.displayName, {
+      reason: input.reason,
+      details: input.details,
+    });
+    return;
   }
 
   if (isBackendConfigured()) {

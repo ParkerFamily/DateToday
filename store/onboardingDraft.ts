@@ -1,16 +1,19 @@
-import { create } from 'zustand';
-import type {
-  DatingIntention,
-  InterestOption,
-  RadiusMiles,
-  TonightActivity,
-  VerificationStatus,
-} from '@/types';
 import { ABOUT_YOU_PROMPTS, TONIGHT_SIGNATURE_PROMPT } from '@/constants/videoPrompts';
+import type {
+    DatingIntention,
+    InterestOption,
+    RadiusMiles,
+    TonightActivity,
+    VerificationStatus,
+} from '@/types';
+import { create } from 'zustand';
 
 export type OnboardingAuthProvider = 'email' | 'google' | 'apple' | null;
 
 export interface OnboardingDraft {
+  /** Name on government ID — private, locked after onboarding. */
+  legalName: string;
+  /** Public name shown on the profile — editable later. */
   displayName: string;
   dateOfBirth: string; // YYYY-MM-DD
   email: string;
@@ -21,6 +24,7 @@ export interface OnboardingDraft {
   interestedIn: InterestOption | null;
   /** Your Vibe — max 2 */
   vibes: DatingIntention[];
+  interests: string[];
   minAge: number;
   maxAge: number;
   radiusMiles: RadiusMiles;
@@ -38,6 +42,11 @@ export interface OnboardingDraft {
   personaInquiryId: string | null;
   /** User continued past linked Terms/Privacy/Guidelines (not a pre-checked box). */
   legalConsentAccepted: boolean;
+  /** E.164 after SMS verify — removed; kept unused during migrate */
+  phoneE164: string | null;
+  phoneVerified: boolean;
+  emailVerified: boolean;
+  setLegalName: (name: string) => void;
   setDisplayName: (name: string) => void;
   setDateOfBirth: (dob: string) => void;
   setEmail: (email: string) => void;
@@ -51,6 +60,7 @@ export interface OnboardingDraft {
   setGender: (gender: 'woman' | 'man' | 'nonbinary') => void;
   setInterestedIn: (value: InterestOption) => void;
   toggleVibe: (value: DatingIntention) => void;
+  setInterests: (interests: string[]) => void;
   setAgeRange: (minAge: number, maxAge: number) => void;
   setRadiusMiles: (miles: RadiusMiles) => void;
   setAboutPromptId: (id: string) => void;
@@ -67,11 +77,14 @@ export interface OnboardingDraft {
     inquiryId?: string | null;
   }) => void;
   acceptLegalConsent: () => void;
+  setPhoneVerified: (phoneE164: string) => void;
+  setEmailVerified: (verified?: boolean) => void;
   profilePercent: () => number;
   reset: () => void;
 }
 
 const initial = {
+  legalName: '',
   displayName: '',
   dateOfBirth: '',
   email: '',
@@ -80,6 +93,7 @@ const initial = {
   gender: null as 'woman' | 'man' | 'nonbinary' | null,
   interestedIn: null as InterestOption | null,
   vibes: [] as DatingIntention[],
+  interests: [] as string[],
   minAge: 19,
   maxAge: 26,
   radiusMiles: 10 as RadiusMiles,
@@ -95,6 +109,9 @@ const initial = {
   verificationStatus: 'unverified' as VerificationStatus,
   personaInquiryId: null as string | null,
   legalConsentAccepted: false,
+  phoneE164: null as string | null,
+  phoneVerified: false,
+  emailVerified: false,
 };
 
 function accountReady(state: typeof initial): boolean {
@@ -123,8 +140,13 @@ function percentFrom(state: typeof initial): number {
 
 export { ABOUT_YOU_PROMPTS, TONIGHT_SIGNATURE_PROMPT };
 
+export function firstName(name: string | null | undefined): string {
+  return (name ?? '').trim().split(/\s+/)[0] ?? '';
+}
+
 export const useOnboardingDraft = create<OnboardingDraft>((set, get) => ({
   ...initial,
+  setLegalName: (legalName) => set({ legalName }),
   setDisplayName: (displayName) => set({ displayName }),
   setDateOfBirth: (dateOfBirth) => set({ dateOfBirth }),
   setEmail: (email) => set({ email }),
@@ -135,7 +157,8 @@ export const useOnboardingDraft = create<OnboardingDraft>((set, get) => ({
       authProvider: provider,
       // Never clobber what the user already typed.
       email: state.email.trim() || email?.trim() || '',
-      displayName: state.displayName.trim() || displayName?.trim() || '',
+      legalName: state.legalName.trim() || displayName?.trim() || '',
+      displayName: state.displayName.trim() || firstName(displayName),
       password: '',
     })),
   setGender: (gender) => set({ gender }),
@@ -149,6 +172,7 @@ export const useOnboardingDraft = create<OnboardingDraft>((set, get) => ({
     if (current.length >= 2) return;
     set({ vibes: [...current, value] });
   },
+  setInterests: (interests) => set({ interests }),
   setAgeRange: (minAge, maxAge) => set({ minAge, maxAge }),
   setRadiusMiles: (radiusMiles) => set({ radiusMiles }),
   setAboutPromptId: (aboutPromptId) => set({ aboutPromptId, aboutVideoUri: null }),
@@ -173,6 +197,8 @@ export const useOnboardingDraft = create<OnboardingDraft>((set, get) => ({
       personaInquiryId: inquiryId === undefined ? get().personaInquiryId : inquiryId,
     }),
   acceptLegalConsent: () => set({ legalConsentAccepted: true }),
+  setPhoneVerified: (phoneE164) => set({ phoneE164, phoneVerified: true }),
+  setEmailVerified: (verified = true) => set({ emailVerified: verified }),
   profilePercent: () => percentFrom(get()),
   reset: () =>
     set({
@@ -183,8 +209,12 @@ export const useOnboardingDraft = create<OnboardingDraft>((set, get) => ({
       tonightVideoUri: null,
       activities: [],
       vibes: [],
+      interests: [],
       verificationStatus: 'unverified',
       personaInquiryId: null,
       legalConsentAccepted: false,
+      phoneE164: null,
+      phoneVerified: false,
+      emailVerified: false,
     }),
 }));

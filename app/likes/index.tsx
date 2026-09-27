@@ -1,30 +1,48 @@
-import React, { useMemo } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { SettingsHeader } from '@/components/settings/SettingsUI';
-import { DEMO_PINGS } from '@/constants/demoTonight';
 import { colors, radii, spacing } from '@/constants/theme';
 import { canSeeAllReceivedPings } from '@/lib/entitlements';
+import { fetchPublicCard, type PublicCard } from '@/features/matches/api';
+import { usePendingLikes } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
-import { env } from '@/lib/env';
 
 const FREE_PREVIEW = 1;
 
 /**
- * Free: limited preview of who liked you.
- * DateToday+: full list.
+ * People who tapped Interested on you. Heart them back from their profile to match.
+ * Free: limited preview. DateToday+: full list.
  */
 export default function LikesScreen() {
   const router = useRouter();
   const entitlements = useSessionStore((s) => s.entitlements);
   const unlocked = canSeeAllReceivedPings(entitlements);
-  const all = useMemo(
-    () => (env.useMockData ? DEMO_PINGS.received : []),
-    [],
-  );
+  const received = usePendingLikes();
+  const pending = useMemo(() => received ?? [], [received]);
+  const [cards, setCards] = useState<Record<string, PublicCard | null>>({});
+
+  useEffect(() => {
+    const missing = pending.map((r) => r.fromUid).filter((id) => !(id in cards));
+    if (!missing.length) return;
+    let alive = true;
+    void Promise.all(missing.map(async (id) => [id, await fetchPublicCard(id)] as const)).then((pairs) => {
+      if (!alive) return;
+      setCards((prev) => {
+        const next = { ...prev };
+        for (const [id, card] of pairs) next[id] = card;
+        return next;
+      });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [pending, cards]);
+
+  const all = pending.filter((r) => cards[r.fromUid] !== null);
   const visible = unlocked ? all : all.slice(0, FREE_PREVIEW);
   const lockedCount = Math.max(0, all.length - visible.length);
 
@@ -34,55 +52,53 @@ export default function LikesScreen() {
         <SettingsHeader title="Liked you" />
         <AppText style={styles.sub}>
           {unlocked
-            ? 'Everyone who sent interest while you’re Pinged.'
+            ? 'Everyone who tapped Interested on you. Like them back to match.'
             : `Free shows ${FREE_PREVIEW}. Unlock the full list with DateToday+.`}
         </AppText>
 
-        {visible.length === 0 ? (
+        {received === null ? (
+          <ActivityIndicator color={colors.brandBright} style={{ marginTop: spacing.xl }} />
+        ) : visible.length === 0 ? (
           <View style={styles.emptyWrap}>
             <AppText style={styles.emptyTitle}>No likes yet</AppText>
             <AppText variant="secondary" style={styles.empty}>
-              Keep your Ping on — we’ll surface interest when someone ♥ you. No fake people here.
+              Go Live so people nearby can find you. When someone taps Interested, they’ll show up here.
             </AppText>
-            <Button label="Open your Ping" onPress={() => router.push('/(tabs)/pings')} />
+            <Button label="Go to Live" onPress={() => router.navigate('/(tabs)/live')} />
           </View>
         ) : (
-          visible.map((person) => (
-            <Pressable
-              key={person.id}
-              style={styles.row}
-              onPress={() =>
-                router.push({
-                  pathname: '/profile/[userId]',
-                  params: { userId: person.id, name: person.name },
-                })
-              }
-            >
-              {person.videoThumbUrl ? (
-                <Image source={{ uri: person.videoThumbUrl }} style={styles.avatar} />
-              ) : (
-                <View style={[styles.avatar, styles.avatarPh]} />
-              )}
-              <View style={styles.meta}>
-                <AppText style={styles.name}>
-                  {person.name}, {person.age}
-                </AppText>
-                <AppText variant="secondary">
-                  {person.neighborhood}
-                  {person.isLive ? ' · Live' : ''}
-                </AppText>
-              </View>
-              <AppText style={styles.chev}>›</AppText>
-            </Pressable>
-          ))
+          visible.map((r) => {
+            const card = cards[r.fromUid];
+            return (
+              <Pressable
+                key={r.fromUid}
+                style={styles.row}
+                onPress={() =>
+                  router.push({
+                    pathname: '/profile/[userId]',
+                    params: { userId: r.fromUid, name: card?.displayName ?? '' },
+                  })
+                }
+              >
+                {card?.mainPhotoUrl ? (
+                  <Image source={{ uri: card.mainPhotoUrl }} style={styles.avatar} />
+                ) : (
+                  <View style={[styles.avatar, styles.avatarPh]} />
+                )}
+                <View style={styles.meta}>
+                  <AppText style={styles.name}>{card?.displayName ?? '…'}</AppText>
+                  <AppText variant="secondary">Tap to see their profile and like back</AppText>
+                </View>
+                <AppText style={styles.chev}>›</AppText>
+              </Pressable>
+            );
+          })
         )}
 
         {!unlocked && lockedCount > 0 ? (
           <View style={styles.lockCard}>
             <AppText style={styles.lockTitle}>+{lockedCount} more like you</AppText>
-            <AppText style={styles.lockBody}>
-              See everyone who liked you with DateToday+.
-            </AppText>
+            <AppText style={styles.lockBody}>See everyone who liked you with DateToday+.</AppText>
             <Button label="Get DateToday+" onPress={() => router.push('/paywall')} />
           </View>
         ) : null}

@@ -8,8 +8,13 @@ import { DtIconHero } from '@/components/onboarding/DtIconHero';
 import { colors, spacing } from '@/constants/theme';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
-import { saveOnboardingProfile } from '@/features/profile/saveOnboarding';
+import {
+  isMediaUploadError,
+  saveOnboardingProfile,
+  type MediaUploadError,
+} from '@/features/profile/saveOnboarding';
 import { isBackendConfigured } from '@/lib/env';
+import { friendlyError } from '@/lib/errors';
 
 const HOLD_MS = 1000;
 
@@ -22,21 +27,62 @@ export default function YoureInScreen() {
   const [holdProgress, setHoldProgress] = useState(0);
   const [live, setLive] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const start = useRef<number>(0);
 
+  const showUploadFailure = (error: MediaUploadError) => {
+    const d = useOnboardingDraft.getState();
+    if (error.uploaded.mainPhotoUrl) d.setMainPhotoUri(error.uploaded.mainPhotoUrl);
+    if (error.uploaded.aboutVideoUrl) d.setAboutVideoUri(error.uploaded.aboutVideoUrl);
+    if (error.uploaded.tonightVideoUrl) d.setTonightVideoUri(error.uploaded.tonightVideoUrl);
+
+    const retry = () => {
+      setLive(true);
+      void commitProfile();
+    };
+    const photoFailed = error.failed.includes('photo');
+    const keptNote = photoFailed
+      ? 'Your photo is still selected, so you won’t need to pick it again.'
+      : 'Your videos are still on this phone, so you won’t need to record them again.';
+
+    Alert.alert(
+      photoFailed ? 'Photo upload failed' : 'Video upload failed',
+      `${error.detail}\n\n${keptNote}`,
+      photoFailed
+        ? [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Try again', onPress: retry },
+          ]
+        : [
+            {
+              text: 'Skip videos',
+              style: 'destructive',
+              onPress: () => {
+                if (error.failed.includes('About You video')) d.setAboutVideoUri(null);
+                if (error.failed.includes('Tonight video')) d.setTonightVideoUri(null);
+                retry();
+              },
+            },
+            { text: 'Try again', onPress: retry },
+          ],
+    );
+  };
+
   const commitProfile = async () => {
-    if (saving) return;
-    if (!draft.legalConsentAccepted) {
+    if (savingRef.current) return;
+    const current = useOnboardingDraft.getState();
+    if (!current.legalConsentAccepted) {
       Alert.alert('Agreements required', 'Accept Terms & Privacy before going live.', [
         { text: 'Review', onPress: () => router.replace('/(onboarding)/agreements') },
       ]);
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       if (isBackendConfigured() && userId) {
-        const saved = await saveOnboardingProfile(draft);
+        const saved = await saveOnboardingProfile(current);
         setProfile(saved.profile);
         setPreferences(saved.preferences);
       } else {
@@ -83,13 +129,16 @@ export default function YoureInScreen() {
     } catch (error) {
       setLive(false);
       setHoldProgress(0);
-      Alert.alert(
-        'Couldn’t save profile',
-        error instanceof Error
-          ? error.message
-          : 'Check your connection and try holding again.',
-      );
+      if (isMediaUploadError(error)) {
+        showUploadFailure(error);
+      } else {
+        Alert.alert(
+          'Couldn’t save profile',
+          friendlyError(error, 'Check your connection and try holding again.'),
+        );
+      }
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };

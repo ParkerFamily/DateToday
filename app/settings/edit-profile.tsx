@@ -1,9 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { OptionChip } from '@/components/ui/OptionChip';
 import { VerificationTag } from '@/components/ui/VerificationTag';
@@ -26,9 +29,17 @@ import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
 import { calculateAge } from '@/utils/time';
 import type { DatingIntention, InterestOption, Profile } from '@/types';
+import { InterestCount, InterestPicker } from '@/components/profile/InterestPicker';
+import {
+  EXERCISE_OPTIONS,
+  KIDS_OPTIONS,
+  PETS_OPTIONS,
+  normalizeInterests,
+} from '@/constants/interests';
 
 type Gender = 'woman' | 'man' | 'nonbinary';
 type SheetId =
+  | 'legalName'
   | 'name'
   | 'birthday'
   | 'gender'
@@ -44,6 +55,9 @@ type SheetId =
   | 'food'
   | 'drinking'
   | 'smoking'
+  | 'exercise'
+  | 'kids'
+  | 'pets'
   | null;
 
 const GENDERS: { value: Gender; label: string }[] = [
@@ -55,20 +69,13 @@ const GENDERS: { value: Gender; label: string }[] = [
 const PRONOUNS = ['she/her', 'he/him', 'they/them', 'she/they', 'he/they', 'ask me'];
 const DRINKING = ['Never', 'Sometimes', 'Socially', 'Often'];
 const SMOKING = ['Never', 'Sometimes', 'Socially', 'Often'];
-const INTEREST_CHIPS = [
-  'Music',
-  'Foodie',
-  'Fitness',
-  'Art',
-  'Travel',
-  'Nightlife',
-  'Outdoors',
-  'Gaming',
-  'Fashion',
-  'Sports',
-  'Film',
-  'Reading',
-];
+const CHOICE_SHEETS: Partial<Record<NonNullable<SheetId>, string[]>> = {
+  drinking: DRINKING,
+  smoking: SMOKING,
+  exercise: EXERCISE_OPTIONS,
+  kids: KIDS_OPTIONS,
+  pets: PETS_OPTIONS,
+};
 
 function genderLabel(value: string | null | undefined) {
   return GENDERS.find((g) => g.value === value)?.label ?? null;
@@ -112,6 +119,8 @@ function EditorRow({
   onPress,
   last,
   multilinePreview,
+  locked,
+  hint,
 }: {
   label: string;
   value?: string | null;
@@ -119,12 +128,16 @@ function EditorRow({
   onPress: () => void;
   last?: boolean;
   multilinePreview?: boolean;
+  locked?: boolean;
+  hint?: string;
 }) {
   const empty = !value?.trim();
   return (
     <Pressable
       onPress={onPress}
+      disabled={locked}
       accessibilityRole="button"
+      accessibilityState={{ disabled: locked }}
       style={({ pressed }) => [styles.row, last && styles.rowLast, pressed && styles.rowPressed]}
     >
       <View style={styles.rowMain}>
@@ -139,8 +152,13 @@ function EditorRow({
         >
           {empty ? placeholder : value}
         </AppText>
+        {hint ? <AppText style={styles.rowHint}>{hint}</AppText> : null}
       </View>
-      <AppText style={styles.chevron}>›</AppText>
+      {locked ? (
+        <AppText style={styles.lockedTag}>Locked</AppText>
+      ) : (
+        <AppText style={styles.chevron}>›</AppText>
+      )}
     </Pressable>
   );
 }
@@ -165,6 +183,8 @@ export default function EditProfileScreen() {
   const setPreferences = useSessionStore((s) => s.setPreferences);
   const draft = useOnboardingDraft();
 
+  const savedLegalName = profile?.legalName?.trim() || '';
+  const [legalName, setLegalName] = useState(savedLegalName);
   const [displayName, setDisplayName] = useState(
     profile?.displayName || draft.displayName || '',
   );
@@ -180,7 +200,7 @@ export default function EditProfileScreen() {
   const [hometown, setHometown] = useState(profile?.hometown || '');
   const [occupation, setOccupation] = useState(profile?.occupation || '');
   const [school, setSchool] = useState(profile?.school || '');
-  const [interests, setInterests] = useState<string[]>(profile?.interests ?? []);
+  const [interests, setInterests] = useState<string[]>(() => normalizeInterests(profile?.interests));
   const [interestedIn, setInterestedIn] = useState<InterestOption>(
     preferences?.interestedIn ?? draft.interestedIn ?? 'everyone',
   );
@@ -195,9 +215,21 @@ export default function EditProfileScreen() {
   );
   const [drinking, setDrinking] = useState(profile?.drinking || '');
   const [smoking, setSmoking] = useState(profile?.smoking || '');
+  const [exercise, setExercise] = useState(profile?.exercise || '');
+  const [kids, setKids] = useState(profile?.kids || '');
+  const [pets, setPets] = useState(profile?.pets || '');
+  const choiceValue: Record<string, string> = { drinking, smoking, exercise, kids, pets };
+  const setChoice: Record<string, (v: string) => void> = {
+    drinking: setDrinking,
+    smoking: setSmoking,
+    exercise: setExercise,
+    kids: setKids,
+    pets: setPets,
+  };
   const [sheet, setSheet] = useState<SheetId>(null);
   const [draftText, setDraftText] = useState('');
   const [saving, setSaving] = useState(false);
+  const inputRef = useRef<TextInput>(null);
 
   const age = useMemo(() => {
     if (!birthday || !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) return null;
@@ -250,6 +282,24 @@ export default function EditProfileScreen() {
 
   const commitTextSheet = () => {
     const value = draftText.trim();
+    if (sheet === 'legalName') {
+      if (value.length < 2) {
+        Alert.alert('Legal name', 'Enter your full name as it appears on your ID.');
+        return;
+      }
+      inputRef.current?.blur();
+      Alert.alert('Is this exactly as it appears on your ID?', `${value}\n\nYou can’t change it later.`, [
+        { text: 'Edit', style: 'cancel', onPress: () => inputRef.current?.focus() },
+        {
+          text: 'Confirm',
+          onPress: () => {
+            setLegalName(value);
+            setSheet(null);
+          },
+        },
+      ]);
+      return;
+    }
     if (sheet === 'name') {
       if (value.length < 2) {
         Alert.alert('Display name', 'Enter at least 2 characters.');
@@ -305,6 +355,7 @@ export default function EditProfileScreen() {
         }),
         userId: uid ?? profile?.userId ?? 'local',
         displayName: name,
+        legalName: savedLegalName || legalName.trim() || null,
         bio: bio.trim() || null,
         dateOfBirth: birthday || profile?.dateOfBirth || null,
         genderId: gender,
@@ -318,6 +369,9 @@ export default function EditProfileScreen() {
         smoking: smoking || null,
         interests: interests.length ? interests : null,
         foodPreference: foodPreference,
+        exercise: exercise || null,
+        kids: kids || null,
+        pets: pets || null,
         updatedAt: nowIso,
         profileCompletion: {
           ...(profile?.profileCompletion ?? {}),
@@ -361,6 +415,9 @@ export default function EditProfileScreen() {
           smoking: next.smoking,
           interests: next.interests,
           foodPreference: next.foodPreference,
+          exercise: next.exercise,
+          kids: next.kids,
+          pets: next.pets,
           datingIntention: vibe,
           vibes: vibe ? [vibe] : [],
           interestedIn,
@@ -379,16 +436,34 @@ export default function EditProfileScreen() {
           smoking: next.smoking,
           interests: next.interests,
           foodPreference: next.foodPreference,
+          exercise: next.exercise,
+          kids: next.kids,
+          pets: next.pets,
           datingIntention: vibe,
           updatedAt: serverTimestamp(),
         };
         await setDoc(doc(getDb(), 'users', uid), userPayload, { merge: true });
+        if (!savedLegalName && legalName.trim()) {
+          await setDoc(doc(getDb(), 'users', uid), { legalName: legalName.trim() }, { merge: true });
+        }
         await setDoc(doc(getDb(), 'profiles', uid), profilePayload, { merge: true });
+        const { refreshLiveProfileFields } = await import('@/features/live/firestoreLive');
+        await refreshLiveProfileFields({
+          displayName: name,
+          bio: next.bio,
+          heightCm,
+          drinking: next.drinking,
+          smoking: next.smoking,
+          interests: next.interests ?? [],
+          kids: next.kids,
+          exercise: next.exercise,
+          datingIntention: vibe,
+        }).catch(() => undefined);
       }
 
       return true;
     } catch (e) {
-      Alert.alert('Could not save', e instanceof Error ? e.message : 'Try again.');
+      Alert.alert('Could not save', friendlyError(e, 'Try again.'));
       return false;
     } finally {
       setSaving(false);
@@ -402,6 +477,8 @@ export default function EditProfileScreen() {
 
   const sheetTitle = (() => {
     switch (sheet) {
+      case 'legalName':
+        return 'Legal name';
       case 'name':
         return 'Display name';
       case 'birthday':
@@ -432,18 +509,32 @@ export default function EditProfileScreen() {
         return 'Drinking';
       case 'smoking':
         return 'Smoking';
+      case 'exercise':
+        return 'Workout';
+      case 'kids':
+        return 'Kids';
+      case 'pets':
+        return 'Pets';
       default:
         return '';
     }
   })();
 
   const isTextSheet =
+    sheet === 'legalName' ||
     sheet === 'name' ||
     sheet === 'birthday' ||
     sheet === 'bio' ||
     sheet === 'hometown' ||
     sheet === 'work' ||
     sheet === 'school';
+
+  // autoFocus inside a sliding Modal fires before it's on screen, so iOS never shows the keyboard.
+  useEffect(() => {
+    if (!isTextSheet) return;
+    const t = setTimeout(() => inputRef.current?.focus(), Platform.OS === 'ios' ? 350 : 200);
+    return () => clearTimeout(t);
+  }, [isTextSheet, sheet]);
 
   return (
     <Screen padded={false}>
@@ -523,8 +614,17 @@ export default function EditProfileScreen() {
 
         <Section title="Basics">
           <EditorRow
+            label="Legal name"
+            value={legalName || null}
+            placeholder="Add the name on your ID"
+            hint={savedLegalName ? 'Private · can’t be changed' : 'Private · can only be set once'}
+            locked={Boolean(savedLegalName)}
+            onPress={() => openTextSheet('legalName', legalName)}
+          />
+          <EditorRow
             label="Display name"
             value={displayName}
+            hint="What matches see"
             onPress={() => openTextSheet('name', displayName)}
           />
           <EditorRow
@@ -576,7 +676,12 @@ export default function EditProfileScreen() {
           />
           <EditorRow
             label="Interests"
-            value={interests.length ? interests.slice(0, 3).join(', ') : null}
+            value={
+              interests.length
+                ? `${interests.slice(0, 3).join(', ')}${interests.length > 3 ? ` +${interests.length - 3}` : ''}`
+                : null
+            }
+            placeholder="Add interests to find people you click with"
             last
             onPress={() => setSheet('interests')}
           />
@@ -596,7 +701,16 @@ export default function EditProfileScreen() {
           <EditorRow
             label="Food I’m into"
             value={foodPreference ? foodLabel(foodPreference) : null}
+            last
             onPress={() => setSheet('food')}
+          />
+        </Section>
+
+        <Section title="Lifestyle">
+          <EditorRow
+            label="Workout"
+            value={exercise || null}
+            onPress={() => setSheet('exercise')}
           />
           <EditorRow
             label="Drinking"
@@ -606,8 +720,18 @@ export default function EditProfileScreen() {
           <EditorRow
             label="Smoking"
             value={smoking || null}
-            last
             onPress={() => setSheet('smoking')}
+          />
+          <EditorRow
+            label="Kids"
+            value={kids || null}
+            onPress={() => setSheet('kids')}
+          />
+          <EditorRow
+            label="Pets"
+            value={pets || null}
+            last
+            onPress={() => setSheet('pets')}
           />
         </Section>
 
@@ -629,7 +753,7 @@ export default function EditProfileScreen() {
       </ScrollView>
 
       <Modal visible={sheet != null} animationType="slide" transparent onRequestClose={() => setSheet(null)}>
-        <View style={styles.sheetRoot}>
+        <KeyboardAvoidingView style={styles.sheetRoot} behavior="padding">
           <Pressable style={styles.sheetBackdrop} onPress={() => setSheet(null)} />
           <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
             <View style={styles.sheetHandle} />
@@ -648,6 +772,7 @@ export default function EditProfileScreen() {
 
           {isTextSheet ? (
             <TextInput
+              ref={inputRef}
               value={draftText}
               onChangeText={setDraftText}
               placeholder={
@@ -655,16 +780,30 @@ export default function EditProfileScreen() {
                   ? 'YYYY-MM-DD'
                   : sheet === 'bio'
                     ? 'A little about you'
-                    : sheetTitle
+                    : sheet === 'legalName'
+                      ? 'Full name on your ID'
+                      : sheetTitle
               }
               placeholderTextColor={colors.textSecondary}
-              autoFocus
               multiline={sheet === 'bio'}
               maxLength={sheet === 'bio' ? 280 : sheet === 'name' ? 40 : 80}
               keyboardType={sheet === 'birthday' ? 'numbers-and-punctuation' : 'default'}
-              autoCapitalize={sheet === 'birthday' ? 'none' : 'sentences'}
+              autoCapitalize={
+                sheet === 'birthday' ? 'none' : sheet === 'name' || sheet === 'legalName' ? 'words' : 'sentences'
+              }
+              autoCorrect={sheet === 'bio'}
+              returnKeyType={sheet === 'bio' ? 'default' : 'done'}
+              onSubmitEditing={sheet === 'bio' ? undefined : commitTextSheet}
+              submitBehavior={sheet === 'bio' ? 'newline' : 'submit'}
               style={[styles.sheetInput, sheet === 'bio' && styles.sheetInputBio]}
             />
+          ) : null}
+          {sheet === 'legalName' ? (
+            <AppText style={styles.sheetNote}>
+              Must match your government ID. It’s never shown on your profile and can’t be changed once saved.
+            </AppText>
+          ) : sheet === 'name' ? (
+            <AppText style={styles.sheetNote}>This is the name matches see. Change it anytime.</AppText>
           ) : null}
 
           {sheet === 'gender' ? (
@@ -720,22 +859,11 @@ export default function EditProfileScreen() {
           ) : null}
 
           {sheet === 'interests' ? (
-            <View style={styles.chipWrap}>
-              {INTEREST_CHIPS.map((item) => {
-                const on = interests.includes(item);
-                return (
-                  <OptionChip
-                    key={item}
-                    label={item}
-                    selected={on}
-                    onPress={() =>
-                      setInterests((curr) =>
-                        on ? curr.filter((x) => x !== item) : curr.length >= 6 ? curr : [...curr, item],
-                      )
-                    }
-                  />
-                );
-              })}
+            <View style={styles.interestSheet}>
+              <InterestCount count={interests.length} />
+              <ScrollView style={styles.interestScroll} showsVerticalScrollIndicator={false}>
+                <InterestPicker value={interests} onChange={setInterests} />
+              </ScrollView>
               <Pressable style={styles.sheetPrimary} onPress={() => setSheet(null)}>
                 <AppText style={styles.sheetPrimaryLabel}>Done</AppText>
               </Pressable>
@@ -790,31 +918,16 @@ export default function EditProfileScreen() {
             </View>
           ) : null}
 
-          {sheet === 'drinking' ? (
+          {sheet && CHOICE_SHEETS[sheet] ? (
             <View style={styles.chipWrap}>
-              {DRINKING.map((v) => (
+              {CHOICE_SHEETS[sheet]!.map((v) => (
                 <OptionChip
                   key={v}
                   label={v}
-                  selected={drinking === v}
+                  selected={choiceValue[sheet] === v}
                   onPress={() => {
-                    setDrinking(v);
-                    setSheet(null);
-                  }}
-                />
-              ))}
-            </View>
-          ) : null}
-
-          {sheet === 'smoking' ? (
-            <View style={styles.chipWrap}>
-              {SMOKING.map((v) => (
-                <OptionChip
-                  key={v}
-                  label={v}
-                  selected={smoking === v}
-                  onPress={() => {
-                    setSmoking(v);
+                    // Tapping the current answer clears it.
+                    setChoice[sheet](choiceValue[sheet] === v ? '' : v);
                     setSheet(null);
                   }}
                 />
@@ -822,7 +935,7 @@ export default function EditProfileScreen() {
             </View>
           ) : null}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </Screen>
   );
@@ -1006,6 +1119,24 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     opacity: 0.65,
   },
+  rowHint: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '500',
+    opacity: 0.7,
+  },
+  lockedTag: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  sheetNote: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: -4,
+  },
   chevron: {
     color: colors.textSecondary,
     fontSize: 22,
@@ -1076,6 +1207,12 @@ const styles = StyleSheet.create({
   },
   heightList: {
     maxHeight: 320,
+  },
+  interestSheet: {
+    gap: spacing.sm,
+  },
+  interestScroll: {
+    maxHeight: 420,
   },
   heightRow: {
     paddingVertical: 12,

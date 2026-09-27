@@ -11,6 +11,7 @@ import { useSessionStore } from '@/store/session';
 import { confirmPersonaOnServer } from '@/features/verification/persistVerification';
 import { loadUserProfile } from '@/features/profile/saveOnboarding';
 import { isBackendConfigured } from '@/lib/env';
+import { friendlyError } from '@/lib/errors';
 
 export default function VerificationSettingsScreen() {
   const router = useRouter();
@@ -57,12 +58,7 @@ export default function VerificationSettingsScreen() {
       }
       await reloadFromFirestore();
     } catch (error) {
-      Alert.alert(
-        'Couldn’t refresh',
-        error instanceof Error
-          ? error.message
-          : 'Make sure you’re online. If this keeps failing, the confirm function may need deploy.',
-      );
+      Alert.alert('Couldn’t refresh', friendlyError(error, 'Make sure you’re online, then try again.'));
     } finally {
       setRefreshing(false);
     }

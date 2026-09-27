@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
@@ -33,7 +34,7 @@ export default function AgeSettingsScreen() {
       await persistAgeConfirmation(dob);
       Alert.alert('Saved', 'Age confirmed.', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (error) {
-      Alert.alert('Couldn’t save', error instanceof Error ? error.message : 'Try again');
+      Alert.alert('Couldn’t save', friendlyError(error, 'Try again'));
     } finally {
       setSaving(false);
     }

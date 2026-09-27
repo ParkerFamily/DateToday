@@ -38,13 +38,28 @@
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
         "EXPO_PUBLIC_USE_MOCK_DATA": "false",
-        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_yOogBtYoUVNpfuHSlxmGGCZeLMk"
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_yOogBtYoUVNpfuHSlxmGGCZeLMk",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "626033907762-6c3mb8spcs4ppomfsjm4um135t5t443o.apps.googleusercontent.com",
+        "EXPO_PUBLIC_FIREBASE_ANDROID_APP_ID": "1:626033907762:android:a4854e9d7bd75de6ea442b",
+        "EXPO_PUBLIC_FIREBASE_ANDROID_API_KEY": "AIzaSyBxYcxpL6CZDPsYc5BIwipSmSSt_1yxXo4"
       },
       "channel": "production"
     }
   },
   "submit": {
-    "production": {},
-    "preview": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6810919273",
+        "appleTeamId": "498P597A6L",
+        "appleId": "evette_smith412@yahoo.com"
+      }
+    },
+    "preview": {
+      "ios": {
+        "ascAppId": "6810919273",
+        "appleTeamId": "498P597A6L",
+        "appleId": "evette_smith412@yahoo.com"
+      }
+    }
   }
 }

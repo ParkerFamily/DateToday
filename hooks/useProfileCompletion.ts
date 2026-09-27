@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
-import type { ProfileCompletionRequirements } from '@/types';
-import { useSessionStore } from '@/store/session';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { useSessionStore } from '@/store/session';
+import type { ProfileCompletionRequirements } from '@/types';
 import { completionPercent, isProfileReadyForLive, missingLiveRequirements } from '@/utils/profileCompletion';
 import { isAtLeast18 } from '@/utils/time';
+import { useMemo } from 'react';
 
 function ageSatisfied(
   completionAge: boolean | undefined,

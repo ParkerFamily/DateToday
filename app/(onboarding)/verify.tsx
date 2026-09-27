@@ -1,7 +1,17 @@
 import React, { useState } from 'react';
 import { Alert, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
+import { friendlyError } from '@/lib/errors';
 import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
@@ -10,7 +20,7 @@ import { env, personaClientConfigured } from '@/lib/env';
 import { LEGAL_URLS } from '@/constants/legal';
 import { startPersonaVerification } from '@/features/verification/persona';
 import { finalizePersonaVerification } from '@/features/verification/persistVerification';
-import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { firstName, useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import { colors, spacing } from '@/constants/theme';
 
@@ -40,14 +50,31 @@ export default function VerifyScreen() {
     router.push('/(onboarding)/youre-in');
   };
 
-  const onVerify = async () => {
-    if (!biometricConsent) {
-      Alert.alert(
-        'Consent required',
-        'Confirm you understand Persona may process your ID and biometric selfie before continuing.',
-      );
+  const shake = useSharedValue(0);
+  const [consentNudge, setConsentNudge] = useState(false);
+  const shakeStyle = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value }] }));
+
+  const onVerify = () => {
+    if (biometricConsent) {
+      void startVerification();
       return;
     }
+    setConsentNudge(true);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    shake.value = withSequence(
+      withTiming(-10, { duration: 50 }),
+      withRepeat(withTiming(10, { duration: 90 }), 4, true),
+      withTiming(0, { duration: 50 }),
+    );
+  };
+
+  const toggleConsent = () => {
+    void Haptics.selectionAsync();
+    setConsentNudge(false);
+    setBiometricConsent((v) => !v);
+  };
+
+  const startVerification = async () => {
     try {
       setLoading(true);
 
@@ -65,7 +92,8 @@ export default function VerifyScreen() {
         useSessionStore.getState().email ||
         `local-${draft.displayName || 'user'}`;
       const nameFirst =
-        (profile?.displayName || draft.displayName).trim().split(/\s+/)[0] || undefined;
+        firstName(profile?.legalName || draft.legalName || profile?.displayName || draft.displayName) ||
+        undefined;
 
       const result = await startPersonaVerification({
         referenceId,
@@ -107,7 +135,7 @@ export default function VerifyScreen() {
     } catch (error) {
       Alert.alert(
         'Couldn’t start verification',
-        error instanceof Error ? error.message : 'Try again in a moment.',
+        friendlyError(error, 'Try again in a moment.'),
       );
     } finally {
       setLoading(false);
@@ -122,6 +150,36 @@ export default function VerifyScreen() {
       showSkipSetup={false}
       footer={
         <View style={styles.footer}>
+          {!isVerified ? (
+            <Animated.View style={shakeStyle}>
+              <Pressable
+                style={[
+                  styles.consentCard,
+                  biometricConsent && styles.consentCardOn,
+                  consentNudge && styles.consentCardNudge,
+                ]}
+                onPress={toggleConsent}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: biometricConsent }}
+                hitSlop={6}
+              >
+                <View style={[styles.box, biometricConsent && styles.boxOn]}>
+                  {biometricConsent ? <Ionicons name="checkmark" size={20} color="#fff" /> : null}
+                </View>
+                <View style={styles.consentCopy}>
+                  <AppText style={styles.consentTitle}>
+                    {biometricConsent ? 'You agreed' : 'Tap to agree (required)'}
+                  </AppText>
+                  <AppText style={styles.consentText}>
+                    Persona may process my ID and a biometric selfie to verify me.
+                  </AppText>
+                </View>
+              </Pressable>
+            </Animated.View>
+          ) : null}
+          {consentNudge && !biometricConsent ? (
+            <AppText style={styles.nudgeText}>Check the box above to start verification.</AppText>
+          ) : null}
           <PrimaryCta
             label={isVerified ? 'Continue' : 'Verify with Persona'}
             showArrow={!isVerified}
@@ -170,22 +228,9 @@ export default function VerifyScreen() {
           <AppText style={styles.line}>· Selfie / video and facial match signals</AppText>
           <AppText style={styles.line}>· Date of birth and verification outcome</AppText>
           <AppText style={styles.line}>
-            DateToday stores inquiry id + status metadata — not raw ID images in Firebase.
+            DateToday only keeps your verification result — never your ID images.
           </AppText>
         </View>
-
-        <Pressable
-          style={styles.consentRow}
-          onPress={() => setBiometricConsent((v) => !v)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: biometricConsent }}
-        >
-          <View style={[styles.box, biometricConsent && styles.boxOn]} />
-          <AppText style={styles.consentText}>
-            I understand Persona may process my ID and biometric selfie for verification, and I
-            agree to continue.
-          </AppText>
-        </Pressable>
 
         <Pressable onPress={() => router.push('/legal/identity')}>
           <AppText style={styles.link}>Identity Verification & Biometrics notice</AppText>
@@ -240,28 +285,56 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
-  consentRow: {
+  consentCard: {
     flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    gap: 14,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: colors.brandBright,
+    backgroundColor: 'rgba(168, 85, 247, 0.12)',
+  },
+  consentCardOn: {
+    borderColor: colors.live,
+    backgroundColor: 'rgba(34, 197, 94, 0.10)',
+  },
+  consentCardNudge: {
+    borderColor: colors.danger,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
   },
   box: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: colors.border,
-    marginTop: 2,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    borderWidth: 2.5,
+    borderColor: colors.text,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   boxOn: {
-    backgroundColor: colors.brandBright,
-    borderColor: colors.brandBright,
+    backgroundColor: colors.live,
+    borderColor: colors.live,
+  },
+  consentCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  consentTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
   },
   consentText: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 20,
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  nudgeText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   link: {
     color: colors.brandBright,

@@ -1,0 +1,35 @@
+{
+  "levels": [
+    { "level": 1, "name": "Quick", "blurb": "8 questions · about a minute" },
+    { "level": 2, "name": "Deeper", "blurb": "8 more · how you do relationships" },
+    { "level": 3, "name": "Deepest", "blurb": "8 more · the long-term stuff" }
+  ],
+  "questions": [
+    { "id": "friday", "level": 1, "kind": "scale", "weight": 1, "text": "Your ideal Friday night?", "options": ["Out with a crowd", "Drinks with a few friends", "Cozy night in"] },
+    { "id": "texting", "level": 1, "kind": "scale", "weight": 1, "text": "How fast do you text back?", "options": ["Right away", "Within a few hours", "Whenever I get to it"] },
+    { "id": "planning", "level": 1, "kind": "scale", "weight": 1, "text": "Plans or spontaneity?", "options": ["I plan everything", "A bit of both", "Let's wing it"] },
+    { "id": "clock", "level": 1, "kind": "scale", "weight": 1, "text": "Morning person or night owl?", "options": ["Early bird", "Somewhere in between", "Night owl"] },
+    { "id": "looking", "level": 1, "kind": "scale", "weight": 2, "text": "What are you looking for?", "options": ["Something serious", "See where it goes", "Keeping it casual"] },
+    { "id": "tidy", "level": 1, "kind": "scale", "weight": 1, "text": "Your place right now is…", "options": ["Spotless", "Lived-in", "Organized chaos"] },
+    { "id": "weekend", "level": 1, "kind": "scale", "weight": 1, "text": "A perfect weekend is…", "options": ["An adventure", "A little of everything", "Recharging at home"] },
+    { "id": "money", "level": 1, "kind": "scale", "weight": 1, "text": "With money, you're a…", "options": ["Saver", "Balanced", "Treat-yourself spender"] },
+
+    { "id": "alone", "level": 2, "kind": "scale", "weight": 1, "text": "How much alone time do you need?", "options": ["A lot", "Some", "Barely any"] },
+    { "id": "conflict", "level": 2, "kind": "scale", "weight": 1.5, "text": "When you disagree, you…", "options": ["Talk it out right away", "Cool off, then talk", "Let it blow over"] },
+    { "id": "pda", "level": 2, "kind": "scale", "weight": 1, "text": "Affection in public?", "options": ["Love it", "A little is nice", "Keep it private"] },
+    { "id": "family", "level": 2, "kind": "scale", "weight": 1, "text": "How close are you with family?", "options": ["Very close", "Pretty close", "I do my own thing"] },
+    { "id": "social", "level": 2, "kind": "scale", "weight": 1, "text": "Social media?", "options": ["Post all the time", "Every now and then", "Barely online"] },
+    { "id": "faith", "level": 2, "kind": "scale", "weight": 1.5, "text": "How important is faith or spirituality to you?", "options": ["Very important", "Somewhat", "Not really"] },
+    { "id": "kids", "level": 2, "kind": "scale", "weight": 2, "text": "Do you want kids someday?", "options": ["Yes", "Maybe", "No"] },
+    { "id": "pace", "level": 2, "kind": "scale", "weight": 1, "text": "Your ideal relationship pace?", "options": ["All in, fast", "Steady", "Slow and easy"] },
+
+    { "id": "home", "level": 3, "kind": "scale", "weight": 1, "text": "Where do you see yourself living?", "options": ["Big city", "Suburbs", "Small town or country"] },
+    { "id": "career", "level": 3, "kind": "scale", "weight": 1, "text": "Career or life?", "options": ["Career comes first", "Balanced", "Life comes first"] },
+    { "id": "loveLanguage", "level": 3, "kind": "pick", "weight": 1, "text": "You feel most loved through…", "options": ["Kind words", "Quality time", "Physical touch", "Thoughtful gifts", "Help and favors"] },
+    { "id": "politics", "level": 3, "kind": "scale", "weight": 1, "text": "Should a partner share your politics?", "options": ["Must match", "Would be nice", "Doesn't matter"] },
+    { "id": "jealousy", "level": 3, "kind": "scale", "weight": 1, "text": "How often do you get jealous?", "options": ["Rarely", "Sometimes", "Often"] },
+    { "id": "stress", "level": 3, "kind": "pick", "weight": 1, "text": "When you're stressed, you…", "options": ["Talk it through", "Stay busy", "Need space"] },
+    { "id": "travel", "level": 3, "kind": "scale", "weight": 1, "text": "How much do you travel?", "options": ["Every chance I get", "A few trips a year", "I'm a homebody"] },
+    { "id": "fiveYears", "level": 3, "kind": "scale", "weight": 1.5, "text": "In five years you'd like to be…", "options": ["Settled down", "Building something", "Free and flexible"] }
+  ]
+}

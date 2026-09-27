@@ -1,6 +1,7 @@
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { env, personaClientConfigured } from '@/lib/env';
+import { getFirebaseAuth } from '@/lib/firebase/client';
 import type { VerificationStatus } from '@/types';
 
 export const PERSONA_REDIRECT_PATH = 'persona';
@@ -58,9 +59,36 @@ export function buildPersonaVerifyUrl(opts: {
   return `https://withpersona.com/verify?${params.toString()}`;
 }
 
+async function createInquiryOnServer(input: {
+  nameFirst?: string;
+  birthdate?: string;
+}): Promise<{ inquiryId: string; sessionToken?: string }> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Sign in first.');
+  const token = await user.getIdToken();
+  const projectId = env.firebaseProjectId || 'datetoday-e1331';
+  const res = await fetch(`https://us-central1-${projectId}.cloudfunctions.net/createPersonaInquiry`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ nameFirst: input.nameFirst, birthdate: input.birthdate }),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    inquiryId?: string;
+    sessionToken?: string | null;
+    error?: string;
+  };
+  if (!res.ok || !json.inquiryId) {
+    throw new Error(json.error || `Could not start Persona (${res.status}).`);
+  }
+  return { inquiryId: json.inquiryId, sessionToken: json.sessionToken || undefined };
+}
+
 /**
- * Create a sandbox inquiry via Persona API (dev), then open hosted flow.
- * Falls back to template-id hosted URL if API create isn't available.
+ * Create the inquiry on our Cloud Function (API key stays server-side), then open hosted flow.
+ * Dev-only fallback: client sandbox key. Template-only URLs need an environment id to load.
  */
 export async function createPersonaInquiry(input: {
   referenceId: string;
@@ -69,7 +97,15 @@ export async function createPersonaInquiry(input: {
 }): Promise<{ inquiryId: string; sessionToken?: string; verifyUrl: string } | null> {
   const redirectUri = personaRedirectUri();
 
-  // Preferred: create inquiry with sandbox API key so we get a real inquiry-id.
+  let serverError: Error | null = null;
+  try {
+    const created = await createInquiryOnServer(input);
+    const verifyUrl = buildPersonaVerifyUrl({ ...created, redirectUri });
+    if (verifyUrl) return { ...created, verifyUrl };
+  } catch (error) {
+    serverError = error instanceof Error ? error : new Error(String(error));
+  }
+
   const sandboxKey = env.personaSandboxApiKey;
   if (sandboxKey?.startsWith('persona_sandbox_') && env.personaTemplateId) {
     try {
@@ -123,6 +159,10 @@ export async function createPersonaInquiry(input: {
     } catch {
       // Fall through to template hosted URL.
     }
+  }
+
+  if (!env.personaEnvironmentId) {
+    throw serverError ?? new Error('Could not start Persona.');
   }
 
   const verifyUrl = buildPersonaVerifyUrl({

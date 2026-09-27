@@ -98,6 +98,8 @@ export interface AppUser {
 export interface Profile {
   userId: string;
   displayName: string;
+  /** Name on government ID — private (users/{uid} only), locked after onboarding. */
+  legalName?: string | null;
   bio: string | null;
   /** YYYY-MM-DD — private; used for 18+ completion, not shown publicly */
   dateOfBirth?: string | null;
@@ -115,6 +117,11 @@ export interface Profile {
   smoking?: string | null;
   interests?: string[] | null;
   foodPreference?: string | null;
+  exercise?: string | null;
+  kids?: string | null;
+  pets?: string | null;
+  /** Highest compatibility quiz level finished (0 = not taken). */
+  quizLevel?: number;
   verificationStatus: VerificationStatus;
   mainPhotoUrl: string | null;
   /** Up to 3 profile photos; index 0 is main (mirrors mainPhotoUrl). */
@@ -210,6 +217,12 @@ export interface DiscoveryCard {
   /** live = Pinged now; later = said they'll be free later tonight */
   availabilityMode?: 'live' | 'later';
   laterTonightHour?: number | null;
+  heightCm?: number | null;
+  drinking?: string | null;
+  smoking?: string | null;
+  interests?: string[];
+  kids?: string | null;
+  exercise?: string | null;
 }
 
 export interface Ping {
@@ -276,7 +289,7 @@ export interface ProfileCompletionRequirements {
 }
 
 export type EntitlementKey =
-  | 'unlimited_pings'
+  | 'unlimited_matches'
   | 'unlimited_messages'
   | 'advanced_filters'
   | 'see_all_received_pings'

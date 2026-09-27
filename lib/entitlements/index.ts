@@ -3,7 +3,7 @@ import { FREE_MAX_RADIUS } from '@/constants/tonightVibe';
 import { commerceConfig } from '@/constants/config';
 
 const PLUS_ENTITLEMENTS: EntitlementKey[] = [
-  'unlimited_pings',
+  'unlimited_matches',
   'unlimited_messages',
   'advanced_filters',
   'see_all_received_pings',
@@ -18,10 +18,10 @@ export type PlusPlanId = 'weekly' | 'monthly';
 export interface EntitlementState {
   plan: 'free' | 'plus';
   subscriptionStatus: SubscriptionStatus;
-  /** Free daily Ping allowance in minutes. */
-  freePingMinutesPerDay: number;
-  /** Free outgoing messages per day. */
-  freeOutgoingMessagesPerDay: number;
+  /** Free new matches per day. */
+  freeMatchesPerDay: number;
+  /** Free distinct people you can message per day. */
+  freeConversationsPerDay: number;
   /** Active Plus cadence when known. */
   plusPlanId: PlusPlanId | null;
   /** Store product id unlocking DateToday+. */
@@ -39,8 +39,8 @@ export interface EntitlementState {
 export const DEFAULT_ENTITLEMENTS: EntitlementState = {
   plan: 'free',
   subscriptionStatus: 'inactive',
-  freePingMinutesPerDay: commerceConfig.freePingMinutesPerDay,
-  freeOutgoingMessagesPerDay: commerceConfig.freeOutgoingMessagesPerDay,
+  freeMatchesPerDay: commerceConfig.freeMatchesPerDay,
+  freeConversationsPerDay: commerceConfig.freeConversationsPerDay,
   plusPlanId: null,
   productId: null,
   expiresAt: null,
@@ -66,22 +66,18 @@ export function hasEntitlement(
   return PLUS_ENTITLEMENTS.includes(key);
 }
 
-/** Unlimited Ping time for Plus; otherwise daily free minutes. */
-export function pingMinutesAllowance(state: EntitlementState): number | 'unlimited' {
-  return hasEntitlement(state, 'unlimited_pings')
+/** New matches per day: unlimited for Plus. */
+export function matchAllowance(state: EntitlementState): number | 'unlimited' {
+  return hasEntitlement(state, 'unlimited_matches')
     ? 'unlimited'
-    : state.freePingMinutesPerDay;
+    : state.freeMatchesPerDay ?? commerceConfig.freeMatchesPerDay;
 }
 
-export function messageAllowance(state: EntitlementState): number | 'unlimited' {
+/** Distinct people you can message per day: unlimited for Plus. */
+export function conversationAllowance(state: EntitlementState): number | 'unlimited' {
   return hasEntitlement(state, 'unlimited_messages')
     ? 'unlimited'
-    : state.freeOutgoingMessagesPerDay;
-}
-
-/** @deprecated Prefer pingMinutesAllowance — kept for older call sites. */
-export function maxOutgoingPings(state: EntitlementState): number | 'unlimited' {
-  return pingMinutesAllowance(state);
+    : state.freeConversationsPerDay ?? commerceConfig.freeConversationsPerDay;
 }
 
 /** Free band ends at 25 mi; Plus unlocks exact / up to 50. */

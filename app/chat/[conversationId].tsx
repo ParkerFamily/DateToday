@@ -1,153 +1,257 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
+  Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { VerificationTag } from '@/components/ui/VerificationTag';
 import { flowCopy, icebreakersFor } from '@/constants/flow';
-import { ACTIVITY_EMOJI } from '@/constants/tonightVibe';
 import { colors, radii, spacing } from '@/constants/theme';
-import type { ChatMessage } from '@/types';
 import { useSessionStore } from '@/store/session';
-import { blockUser } from '@/features/safety/api';
+import { confirmBlockAndReport } from '@/features/safety/blockFlow';
 import { useBlocksStore } from '@/store/blocks';
-import { canSendOutgoingMessage, recordOutgoingMessage } from '@/lib/usage/dailyLimits';
-import { commerceConfig } from '@/constants/config';
+import { usePrivacyControls } from '@/store/privacyControls';
+import { canMessageMatch, recordMessagedMatch } from '@/lib/usage/dailyLimits';
+import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { isPlusActive } from '@/lib/entitlements';
+import {
+  markMatchRead,
+  otherUserId,
+  proposalSummary,
+  respondToDate,
+  sendMatchMessage,
+  setTyping,
+  subscribeMatch,
+  subscribeMessages,
+  type MatchDoc,
+  type MatchMessage,
+} from '@/features/matches/api';
+import { useTheirChatState } from '@/features/matches/useTheirChatState';
+import { TypingDots } from '@/components/chat/TypingDots';
+import { dismissNotificationsForMatch, setActiveChat } from '@/features/notifications/push';
 
 type ListItem =
-  | { kind: 'message'; message: ChatMessage }
-  | {
-      kind: 'proposal';
-      id: string;
-      venue: string;
-      time: string;
-      activity: string;
-      food?: string;
-      status: 'pending' | 'accepted' | 'declined';
-    }
+  | { kind: 'message'; message: MatchMessage }
   | { kind: 'nudge'; id: string };
+
+function markRead(matchId: string) {
+  return markMatchRead(matchId, usePrivacyControls.getState().readReceipts);
+}
+
+const TYPING_PING_MS = 3000;
+const TYPING_IDLE_MS = 5000;
+
+/** Sends a typing ping at most every few seconds while drafting; clears on idle, send, blur, or background. */
+function useTypingSender(matchId: string) {
+  const lastPing = useRef(0);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stop = useCallback(() => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = null;
+    if (lastPing.current === 0) return;
+    lastPing.current = 0;
+    void setTyping(matchId, false);
+  }, [matchId]);
+
+  const onDraftChange = useCallback(
+    (text: string) => {
+      if (!matchId) return;
+      if (!text.trim()) {
+        stop();
+        return;
+      }
+      const now = Date.now();
+      if (now - lastPing.current > TYPING_PING_MS) {
+        lastPing.current = now;
+        void setTyping(matchId, true);
+      }
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      idleTimer.current = setTimeout(stop, TYPING_IDLE_MS);
+    },
+    [matchId, stop],
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') stop();
+    });
+    return () => {
+      sub.remove();
+      stop();
+    };
+  }, [stop]);
+
+  return { onDraftChange, stopTyping: stop };
+}
 
 export default function ChatScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{
-    conversationId: string;
-    name?: string;
-    photo?: string;
-    food?: string;
-    activities?: string;
-    icebreakers?: string;
-    proposalVenue?: string;
-    proposalTime?: string;
-    proposalActivity?: string;
-  }>();
+  const params = useLocalSearchParams<{ conversationId: string; icebreakers?: string }>();
+  const matchId = String(params.conversationId ?? '');
 
-  const userId = useSessionStore((s) => s.userId) ?? 'local';
-  const liveSession = useSessionStore((s) => s.liveSession);
+  const userId = useSessionStore((s) => s.userId) ?? '';
   const entitlements = useSessionStore((s) => s.entitlements);
   const listRef = useRef<FlatList<ListItem>>(null);
-  const theirName = params.name ?? 'Match';
-  const theirId = String(params.conversationId);
-  const isBlocked = useBlocksStore((s) => Boolean(s.byId[theirId]));
-  const food = typeof params.food === 'string' ? params.food : '';
-  const activities = useMemo(() => {
-    if (typeof params.activities === 'string' && params.activities.length) {
-      return params.activities.split(',').filter(Boolean);
-    }
-    return liveSession?.activities ?? ['drinks', 'dinner'];
-  }, [params.activities, liveSession?.activities]);
 
-  const vibeLine = activities
-    .map((a) => `${ACTIVITY_EMOJI[a] ?? ''} ${a.charAt(0).toUpperCase() + a.slice(1)}`.trim())
-    .join(' · ');
-
-  const openers = useMemo(() => icebreakersFor({ food, name: theirName }), [food, theirName]);
-  const [showIcebreakers, setShowIcebreakers] = useState(params.icebreakers === '1');
+  const [match, setMatch] = useState<MatchDoc | null>(null);
+  const [matchState, setMatchState] = useState<'loading' | 'ready' | 'missing'>('loading');
+  const [messages, setMessages] = useState<MatchMessage[]>([]);
   const [draft, setDraft] = useState('');
-  const [sentCount, setSentCount] = useState(0);
+  const [sending, setSending] = useState(false);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
+  const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [messageLocked, setMessageLocked] = useState(false);
+  const focusedRef = useRef(false);
 
-  const [items, setItems] = useState<ListItem[]>(() => {
-    const seed: ListItem[] = [];
-    if (params.proposalVenue) {
-      seed.push({
-        kind: 'proposal',
-        id: 'proposal-incoming',
-        venue: String(params.proposalVenue),
-        time: String(params.proposalTime ?? '8:30'),
-        activity: String(params.proposalActivity ?? 'Dinner'),
-        food: food || undefined,
-        status: 'pending',
+  useFocusEffect(
+    useCallback(() => {
+      if (!matchId) return;
+      let alive = true;
+      void canMessageMatch(entitlements, matchId).then((gate) => {
+        if (alive) setMessageLocked(!gate.ok);
       });
+      return () => {
+        alive = false;
+      };
+    }, [matchId, entitlements]),
+  );
+
+  const theirId = match ? otherUserId(match, userId) : '';
+  const them = match?.users[theirId];
+  const theirName = them?.displayName ?? 'Match';
+  const isBlocked = useBlocksStore((s) => Boolean(theirId && s.byId[theirId]));
+  const blockedMe = useBlocksStore((s) => Boolean(theirId && s.hidden[theirId]));
+  const receiptsOn = usePrivacyControls((s) => s.readReceipts);
+  const { lastReadAt: theirLastReadAt, typing: theyAreTyping } = useTheirChatState(matchId, theirId);
+  const { onDraftChange, stopTyping } = useTypingSender(receiptsOn ? matchId : '');
+
+  useEffect(() => {
+    if (!matchId) {
+      setMatchState('missing');
+      return;
     }
-    return seed;
-  });
+    const unsubMatch = subscribeMatch(
+      matchId,
+      (m) => {
+        setMatch(m);
+        setMatchState(m ? 'ready' : 'missing');
+      },
+      () => setMatchState('missing'),
+    );
+    const unsubMessages = subscribeMessages(matchId, setMessages);
+    return () => {
+      unsubMatch();
+      unsubMessages();
+    };
+  }, [matchId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      focusedRef.current = true;
+      setActiveChat(matchId);
+      if (matchId) {
+        if (AppState.currentState === 'active') void markRead(matchId);
+        void dismissNotificationsForMatch(matchId);
+      }
+      const sub = AppState.addEventListener('change', (next) => {
+        if (next === 'active' && matchId) {
+          void markRead(matchId);
+          void dismissNotificationsForMatch(matchId);
+        }
+      });
+      return () => {
+        focusedRef.current = false;
+        setActiveChat(null);
+        sub.remove();
+        stopTyping();
+      };
+    }, [matchId, stopTyping]),
+  );
+
+  const myUnread = match?.unread[userId] ?? 0;
+  const lastTheirsAt = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].senderId !== userId) return messages[i].createdAt?.getTime() ?? 0;
+    }
+    return 0;
+  }, [messages, userId]);
+  useEffect(() => {
+    // Only while actually looking at the chat, so "Seen" is never sent from a backgrounded screen.
+    if (!focusedRef.current || AppState.currentState !== 'active' || !matchId) return;
+    if (myUnread > 0 || lastTheirsAt > 0) void markRead(matchId);
+  }, [myUnread, lastTheirsAt, matchId]);
+
+  const lastMineId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].senderId === userId) return messages[i].id;
+    }
+    return null;
+  }, [messages, userId]);
+
+  const receiptFor = (message: MatchMessage) => {
+    if (!message.createdAt) return 'Sending…';
+    if (theirLastReadAt && theirLastReadAt.getTime() >= message.createdAt.getTime()) return 'Seen';
+    return 'Sent';
+  };
+
+  const openers = useMemo(() => icebreakersFor({ food: '', name: theirName }), [theirName]);
+  const showIcebreakers = matchState === 'ready' && messages.length === 0;
+  const mySentCount = messages.filter((m) => m.senderId === userId && m.type === 'text').length;
+  const hasProposal = messages.some((m) => m.type === 'date_proposal');
+
+  const items = useMemo<ListItem[]>(() => {
+    const list: ListItem[] = messages.map((message) => ({ kind: 'message', message }));
+    if (mySentCount >= 3 && !hasProposal && !nudgeDismissed) {
+      list.push({ kind: 'nudge', id: 'nudge' });
+    }
+    return list;
+  }, [messages, mySentCount, hasProposal, nudgeDismissed]);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)/dates');
   };
 
-  const appendMessage = (body: string) => {
-    const next: ChatMessage = {
-      id: `${Date.now()}`,
-      conversationId: String(params.conversationId),
-      senderId: userId,
-      body,
-      imageUrl: null,
-      createdAt: new Date().toISOString(),
-    };
-    setItems((prev) => {
-      const list: ListItem[] = [...prev, { kind: 'message', message: next }];
-      const nextCount = sentCount + 1;
-      if (nextCount >= 3 && !nudgeDismissed && !prev.some((i) => i.kind === 'nudge')) {
-        list.push({ kind: 'nudge', id: `nudge-${Date.now()}` });
-      }
-      return list;
-    });
-    setSentCount((c) => c + 1);
-    setShowIcebreakers(false);
-    setDraft('');
-  };
-
   const sendBody = (body: string) => {
     const text = body.trim();
-    if (!text) return;
+    if (!text || sending) return;
     void (async () => {
-      const gate = await canSendOutgoingMessage(entitlements);
+      const gate = await canMessageMatch(entitlements, matchId);
       if (!gate.ok) {
-        Alert.alert(
-          'Daily message limit',
-          `Free accounts get ${gate.limit} outgoing messages per day. Unlimited with DateToday+.`,
-          [
-            { text: 'Not now', style: 'cancel' },
-            { text: 'Get DateToday+', onPress: () => router.push('/paywall') },
-          ],
-        );
+        setMessageLocked(true);
+        openUpgrade(router, 'message');
         return;
       }
-      if (!isPlusActive(entitlements)) {
-        await recordOutgoingMessage();
+      setSending(true);
+      setDraft('');
+      stopTyping();
+      try {
+        await sendMatchMessage(matchId, text);
+        if (!isPlusActive(entitlements)) await recordMessagedMatch(matchId);
+      } catch (error) {
+        setDraft(text);
+        Alert.alert('Message not sent', friendlyError(error, 'Try again.'));
+      } finally {
+        setSending(false);
       }
-      appendMessage(text);
     })();
-  };
-
-  const send = () => {
-    sendBody(draft);
   };
 
   const openPlan = () => {
@@ -155,98 +259,96 @@ export default function ChatScreen() {
       pathname: '/dates/plan',
       params: {
         name: theirName,
-        photo: params.photo ?? '',
-        food,
-        conversationId: String(params.conversationId),
-        mode: food ? 'spot' : 'plan',
+        photo: them?.mainPhotoUrl ?? '',
+        conversationId: matchId,
+        mode: 'plan',
       },
     });
   };
 
+  const openProfile = () => {
+    if (!theirId) return;
+    router.push({ pathname: '/profile/[userId]', params: { userId: theirId, fromMatch: '1' } });
+  };
+
+  const respond = async (message: MatchMessage, status: 'accepted' | 'declined') => {
+    setRespondingId(message.id);
+    try {
+      await respondToDate(matchId, message.id, status);
+      if (status === 'accepted') {
+        router.push({
+          pathname: '/dates/its-a-date',
+          params: {
+            name: theirName,
+            venue: message.proposal?.venueName ?? '',
+            when: message.proposal?.whenLabel ?? '',
+            activity: message.proposal?.activityLabel ?? '',
+            conversationId: matchId,
+          },
+        });
+      }
+    } catch (error) {
+      Alert.alert('Couldn’t update the plan', friendlyError(error, 'Try again.'));
+    } finally {
+      setRespondingId(null);
+    }
+  };
+
   const openChatMenu = () => {
-    Alert.alert(theirName, 'Chat settings', [
+    Alert.alert(theirName, undefined, [
+      { text: 'View profile', onPress: openProfile },
       {
-        text: 'Chat & messaging settings',
-        onPress: () => router.push('/settings/chat'),
+        text: 'Block & report',
+        style: 'destructive',
+        onPress: () => confirmBlockAndReport(router, { uid: theirId, name: theirName }),
       },
       {
-        text: 'Report',
+        text: 'Report without blocking',
         onPress: () =>
           router.push({
             pathname: '/safety/report',
             params: { userId: theirId, name: theirName },
           }),
       },
-      {
-        text: 'Block',
-        style: 'destructive',
-        onPress: () => {
-          Alert.alert(
-            `Block ${theirName}?`,
-            'They’ll disappear from Discover, dates, and chat. They won’t be notified.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Block',
-                style: 'destructive',
-                onPress: () => {
-                  void (async () => {
-                    try {
-                      await blockUser(theirId, 'chat_block', theirName);
-                      Alert.alert('Blocked', `${theirName} won’t show up again.`, [
-                        { text: 'OK', onPress: goBack },
-                      ]);
-                    } catch (error) {
-                      Alert.alert(
-                        'Couldn’t block',
-                        error instanceof Error ? error.message : 'Try again',
-                      );
-                    }
-                  })();
-                },
-              },
-            ],
-          );
-        },
-      },
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
 
-  const acceptProposal = (item: Extract<ListItem, { kind: 'proposal' }>) => {
-    setItems((prev) =>
-      prev.map((row) =>
-        row.kind === 'proposal' && row.id === item.id ? { ...row, status: 'accepted' } : row,
-      ),
+  if (matchState !== 'ready' || isBlocked || blockedMe) {
+    return (
+      <Screen padded={false} edges={['left', 'right']}>
+        <View style={[styles.blockedGate, { paddingTop: insets.top + 24 }]}>
+          {matchState === 'loading' ? (
+            <ActivityIndicator color={colors.brandBright} />
+          ) : (
+            <>
+              <AppText variant="hero">Chat unavailable</AppText>
+              <AppText variant="secondary" style={styles.blockedCopy}>
+                {isBlocked
+                  ? `You blocked ${theirName}.`
+                  : 'This match is no longer available.'}
+              </AppText>
+              <Button label="Back" onPress={goBack} />
+              {isBlocked ? (
+                <Button
+                  label="Manage blocked users"
+                  variant="ghost"
+                  onPress={() => router.push('/settings/blocked')}
+                />
+              ) : null}
+            </>
+          )}
+        </View>
+      </Screen>
     );
-    router.push({
-      pathname: '/dates/its-a-date',
-      params: {
-        name: theirName,
-        venue: item.venue,
-        time: item.time,
-        activity: item.activity,
-        conversationId: String(params.conversationId),
-      },
-    });
-  };
+  }
+
+  const subtitle = match?.nextDate
+    ? `It’s a date · ${proposalSummary(match.nextDate)}`
+    : 'You matched · plan something';
 
   return (
     <Screen padded={false} edges={['left', 'right']}>
-      {isBlocked ? (
-        <View style={[styles.blockedGate, { paddingTop: insets.top + 24 }]}>
-          <AppText variant="hero">Chat unavailable</AppText>
-          <AppText variant="secondary" style={styles.blockedCopy}>
-            You blocked {theirName}. They won’t appear in discovery or dates.
-          </AppText>
-          <Button label="Back" onPress={goBack} />
-          <Button
-            label="Manage blocked users"
-            variant="ghost"
-            onPress={() => router.push('/settings/blocked')}
-          />
-        </View>
-      ) : (
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -263,25 +365,27 @@ export default function ChatScreen() {
             <Ionicons name="chevron-back" size={26} color={colors.text} />
           </Pressable>
 
-          <View style={styles.headerText}>
-            <View style={styles.nameRow}>
+          <Pressable style={styles.headerWho} onPress={openProfile} accessibilityRole="button">
+            {them?.mainPhotoUrl ? (
+              <Image source={{ uri: them.mainPhotoUrl }} style={styles.headerAvatar} />
+            ) : (
+              <View style={[styles.headerAvatar, styles.headerAvatarEmpty]}>
+                <Ionicons name="person" size={18} color={colors.textSecondary} />
+              </View>
+            )}
+            <View style={styles.headerText}>
               <AppText style={styles.title} numberOfLines={1}>
                 {theirName}
               </AppText>
-              <VerificationTag status="verified" compact />
-              <View style={styles.livePill}>
-                <View style={styles.liveDot} />
-                <AppText style={styles.liveText}>LIVE</AppText>
-              </View>
+              <AppText style={styles.subtitle} numberOfLines={1}>
+                {subtitle}
+              </AppText>
             </View>
-            <AppText style={styles.subtitle} numberOfLines={1}>
-              {vibeLine || 'Free tonight'}
-            </AppText>
-          </View>
+          </Pressable>
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Chat settings"
+            accessibilityLabel="Chat options"
             onPress={openChatMenu}
             style={({ pressed }) => [styles.menuBtn, pressed && styles.pressed]}
           >
@@ -290,7 +394,7 @@ export default function ChatScreen() {
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Make a plan"
+            accessibilityLabel="Plan a date"
             onPress={openPlan}
             style={({ pressed }) => [styles.planBtn, pressed && styles.pressed]}
           >
@@ -301,15 +405,16 @@ export default function ChatScreen() {
         <FlatList
           ref={listRef}
           data={items}
-          keyExtractor={(item) =>
-            item.kind === 'message' ? item.message.id : item.id
-          }
+          keyExtractor={(item) => (item.kind === 'message' ? item.message.id : item.id)}
           contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           ListHeaderComponent={
             showIcebreakers ? (
               <View style={styles.ice}>
-                <AppText style={styles.iceTitle}>{flowCopy.breakTheIce}</AppText>
+                <AppText style={styles.iceTitle}>
+                  YOU MATCHED WITH {theirName.toUpperCase()} · {flowCopy.breakTheIce}
+                </AppText>
                 {openers.map((line) => (
                   <Pressable
                     key={line}
@@ -319,9 +424,7 @@ export default function ChatScreen() {
                     <AppText style={styles.iceChipText}>{line}</AppText>
                   </Pressable>
                 ))}
-                <Pressable onPress={() => setShowIcebreakers(false)}>
-                  <AppText style={styles.writeOwn}>{flowCopy.writeMyOwn}</AppText>
-                </Pressable>
+                <Button label="Plan a date instead ⚡" variant="secondary" onPress={openPlan} />
               </View>
             ) : null
           }
@@ -332,87 +435,152 @@ export default function ChatScreen() {
                   <AppText style={styles.nudgeTitle}>{flowCopy.feelingVibe}</AppText>
                   <AppText style={styles.nudgeBody}>{flowCopy.feelingVibeBody}</AppText>
                   <Button label={flowCopy.makeAPlan} onPress={openPlan} style={styles.nudgeCta} />
-                  <Pressable
-                    onPress={() => {
-                      setNudgeDismissed(true);
-                      setItems((prev) => prev.filter((i) => i.kind !== 'nudge'));
-                    }}
-                  >
+                  <Pressable onPress={() => setNudgeDismissed(true)}>
                     <AppText style={styles.writeOwn}>Not yet</AppText>
                   </Pressable>
                 </View>
               );
             }
-            if (item.kind === 'proposal') {
+
+            const message = item.message;
+            const mine = message.senderId === userId;
+
+            if (message.type === 'date_proposal') {
+              const p = message.proposal;
               return (
-                <View style={styles.proposal}>
-                  <AppText style={styles.proposalEyebrow}>{flowCopy.dateProposal}</AppText>
-                  <AppText style={styles.proposalVenue}>
-                    {item.food ? `${ACTIVITY_EMOJI.dinner ?? '🍽'} ` : ''}
-                    {item.venue}
+                <View style={[styles.proposal, mine ? styles.proposalMine : styles.proposalTheirs]}>
+                  <AppText style={styles.proposalEyebrow}>
+                    {mine ? 'YOU SUGGESTED A DATE' : `${theirName.toUpperCase()} SUGGESTED A DATE`}
                   </AppText>
+                  <AppText style={styles.proposalVenue}>{p?.venueName || 'Somewhere fun'}</AppText>
+                  {p?.venueAddress || p?.neighborhood ? (
+                    <AppText style={styles.proposalMeta} numberOfLines={1}>
+                      {[p?.venueAddress, p?.neighborhood].filter(Boolean).join(' · ')}
+                    </AppText>
+                  ) : null}
                   <AppText style={styles.proposalMeta}>
-                    🕣 {item.time} PM · {item.activity}
+                    {[p?.activityLabel, p?.whenLabel].filter(Boolean).join(' · ')}
                   </AppText>
-                  {item.status === 'pending' ? (
-                    <View style={styles.proposalActions}>
-                      <Button
-                        label={flowCopy.accept}
-                        onPress={() => acceptProposal(item)}
-                        style={styles.proposalBtn}
-                      />
-                      <Button
-                        label={flowCopy.change}
-                        variant="secondary"
-                        onPress={openPlan}
-                        style={styles.proposalBtn}
-                      />
-                      <Button
-                        label={flowCopy.decline}
-                        variant="ghost"
-                        onPress={() =>
-                          setItems((prev) =>
-                            prev.map((row) =>
-                              row.kind === 'proposal' && row.id === item.id
-                                ? { ...row, status: 'declined' }
-                                : row,
-                            ),
-                          )
-                        }
-                      />
-                    </View>
+                  {typeof p?.venueLat === 'number' && typeof p?.venueLng === 'number' ? (
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => {
+                        const label = encodeURIComponent(p.venueName || 'Date spot');
+                        const url =
+                          Platform.OS === 'ios'
+                            ? `http://maps.apple.com/?ll=${p.venueLat},${p.venueLng}&q=${label}`
+                            : `geo:${p.venueLat},${p.venueLng}?q=${p.venueLat},${p.venueLng}(${label})`;
+                        void Linking.openURL(url).catch(() =>
+                          Linking.openURL(
+                            `https://www.google.com/maps/search/?api=1&query=${p.venueLat},${p.venueLng}`,
+                          ),
+                        );
+                      }}
+                    >
+                      <AppText style={styles.proposalDirections}>Directions ›</AppText>
+                    </Pressable>
+                  ) : null}
+                  {message.status === 'proposed' ? (
+                    mine ? (
+                      <AppText style={styles.proposalStatus}>Waiting for {theirName}…</AppText>
+                    ) : (
+                      <View style={styles.proposalActions}>
+                        <Button
+                          label={flowCopy.accept}
+                          loading={respondingId === message.id}
+                          onPress={() => void respond(message, 'accepted')}
+                        />
+                        <Button label="Suggest something else" variant="secondary" onPress={openPlan} />
+                        <Button
+                          label={flowCopy.decline}
+                          variant="ghost"
+                          disabled={respondingId === message.id}
+                          onPress={() => void respond(message, 'declined')}
+                        />
+                      </View>
+                    )
                   ) : (
-                    <AppText style={styles.proposalStatus}>
-                      {item.status === 'accepted' ? 'Accepted ⚡' : 'Declined'}
+                    <AppText
+                      style={[
+                        styles.proposalStatus,
+                        message.status === 'declined' && styles.proposalDeclined,
+                      ]}
+                    >
+                      {message.status === 'accepted' ? 'It’s a date ⚡' : 'Declined'}
                     </AppText>
                   )}
                 </View>
               );
             }
 
-            const mine = item.message.senderId === userId;
             return (
-              <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
-                <AppText style={mine ? styles.mineText : undefined}>{item.message.body}</AppText>
+              <View>
+                <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
+                  <AppText style={mine ? styles.mineText : undefined}>{message.text}</AppText>
+                </View>
+                {receiptsOn && message.id === lastMineId ? (
+                  <AppText style={styles.receipt}>{receiptFor(message)}</AppText>
+                ) : null}
               </View>
             );
           }}
+          ListFooterComponent={
+            theyAreTyping ? (
+              <View style={styles.typingRow} accessibilityLiveRegion="polite">
+                <View style={styles.typingBubble}>
+                  <TypingDots size={7} color={colors.textSecondary} />
+                </View>
+                <AppText style={styles.typingLabel}>{theirName} is typing…</AppText>
+              </View>
+            ) : null
+          }
         />
 
+        {messageLocked ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => openUpgrade(router, 'message')}
+            style={({ pressed }) => [
+              styles.lockedComposer,
+              { paddingBottom: Math.max(insets.bottom, 12) },
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <Ionicons name="sparkles" size={20} color={colors.brandBright} />
+            <View style={styles.flex}>
+              <AppText style={styles.lockedTitle}>Message {theirName} with DateToday+</AppText>
+              <AppText style={styles.lockedBody}>
+                Free includes chatting with 1 person a day — you’ve already started today’s.
+              </AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.brandBright} />
+          </Pressable>
+        ) : (
         <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <TextInput
             value={draft}
-            onChangeText={setDraft}
+            onChangeText={(text) => {
+              setDraft(text);
+              onDraftChange(text);
+            }}
+            onBlur={stopTyping}
             placeholder="Message…"
             placeholderTextColor={colors.textSecondary}
             style={styles.input}
-            onSubmitEditing={send}
+            onSubmitEditing={() => sendBody(draft)}
             returnKeyType="send"
+            maxLength={2000}
+            multiline
           />
-          <Button label="Send" onPress={send} style={styles.send} />
+          <Button
+            label="Send"
+            onPress={() => sendBody(draft)}
+            disabled={!draft.trim() || sending}
+            style={styles.send}
+          />
         </View>
+        )}
       </KeyboardAvoidingView>
-      )}
     </Screen>
   );
 }
@@ -438,51 +606,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  headerText: {
+  headerWho: {
     flex: 1,
     minWidth: 0,
-  },
-  nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 10,
   },
-  title: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '800',
-    maxWidth: '55%',
-  },
-  verified: {
-    color: colors.live,
-    fontWeight: '800',
-  },
-  livePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radii.pill,
-    backgroundColor: 'rgba(34,229,139,0.14)',
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.live,
-  },
-  liveText: {
-    color: colors.live,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    marginTop: 2,
-  },
+  headerAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.card },
+  headerAvatarEmpty: { alignItems: 'center', justifyContent: 'center' },
+  headerText: { flex: 1, minWidth: 0 },
+  title: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  subtitle: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   planBtn: {
     paddingHorizontal: 12,
     height: 36,
@@ -493,11 +628,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.brandBright,
   },
-  planLabel: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '800',
-  },
+  planLabel: { color: colors.text, fontSize: 13, fontWeight: '800' },
   menuBtn: {
     width: 36,
     height: 36,
@@ -514,15 +645,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     justifyContent: 'center',
   },
-  blockedCopy: {
-    marginBottom: spacing.md,
-  },
+  blockedCopy: { marginBottom: spacing.md },
   pressed: { opacity: 0.8 },
-  list: {
-    padding: spacing.lg,
-    gap: spacing.sm,
-    flexGrow: 1,
-  },
+  list: { padding: spacing.lg, gap: spacing.sm, flexGrow: 1 },
   ice: {
     gap: 10,
     marginBottom: spacing.lg,
@@ -532,12 +657,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  iceTitle: {
-    color: colors.brandBright,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
+  iceTitle: { color: colors.brandBright, fontSize: 12, fontWeight: '800', letterSpacing: 1 },
   iceChip: {
     padding: 12,
     borderRadius: radii.card,
@@ -545,11 +665,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  iceChipText: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 20,
-  },
+  iceChipText: { color: colors.text, fontSize: 15, lineHeight: 20 },
   writeOwn: {
     color: colors.textSecondary,
     textAlign: 'center',
@@ -565,18 +681,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(168,85,247,0.4)',
     marginVertical: spacing.sm,
   },
-  nudgeTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  nudgeBody: {
-    color: colors.textSecondary,
-    fontSize: 14,
-  },
-  nudgeCta: {
-    marginTop: 4,
-  },
+  nudgeTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  nudgeBody: { color: colors.textSecondary, fontSize: 14 },
+  nudgeCta: { marginTop: 4 },
   proposal: {
     gap: 8,
     padding: spacing.md,
@@ -585,33 +692,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(34,229,139,0.35)',
     marginVertical: spacing.sm,
+    width: '88%',
   },
-  proposalEyebrow: {
-    color: colors.live,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  proposalVenue: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  proposalMeta: {
-    color: colors.textSecondary,
-    fontSize: 15,
-  },
-  proposalActions: {
-    gap: 8,
-    marginTop: 6,
-  },
-  proposalBtn: {
-    alignSelf: 'stretch',
-  },
-  proposalStatus: {
-    color: colors.brandBright,
-    fontWeight: '700',
-  },
+  proposalMine: { alignSelf: 'flex-end' },
+  proposalTheirs: { alignSelf: 'flex-start' },
+  proposalEyebrow: { color: colors.live, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
+  proposalVenue: { color: colors.text, fontSize: 22, fontWeight: '800' },
+  proposalMeta: { color: colors.textSecondary, fontSize: 15 },
+  proposalDirections: { color: colors.brandBright, fontSize: 14, fontWeight: '800', marginTop: 2 },
+  proposalActions: { gap: 8, marginTop: 6 },
+  proposalStatus: { color: colors.brandBright, fontWeight: '700' },
+  proposalDeclined: { color: colors.textSecondary },
   bubble: {
     maxWidth: '78%',
     paddingHorizontal: 14,
@@ -631,9 +722,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   mineText: { color: colors.text },
+  receipt: {
+    alignSelf: 'flex-end',
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 3,
+    marginRight: 4,
+  },
+  typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm },
+  typingBubble: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.card,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  typingLabel: { color: colors.textSecondary, fontSize: 12 },
   composer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
@@ -644,18 +753,28 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     minHeight: 48,
+    maxHeight: 120,
     borderRadius: radii.input,
     backgroundColor: colors.elevated,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
+    paddingTop: 13,
+    paddingBottom: 13,
     color: colors.text,
     fontSize: 16,
   },
-  send: {
-    minHeight: 48,
-    width: 88,
-    flexGrow: 0,
-    flexShrink: 0,
+  send: { minHeight: 48, width: 88, flexGrow: 0, flexShrink: 0 },
+  lockedComposer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: spacing.md,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(168,85,247,0.45)',
+    backgroundColor: 'rgba(124,58,237,0.14)',
   },
+  lockedTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
+  lockedBody: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 2 },
 });

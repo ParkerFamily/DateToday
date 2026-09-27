@@ -1,11 +1,15 @@
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { getFirebaseAuth, getDb, getFirebaseStorage } from '@/lib/firebase/client';
-import { assertFirebaseConfigured } from '@/lib/env';
-import type { OnboardingDraft } from '@/store/onboardingDraft';
-import type { DatingPreferences, Profile } from '@/types';
 import { getPromptById, TONIGHT_SIGNATURE_PROMPT } from '@/constants/videoPrompts';
+import { assertFirebaseConfigured } from '@/lib/env';
+import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
+import {
+  describeUploadError,
+  remoteMediaUrlOrNull,
+  uploadLocalMedia,
+} from '@/lib/firebase/uploadLocalMedia';
+import { firstName, type OnboardingDraft } from '@/store/onboardingDraft';
+import type { DatingPreferences, Profile } from '@/types';
 import { isAtLeast18 } from '@/utils/time';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 
 const DEV_SKIP = 'datetoday://dev-skip-video';
 
@@ -31,7 +35,8 @@ type DraftSnapshot = Pick<
   | 'verificationStatus'
   | 'personaInquiryId'
   | 'legalConsentAccepted'
->;
+> &
+  Partial<Pick<OnboardingDraft, 'interests' | 'legalName'>>;
 
 function isUploadableUri(uri: string | null | undefined): uri is string {
   if (!uri) return false;
@@ -53,17 +58,7 @@ async function uploadUserMedia(
   pathSuffix: string,
   contentType: string,
 ): Promise<string> {
-  // Remote URLs already hosted — keep as-is.
-  if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
-    return localUri;
-  }
-
-  const storage = getFirebaseStorage();
-  const objectRef = ref(storage, `users/${uid}/${pathSuffix}`);
-  const response = await fetch(localUri);
-  const blob = await response.blob();
-  await uploadBytes(objectRef, blob, { contentType });
-  return getDownloadURL(objectRef);
+  return uploadLocalMedia(`users/${uid}/${pathSuffix}`, localUri, contentType);
 }
 
 export type SavedOnboarding = {
@@ -80,6 +75,39 @@ export type SavedOnboarding = {
   hasLegalConsent?: boolean;
 };
 
+export type FailedUpload = 'photo' | 'About You video' | 'Tonight video';
+
+/**
+ * Thrown before any Firestore write when selected media did not finish uploading.
+ * `uploaded` holds download URLs that did complete, so a retry can skip re-uploading them.
+ */
+export class MediaUploadError extends Error {
+  readonly failed: FailedUpload[];
+  readonly detail: string;
+  readonly uploaded: {
+    mainPhotoUrl?: string;
+    aboutVideoUrl?: string;
+    tonightVideoUrl?: string;
+  };
+
+  constructor(failed: FailedUpload[], detail: string, uploaded: MediaUploadError['uploaded']) {
+    super(`${failed.join(' and ')} upload failed`);
+    this.name = 'MediaUploadError';
+    this.failed = failed;
+    this.detail = detail;
+    this.uploaded = uploaded;
+  }
+}
+
+export function isMediaUploadError(error: unknown): error is MediaUploadError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { name?: unknown }).name === 'MediaUploadError' &&
+    Array.isArray((error as { failed?: unknown }).failed)
+  );
+}
+
 /**
  * Persist full onboarding draft to Firestore (+ Storage for photo/videos).
  * Shape: users/{uid} with nested profile + preferences fields.
@@ -92,43 +120,41 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
     throw new Error('Sign in before saving your profile.');
   }
 
-  let mainPhotoUrl = draft.mainPhotoUri;
-  let aboutVideoUrl = draft.aboutVideoUri;
-  let tonightVideoUrl = draft.tonightVideoUri;
+  let mainPhotoUrl: string | null = remoteMediaUrlOrNull(draft.mainPhotoUri);
+  let aboutVideoUrl: string | null = remoteMediaUrlOrNull(draft.aboutVideoUri);
+  let tonightVideoUrl: string | null = remoteMediaUrlOrNull(draft.tonightVideoUri);
+  const failed: FailedUpload[] = [];
+  const uploaded: MediaUploadError['uploaded'] = {};
+  let firstError: unknown = null;
 
-  try {
-    if (isUploadableUri(draft.mainPhotoUri)) {
-      mainPhotoUrl = await uploadUserMedia(uid, draft.mainPhotoUri, 'photo.jpg', 'image/jpeg');
+  // Every selected file must finish uploading before anything is written to Firestore,
+  // so a failed upload can never leave the profile saved with missing / local media.
+  const tryUpload = async (
+    what: FailedUpload,
+    localUri: string | null,
+    pathSuffix: string,
+    contentType: string,
+  ): Promise<string | null> => {
+    if (!isUploadableUri(localUri) || remoteMediaUrlOrNull(localUri)) return null;
+    try {
+      return await uploadUserMedia(uid, localUri, pathSuffix, contentType);
+    } catch (error) {
+      console.warn(`[DateToday] ${what} upload failed`, error);
+      failed.push(what);
+      firstError ??= error;
+      return null;
     }
-  } catch {
-    // Keep local URI if upload fails (e.g. Storage rules not set yet).
-    mainPhotoUrl = draft.mainPhotoUri;
-  }
+  };
 
-  try {
-    if (isUploadableUri(draft.aboutVideoUri)) {
-      aboutVideoUrl = await uploadUserMedia(
-        uid,
-        draft.aboutVideoUri,
-        'videos/about.mp4',
-        'video/mp4',
-      );
-    }
-  } catch {
-    aboutVideoUrl = draft.aboutVideoUri;
-  }
+  const photo = await tryUpload('photo', draft.mainPhotoUri, 'photo.jpg', 'image/jpeg');
+  if (photo) mainPhotoUrl = uploaded.mainPhotoUrl = photo;
+  const about = await tryUpload('About You video', draft.aboutVideoUri, 'videos/about.mp4', 'video/mp4');
+  if (about) aboutVideoUrl = uploaded.aboutVideoUrl = about;
+  const tonight = await tryUpload('Tonight video', draft.tonightVideoUri, 'videos/tonight.mp4', 'video/mp4');
+  if (tonight) tonightVideoUrl = uploaded.tonightVideoUrl = tonight;
 
-  try {
-    if (isUploadableUri(draft.tonightVideoUri)) {
-      tonightVideoUrl = await uploadUserMedia(
-        uid,
-        draft.tonightVideoUri,
-        'videos/tonight.mp4',
-        'video/mp4',
-      );
-    }
-  } catch {
-    tonightVideoUrl = draft.tonightVideoUri;
+  if (failed.length) {
+    throw new MediaUploadError(failed, describeUploadError(firstError), uploaded);
   }
 
   const aboutPrompt = draft.aboutPromptId ? getPromptById(draft.aboutPromptId) : undefined;
@@ -149,30 +175,28 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
 
   // If they never uploaded a photo, keep Google/Apple avatar when present.
   if (
-    (!mainPhotoUrl || mainPhotoUrl === DEV_SKIP) &&
+    !remoteMediaUrlOrNull(mainPhotoUrl) &&
     firebaseUser?.photoURL &&
     (resolvedAuthProvider === 'google' || resolvedAuthProvider === 'apple')
   ) {
     mainPhotoUrl = firebaseUser.photoURL;
   }
 
-  const aboutOk = Boolean(
-    aboutVideoUrl && aboutVideoUrl !== DEV_SKIP && !aboutVideoUrl.startsWith('datetoday://'),
-  );
-  const tonightOk = Boolean(
-    tonightVideoUrl &&
-      tonightVideoUrl !== DEV_SKIP &&
-      !tonightVideoUrl.startsWith('datetoday://'),
-  );
+  mainPhotoUrl = remoteMediaUrlOrNull(mainPhotoUrl);
+  aboutVideoUrl = remoteMediaUrlOrNull(aboutVideoUrl);
+  tonightVideoUrl = remoteMediaUrlOrNull(tonightVideoUrl);
+
+  const aboutOk = Boolean(aboutVideoUrl);
+  const tonightOk = Boolean(tonightVideoUrl);
 
   const profileCompletion = {
     onboardingComplete: true,
-    name: draft.displayName.trim().length >= 2,
+    name: (draft.displayName.trim() || firstName(draft.legalName)).length >= 2,
     age: Boolean(draft.dateOfBirth) && isAtLeast18(draft.dateOfBirth),
     gender: Boolean(draft.gender),
     preference: Boolean(draft.interestedIn),
     vibes: draft.vibes.length >= 1,
-    mainPhoto: Boolean(mainPhotoUrl && mainPhotoUrl !== DEV_SKIP),
+    mainPhoto: Boolean(mainPhotoUrl),
     videos: aboutOk && tonightOk,
     location: draft.locationEnabled,
     verification: draft.verificationStatus === 'verified',
@@ -188,11 +212,16 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
     dateOfBirth: draft.dateOfBirth || null,
     ageConfirmed: true,
 
-    displayName: draft.displayName.trim() || firebaseUser?.displayName || 'You',
+    displayName:
+      draft.displayName.trim() ||
+      firstName(draft.legalName) ||
+      firstName(firebaseUser?.displayName) ||
+      'You',
     bio: draft.bio?.trim() || null,
     gender: draft.gender,
     vibes: draft.vibes,
     datingIntention: draft.vibes[0] ?? null,
+    interests: draft.interests?.length ? draft.interests : null,
 
     mainPhotoUrl: mainPhotoUrl && mainPhotoUrl !== DEV_SKIP ? mainPhotoUrl : null,
     aboutPromptId: draft.aboutPromptId,
@@ -227,6 +256,12 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
   const userRef = doc(getDb(), 'users', uid);
   await setDoc(userRef, payload, { merge: true });
 
+  // Separate write: rules reject changing a legal name that's already set.
+  const legalName = draft.legalName?.trim().slice(0, 80);
+  if (legalName) {
+    await setDoc(userRef, { legalName }, { merge: true }).catch(() => {});
+  }
+
   // Public discovery slice — no DOB/email/coords; verification only if already trusted server-side.
   await setDoc(
     doc(getDb(), 'profiles', uid),
@@ -237,6 +272,7 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
       gender: payload.gender,
       vibes: payload.vibes,
       datingIntention: payload.datingIntention,
+      interests: payload.interests,
       mainPhotoUrl: payload.mainPhotoUrl,
       aboutPromptText: payload.aboutPromptText,
       aboutVideoUrl: payload.aboutVideoUrl,
@@ -253,6 +289,7 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
   const profile: Profile = {
     userId: uid,
     displayName: payload.displayName,
+    legalName: legalName || null,
     bio: payload.bio,
     dateOfBirth: draft.dateOfBirth || null,
     genderId: payload.gender,
@@ -263,6 +300,7 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
     hometown: null,
     neighborhoodLabel: null,
     zodiac: null,
+    interests: payload.interests,
     verificationStatus: payload.verificationStatus as Profile['verificationStatus'],
     mainPhotoUrl: payload.mainPhotoUrl,
     photoUrls: payload.mainPhotoUrl ? [payload.mainPhotoUrl] : [],
@@ -316,6 +354,7 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
   const profile: Profile = {
     userId: uid,
     displayName: String(d.displayName ?? 'You'),
+    legalName: typeof d.legalName === 'string' && d.legalName.trim() ? d.legalName : null,
     bio: (d.bio as string | null) ?? null,
     dateOfBirth,
     genderId: (d.gender as string | null) ?? null,
@@ -331,6 +370,10 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
     smoking: (d.smoking as string | null) ?? null,
     interests: Array.isArray(d.interests) ? (d.interests as string[]) : null,
     foodPreference: (d.foodPreference as string | null) ?? null,
+    exercise: (d.exercise as string | null) ?? null,
+    kids: (d.kids as string | null) ?? null,
+    pets: (d.pets as string | null) ?? null,
+    quizLevel: Number((d.quiz as { level?: unknown } | undefined)?.level) || 0,
     verificationStatus: (d.verificationStatus as Profile['verificationStatus']) ?? 'unverified',
     mainPhotoUrl:
       (d.mainPhotoUrl as string | null) ??

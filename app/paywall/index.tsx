@@ -9,7 +9,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
@@ -18,6 +18,7 @@ import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { PLUS_FILTER_FEATURES } from '@/constants/tonightVibe';
 import { LEGAL_URLS } from '@/constants/legal';
 import { colors, radii, spacing } from '@/constants/theme';
+import { UPGRADE_COPY, type UpgradeReason } from '@/lib/commerce/upgradePrompt';
 import { isPlusActive, plusStatusLabel } from '@/lib/entitlements';
 import {
   loadPlusPlans,
@@ -34,8 +35,13 @@ import { useSessionStore } from '@/store/session';
 
 export default function PaywallScreen() {
   const router = useRouter();
+  const { reason } = useLocalSearchParams<{ reason?: string }>();
   const entitlements = useSessionStore((s) => s.entitlements);
   const isPlus = isPlusActive(entitlements);
+  const headline =
+    !isPlus && reason && reason in UPGRADE_COPY
+      ? UPGRADE_COPY[reason as UpgradeReason]
+      : UPGRADE_COPY.default;
 
   const [plans, setPlans] = useState<PlusPlanOffer[]>([]);
   const [selected, setSelected] = useState<PlusPlanId>('monthly');
@@ -90,7 +96,7 @@ export default function PaywallScreen() {
   })();
 
   const finishUnlocked = (title = 'DateToday+ unlocked') => {
-    Alert.alert(title, 'Unlimited Ping and messages are ready.', [
+    Alert.alert(title, 'Unlimited matches, messages and Advanced Filters are ready.', [
       { text: 'OK', onPress: () => router.back() },
     ]);
   };
@@ -151,10 +157,8 @@ export default function PaywallScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <SettingsHeader title="DateToday+" />
 
-        <AppText style={styles.title}>More time. More conversation. ✦</AppText>
-        <AppText style={styles.sub}>
-          Unlimited Ping and messages — so you can actually go out tonight.
-        </AppText>
+        <AppText style={styles.title}>{headline.title}</AppText>
+        <AppText style={styles.sub}>{headline.body}</AppText>
 
         {isPlus ? (
           <View style={styles.statusCard}>

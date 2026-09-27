@@ -1,13 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { TextField } from '@/components/ui/TextField';
+import { ONBOARD_PROGRESS, OnboardingChrome } from '@/components/onboarding/OnboardingChrome';
+import { friendlyError, isEmailInUse } from '@/lib/errors';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
-import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
+import { TextField } from '@/components/ui/TextField';
+import { signUpWithEmail } from '@/features/auth/api';
+import { needsEmailOtp } from '@/features/auth/emailOtp';
+import { currentUserIsSocial, syncOnboardingFromFirebaseAuth } from '@/features/auth/social';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
-import { signUpWithEmail } from '@/features/auth/api';
-import { currentUserIsSocial, syncOnboardingFromFirebaseAuth } from '@/features/auth/social';
+import { useRouter, type Href } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
+
+const EMAIL_VERIFY_HREF = '/(onboarding)/email-verify' as Href;
+const GENDER_HREF = '/(onboarding)/gender' as Href;
 
 export default function AccountScreen() {
   const router = useRouter();
@@ -21,18 +26,19 @@ export default function AccountScreen() {
     draft.authProvider === 'apple' ||
     currentUserIsSocial();
 
+  const afterAuthHref = () => (needsEmailOtp() ? EMAIL_VERIFY_HREF : GENDER_HREF);
+
   useEffect(() => {
     syncOnboardingFromFirebaseAuth();
   }, []);
 
-  // Google/Apple (or any existing session) never needs email/password.
   useEffect(() => {
     if (alreadySignedIn) {
       if (!draft.legalConsentAccepted) {
         router.replace('/(onboarding)/agreements');
         return;
       }
-      router.replace('/(onboarding)/gender');
+      router.replace(afterAuthHref());
     }
   }, [alreadySignedIn, draft.legalConsentAccepted, router]);
 
@@ -55,9 +61,16 @@ export default function AccountScreen() {
         ageConfirmed: true,
       });
       setAuth(created.user.id, created.user.email ?? null);
-      router.push('/(onboarding)/gender');
+      router.push(afterAuthHref());
     } catch (error) {
-      Alert.alert('Could not save', error instanceof Error ? error.message : 'Try again');
+      if (isEmailInUse(error)) {
+        Alert.alert('You already have an account', 'That email is already signed up. Log in instead.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Log in', onPress: () => router.replace('/(auth)/login') },
+        ]);
+      } else {
+        Alert.alert('Could not create account', friendlyError(error, 'Try again'));
+      }
     } finally {
       setLoading(false);
     }
@@ -73,6 +86,7 @@ export default function AccountScreen() {
       title={`Hey ${draft.displayName || 'there'}.`}
       subtitle="Save your profile so you can come back."
       onBack="landing"
+      showSkipSetup={false}
       footer={
         <PrimaryCta
           label="Continue"

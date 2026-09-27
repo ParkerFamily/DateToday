@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { SettingsGroup, SettingsHeader, SettingsRow } from '@/components/settings/SettingsUI';
 import { colors, spacing } from '@/constants/theme';
@@ -46,11 +47,12 @@ export default function PrivacyControlsScreen() {
   const hideDistance = usePrivacyControls((s) => s.hideDistance);
   const pauseDiscovery = usePrivacyControls((s) => s.pauseDiscovery);
   const showIntentions = usePrivacyControls((s) => s.showIntentions);
+  const readReceipts = usePrivacyControls((s) => s.readReceipts);
   const setControls = usePrivacyControls((s) => s.setControls);
 
   const update = (patch: Parameters<typeof setControls>[0]) => {
     void setControls(patch).catch((error) => {
-      Alert.alert('Couldn’t save', error instanceof Error ? error.message : 'Try again.');
+      Alert.alert('Couldn’t save', friendlyError(error, 'Try again.'));
     });
   };
 
@@ -86,6 +88,16 @@ export default function PrivacyControlsScreen() {
             detail="Show dating intentions / vibes on your public profile."
             value={showIntentions}
             onValueChange={(showIntentions) => update({ showIntentions })}
+            last
+          />
+        </SettingsGroup>
+
+        <SettingsGroup title="Chat">
+          <ToggleRow
+            label="Read receipts & typing"
+            detail="Let matches see when you’ve read their messages and when you’re typing. When off, you won’t see theirs either."
+            value={readReceipts}
+            onValueChange={(readReceipts) => update({ readReceipts })}
             last
           />
         </SettingsGroup>

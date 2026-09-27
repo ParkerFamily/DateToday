@@ -1,7 +1,8 @@
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
 import { assertFirebaseConfigured } from '@/lib/env';
-import type { OnboardingDraft } from '@/store/onboardingDraft';
+import { remoteMediaUrlOrNull } from '@/lib/firebase/uploadLocalMedia';
+import { firstName, type OnboardingDraft } from '@/store/onboardingDraft';
 import type { DatingPreferences, Profile } from '@/types';
 import { isAtLeast18 } from '@/utils/time';
 
@@ -21,7 +22,8 @@ type DraftSnapshot = Pick<
   | 'verificationStatus'
   | 'locationEnabled'
   | 'legalConsentAccepted'
->;
+> &
+  Partial<Pick<OnboardingDraft, 'legalName'>>;
 
 /**
  * Enter the app early without finishing setup.
@@ -31,7 +33,8 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
   profile: Profile;
   preferences: DatingPreferences;
 }> {
-  const name = draft.displayName.trim();
+  const legalName = draft.legalName?.trim().slice(0, 80) || '';
+  const name = draft.displayName.trim() || firstName(legalName);
   if (name.length < 2) {
     throw new Error('Add your name first — it must match your government ID.');
   }
@@ -50,6 +53,13 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
         ? 'apple'
         : null);
 
+  const firebaseUser = getFirebaseAuth().currentUser;
+  const mainPhotoUrl =
+    remoteMediaUrlOrNull(draft.mainPhotoUri) ||
+    ((authProvider === 'google' || authProvider === 'apple') && firebaseUser?.photoURL
+      ? firebaseUser.photoURL
+      : null);
+
   const profileCompletion = {
     onboardingComplete: false,
     setupSkipped: true,
@@ -58,7 +68,7 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
     gender: Boolean(draft.gender),
     preference: Boolean(draft.interestedIn),
     vibes: draft.vibes.length >= 1,
-    mainPhoto: Boolean(draft.mainPhotoUri),
+    mainPhoto: Boolean(mainPhotoUrl),
     videos: false,
     location: draft.locationEnabled,
     communityStandards: Boolean(draft.legalConsentAccepted),
@@ -66,7 +76,7 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
 
   const nowIso = new Date().toISOString();
   const payload = {
-    email: draft.email.trim() || getFirebaseAuth().currentUser?.email || null,
+    email: draft.email.trim() || firebaseUser?.email || null,
     authProvider,
     provider: authProvider,
     providerIds,
@@ -79,7 +89,7 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
     minAge: draft.minAge,
     maxAge: draft.maxAge,
     maxDistanceMiles: draft.radiusMiles,
-    mainPhotoUrl: draft.mainPhotoUri,
+    mainPhotoUrl,
     verificationStatus: draft.verificationStatus || 'unverified',
     locationEnabled: draft.locationEnabled,
     setupSkipped: true,
@@ -90,6 +100,9 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
   };
 
   await setDoc(doc(getDb(), 'users', uid), payload, { merge: true });
+  if (legalName) {
+    await setDoc(doc(getDb(), 'users', uid), { legalName }, { merge: true }).catch(() => {});
+  }
   await setDoc(
     doc(getDb(), 'profiles', uid),
     {
@@ -97,7 +110,7 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
       displayName: name,
       gender: draft.gender,
       vibes: draft.vibes,
-      mainPhotoUrl: draft.mainPhotoUri,
+      mainPhotoUrl,
       verificationStatus: payload.verificationStatus,
       setupSkipped: true,
       updatedAt: serverTimestamp(),
@@ -108,6 +121,7 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
   const profile: Profile = {
     userId: uid,
     displayName: name,
+    legalName: legalName || null,
     bio: null,
     dateOfBirth: draft.dateOfBirth || null,
     genderId: draft.gender,
@@ -119,7 +133,7 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
     neighborhoodLabel: null,
     zodiac: null,
     verificationStatus: payload.verificationStatus,
-    mainPhotoUrl: draft.mainPhotoUri,
+    mainPhotoUrl,
     profileCompletion,
     createdAt: nowIso,
     updatedAt: nowIso,

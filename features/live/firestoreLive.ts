@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   setDoc,
@@ -137,6 +138,16 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     verificationStatus: (u.verificationStatus as string) ?? 'unverified',
     datingIntention: (u.datingIntention as string | null) ?? null,
     bio: (u.bio as string | null) ?? null,
+    // Advanced Filters (height / lifestyle).
+    heightCm: typeof u.heightCm === 'number' ? u.heightCm : null,
+    drinking: (u.drinking as string | null) ?? null,
+    smoking: (u.smoking as string | null) ?? null,
+    interests: Array.isArray(u.interests) ? (u.interests as string[]).slice(0, 10) : [],
+    kids: (u.kids as string | null) ?? null,
+    exercise: (u.exercise as string | null) ?? null,
+    // Needed so both people's "show me" preferences can be honored in the feed.
+    gender: (u.gender as string | null) ?? null,
+    interestedIn: (u.interestedIn as string | null) ?? 'everyone',
     aboutVideoUrl: (u.aboutVideoUrl as string | null) ?? null,
     tonightVideoUrl: (u.tonightVideoUrl as string | null) ?? null,
     aboutPromptId: (u.aboutPromptId as string | null) ?? null,
@@ -185,6 +196,68 @@ export async function endFirestoreLiveSession(uid?: string): Promise<void> {
   analytics.track('go_live_ended');
 }
 
+export type LiveSessionPatch = Partial<
+  Pick<
+    LiveSession,
+    | 'activities'
+    | 'foodCuisines'
+    | 'radiusMiles'
+    | 'availabilityLabel'
+    | 'availableUntil'
+    | 'expiresAt'
+    | 'isBoosted'
+    | 'boostedAt'
+  >
+>;
+
+/** Push local edits (details, Plus extension, Boost) to the beacon other people see. */
+export async function updateMyLiveSession(patch: LiveSessionPatch): Promise<void> {
+  const uid = getFirebaseAuth().currentUser?.uid;
+  if (!uid) return;
+  const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  await setDoc(doc(getDb(), 'liveSessions', uid), { ...clean, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+/**
+ * The beacon copies public profile fields when you go live; mirror later profile edits
+ * (new videos, interests) so people already browsing see them. No-op when not live.
+ */
+export async function refreshLiveProfileFields(fields: Record<string, unknown>): Promise<void> {
+  const uid = getFirebaseAuth().currentUser?.uid;
+  if (!uid) return;
+  const snap = await getDoc(doc(getDb(), 'liveSessions', uid));
+  if (!snap.exists() || snap.data()?.status !== 'active') return;
+  await setDoc(doc(getDb(), 'liveSessions', uid), { ...fields, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+/** The signed-in user's session if it's still active — restores "live" after the OS killed the app. */
+export async function fetchMyActiveLiveSession(uid: string): Promise<LiveSession | null> {
+  const snap = await getDoc(doc(getDb(), 'liveSessions', uid));
+  if (!snap.exists()) return null;
+  const d = snap.data() as Record<string, unknown>;
+  const expiresAt = tsToIso(d.expiresAt);
+  if (d.status !== 'active' || d.endedAt || new Date(expiresAt).getTime() <= Date.now()) return null;
+  const laterHour = typeof d.laterTonightHour === 'number' ? d.laterTonightHour : null;
+  return {
+    id: uid,
+    userId: uid,
+    startedAt: tsToIso(d.startedAt),
+    expiresAt,
+    endedAt: null,
+    status: 'active',
+    radiusMiles: (d.radiusMiles as RadiusMiles) ?? 10,
+    availableFrom: (d.availableFrom as string | null) ?? null,
+    availableUntil: (d.availableUntil as string | null) ?? expiresAt,
+    availabilityLabel: (d.availabilityLabel as string | null) ?? null,
+    activities: (d.activities as TonightActivity[]) ?? [],
+    foodCuisines: (d.foodCuisines as FoodCuisine[]) ?? [],
+    laterTonightHour: laterHour,
+    availabilityMode: laterHour != null ? 'later' : 'live',
+    isBoosted: Boolean(d.isBoosted),
+    boostedAt: (d.boostedAt as string | null) ?? null,
+  };
+}
+
 function tsToIso(value: unknown): string {
   if (!value) return new Date().toISOString();
   if (typeof value === 'string') return value;
@@ -192,6 +265,32 @@ function tsToIso(value: unknown): string {
     return (value as Timestamp).toDate().toISOString();
   }
   return new Date().toISOString();
+}
+
+/** Does `viewer`'s "show me" gender preference include `other`? Missing data = no filter. */
+function wantsToSee(viewer: Record<string, unknown>, other: Record<string, unknown>): boolean {
+  const pref = viewer.interestedIn;
+  const gender = other.gender;
+  if (pref === 'men' && gender && gender !== 'man') return false;
+  if (pref === 'women' && gender && gender !== 'woman') return false;
+  return true;
+}
+
+/** Fires whenever someone goes live, updates, or ends — used to refresh the feed in realtime. */
+export function subscribeActiveLiveSessions(onChange: () => void) {
+  const q = query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'));
+  let first = true;
+  return onSnapshot(
+    q,
+    (snap) => {
+      if (first) {
+        first = false;
+        return;
+      }
+      if (snap.docChanges().length) onChange();
+    },
+    () => undefined,
+  );
 }
 
 /**
@@ -234,6 +333,7 @@ export async function fetchFirestoreDiscoveryFeed(limit = 40): Promise<Discovery
     );
     const maxAllowed = Math.min(myRadius, theirRadius);
     if (dist > maxAllowed) continue;
+    if (!wantsToSee(mine, d) || !wantsToSee(d, mine)) continue;
 
     const laterHour =
       typeof d.laterTonightHour === 'number' ? d.laterTonightHour : null;
@@ -262,6 +362,12 @@ export async function fetchFirestoreDiscoveryFeed(limit = 40): Promise<Discovery
       videoPrompts: videoPromptsFromUser(d),
       availabilityMode: mode,
       laterTonightHour: laterHour,
+      heightCm: typeof d.heightCm === 'number' ? d.heightCm : null,
+      drinking: (d.drinking as string | null) ?? null,
+      smoking: (d.smoking as string | null) ?? null,
+      interests: Array.isArray(d.interests) ? (d.interests as string[]) : [],
+      kids: (d.kids as string | null) ?? null,
+      exercise: (d.exercise as string | null) ?? null,
     });
 
     if (cards.length >= limit) break;

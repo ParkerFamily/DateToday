@@ -4,86 +4,146 @@ import { useRouter } from 'expo-router';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
 import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
 import { colors } from '@/constants/theme';
-import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { firstName, useOnboardingDraft } from '@/store/onboardingDraft';
 import { syncOnboardingFromFirebaseAuth } from '@/features/auth/social';
 
 export default function NameScreen() {
   const router = useRouter();
-  const name = useOnboardingDraft((s) => s.displayName);
+  const legalName = useOnboardingDraft((s) => s.legalName);
+  const displayName = useOnboardingDraft((s) => s.displayName);
+  const setLegalName = useOnboardingDraft((s) => s.setLegalName);
   const setDisplayName = useOnboardingDraft((s) => s.setDisplayName);
   const authProvider = useOnboardingDraft((s) => s.authProvider);
-  const inputRef = useRef<TextInput>(null);
-  const ready = name.trim().length >= 2;
+  const legalRef = useRef<TextInput>(null);
+  const displayRef = useRef<TextInput>(null);
+  /** Display name follows the first name until the user edits it themselves. */
+  const displayTouched = useRef(false);
+  const ready = legalName.trim().length >= 2 && displayName.trim().length >= 2;
   const fromSocial = authProvider === 'google' || authProvider === 'apple';
 
   useEffect(() => {
     // Prefill once if empty — never re-run over user edits.
     const draft = useOnboardingDraft.getState();
-    if (!draft.displayName.trim()) {
-      syncOnboardingFromFirebaseAuth();
+    if (!draft.legalName.trim()) {
+      // Older drafts stored the legal name in displayName.
+      if (draft.displayName.trim().includes(' ')) {
+        draft.setLegalName(draft.displayName.trim());
+        draft.setDisplayName(firstName(draft.displayName));
+      } else {
+        syncOnboardingFromFirebaseAuth();
+      }
+    }
+    const after = useOnboardingDraft.getState();
+    if (after.displayName.trim() && after.displayName.trim() !== firstName(after.legalName)) {
+      displayTouched.current = true;
     }
   }, []);
 
   useEffect(() => {
-    if (name.trim().length >= 2) return;
-    const t = setTimeout(() => inputRef.current?.focus(), 300);
+    if (useOnboardingDraft.getState().legalName.trim().length >= 2) return;
+    const t = setTimeout(() => legalRef.current?.focus(), 300);
     return () => clearTimeout(t);
-  }, [name]);
+  }, []);
+
+  const onLegalChange = (text: string) => {
+    setLegalName(text);
+    if (!displayTouched.current) setDisplayName(firstName(text));
+  };
+
+  const onDisplayChange = (text: string) => {
+    displayTouched.current = true;
+    setDisplayName(text);
+  };
 
   return (
     <OnboardingChrome
       progress={ONBOARD_PROGRESS.name}
       title="What's your name?"
-      subtitle="This must match your government ID for verification."
+      subtitle="Your legal name stays private and is only used to verify your ID."
       onBack="landing"
       footer={
         <PrimaryCta
           label="Continue"
           showArrow={false}
           disabled={!ready}
-          onPress={() => router.push('/(onboarding)/birthday')}
+          onPress={() => {
+            setLegalName(legalName.trim());
+            setDisplayName(displayName.trim());
+            router.push('/(onboarding)/birthday');
+          }}
         />
       }
     >
+      <Text style={styles.label}>Legal name</Text>
       <TextInput
-        ref={inputRef}
-        value={name}
-        onChangeText={setDisplayName}
-        placeholder="Full legal name"
+        ref={legalRef}
+        value={legalName}
+        onChangeText={onLegalChange}
+        placeholder="Full name on your ID"
         placeholderTextColor={colors.textSecondary}
         autoCapitalize="words"
         autoCorrect={false}
+        autoComplete="name"
+        textContentType="name"
+        returnKeyType="next"
+        onSubmitEditing={() => displayRef.current?.focus()}
+        maxLength={80}
         style={styles.input}
       />
-      <View style={styles.noteWrap}>
-        <Text style={styles.note}>
-          {fromSocial
-            ? 'We filled this from your account — confirm it matches your ID exactly.'
-            : 'Use the same name that appears on your government ID.'}
-        </Text>
-      </View>
+      <Text style={styles.note}>
+        {fromSocial
+          ? 'We filled this from your account — make sure it matches your ID exactly. You can’t change it later.'
+          : 'Must match your government ID exactly. You can’t change it later.'}
+      </Text>
+
+      <Text style={[styles.label, styles.labelSpaced]}>Display name</Text>
+      <TextInput
+        ref={displayRef}
+        value={displayName}
+        onChangeText={onDisplayChange}
+        placeholder="What people see"
+        placeholderTextColor={colors.textSecondary}
+        autoCapitalize="words"
+        autoCorrect={false}
+        textContentType="nickname"
+        returnKeyType="done"
+        maxLength={40}
+        style={styles.input}
+      />
+      <Text style={styles.note}>This is what matches see. You can change it anytime.</Text>
     </OnboardingChrome>
   );
 }
 
 const styles = StyleSheet.create({
-  input: {
+  label: {
     marginTop: 24,
-    fontSize: 36,
-    fontWeight: '800',
-    color: colors.text,
-    textAlign: 'center',
-    letterSpacing: -1,
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
-  noteWrap: {
-    marginTop: 20,
-    paddingHorizontal: 12,
+  labelSpaced: {
+    marginTop: 32,
+  },
+  input: {
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.elevated,
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
   },
   note: {
+    marginTop: 8,
     color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '500',
   },
 });

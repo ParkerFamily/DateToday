@@ -1,48 +1,55 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
-import * as Location from 'expo-location';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '@/components/ui/Screen';
-import { AppText, BrandMark } from '@/components/ui/AppText';
+import { DiscoverFeed } from '@/components/discover/DiscoverFeed';
+import { friendlyError } from '@/lib/errors';
+import { syncLiveSessionPatch } from '@/features/live/restoreLiveSession';
+import { LiveStatusBar } from '@/components/live/LiveStatusBar';
+import { DtIconHero } from '@/components/onboarding/DtIconHero';
+import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { OptionGrid } from '@/components/ui/OptionChip';
-import { useContentLayout } from '@/lib/layout';
-import { DtIconHero } from '@/components/onboarding/DtIconHero';
-import { HeartbeatPulse } from '@/components/live/HeartbeatPulse';
-import { copy, availabilityPresets } from '@/constants/copy';
-import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
-import { demoCity } from '@/constants/demoTonight';
-import { flowCopy, formatLaterHour, formatPeopleInPing } from '@/constants/flow';
+import { Screen } from '@/components/ui/Screen';
+import { availabilityPresets, copy } from '@/constants/copy';
+import { flowCopy, formatLaterHour } from '@/constants/flow';
 import { colors, gradients, spacing } from '@/constants/theme';
-import { useSessionStore } from '@/store/session';
-import { allowedRadiusPresets, canUseAdvancedFilters, isPlusActive } from '@/lib/entitlements';
-import {
-  beginPingSegment,
-  endPingSegment,
-  formatPingClock,
-  freePingWarningMs,
-  remainingFreePingMs,
-} from '@/lib/usage/dailyLimits';
-import {
-  clearTonightBoost,
-} from '@/lib/commerce/sessionCommerce';
-import { endLiveSession, startLiveSession } from '@/services/api';
-import { formatRemaining, isLiveSessionActive, clampLiveExpiration } from '@/utils/time';
-import type { RadiusMiles, TonightActivity } from '@/types';
-import { env, isBackendConfigured } from '@/lib/env';
+import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
-import { commerceConfig } from '@/constants/config';
+import {
+    clearTonightBoost,
+} from '@/lib/commerce/sessionCommerce';
+import { allowedRadiusPresets, canUseAdvancedFilters, isPlusActive } from '@/lib/entitlements';
+import { env, isBackendConfigured } from '@/lib/env';
+import { registerPushTokenAsync } from '@/features/notifications/push';
+import { activeFilterLabels } from '@/features/discover/applyFilters';
+import { useDiscoverFilters } from '@/store/discoverFilters';
+import { endLiveSession, startLiveSession } from '@/services/api';
+import { useSessionStore } from '@/store/session';
+import type { RadiusMiles, TonightActivity } from '@/types';
+import { clampLiveExpiration, isLiveSessionActive } from '@/utils/time';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+    Alert,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    View,
+} from 'react-native';
+import Animated, {
+    Easing,
+    FadeIn,
+    FadeInDown,
+    FadeOut,
+    FadeOutUp,
+    LayoutAnimationConfig,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const HOLD_MS = 1200;
 const LATER_HOURS = [18, 19, 20, 21] as const;
@@ -109,14 +116,10 @@ function formatFoodSummary(foods: FoodCuisine[]): string {
 export default function LiveHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { contentWidth, layoutHeight } = useContentLayout();
   const liveSession = useSessionStore((s) => s.liveSession);
   const setLiveSession = useSessionStore((s) => s.setLiveSession);
-  const profile = useSessionStore((s) => s.profile);
   const entitlements = useSessionStore((s) => s.entitlements);
   const datePlannedTonight = useSessionStore((s) => s.datePlannedTonight);
-  const pingResultCount = useSessionStore((s) => s.pingResultCount);
-  const newInPing = useSessionStore((s) => s.newInPing);
   const setPingResults = useSessionStore((s) => s.setPingResults);
   const [now, setNow] = useState(new Date());
   const [sheet, setSheet] = useState<'none' | 'time' | 'radius' | 'edit' | 'food'>('none');
@@ -131,33 +134,21 @@ export default function LiveHomeScreen() {
   const holdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const holdDone = useRef(false);
   const lastHaptic = useRef(0);
-  const warnedLowPing = useRef(false);
-  const handledExpire = useRef(false);
+  const [leaving, setLeaving] = useState(false);
+  const [offlineToast, setOfflineToast] = useState(false);
 
   const wantsDinner = activities.includes('dinner');
   const radiusOptions = allowedRadiusPresets(entitlements);
   const plus = isPlusActive(entitlements);
   const plusFilters = canUseAdvancedFilters(entitlements);
+  const discoverFilters = useDiscoverFilters();
+  const filterCount = activeFilterLabels(discoverFilters, { plus: plusFilters }).length;
   const { readyForLive, missing } = useProfileCompletion();
 
   const live = useMemo(
     () => (liveSession ? isLiveSessionActive(liveSession, now) : false),
     [liveSession, now],
   );
-
-  const city =
-    profile?.neighborhoodLabel?.split(',')[0]?.trim() ||
-    profile?.hometown ||
-    demoCity.label;
-
-  const compact = layoutHeight < 780;
-  const iconSize = Math.min(
-    compact ? 120 : layoutHeight < 900 ? 148 : 168,
-    Math.round(contentWidth * 0.4),
-  );
-  const pulseSize = Math.round(iconSize * 1.55);
-  const logoWidth = Math.round(Math.min(compact ? 132 : 160, Math.max(120, contentWidth * 0.38)));
-  const kickerSize = compact ? 24 : 30;
 
   const activeFoods = live ? (liveSession?.foodCuisines ?? foodCuisines) : foodCuisines;
   const foodBit = wantsDinner ? formatFoodSummary(activeFoods) : '';
@@ -171,54 +162,33 @@ export default function LiveHomeScreen() {
     return () => clearInterval(id);
   }, []);
 
-  // If we restarted without an active session, close any orphaned Ping meter segment.
   useEffect(() => {
-    if (!live) {
-      void endPingSegment();
-      void clearTonightBoost();
-    }
+    if (!live) void clearTonightBoost();
   }, [live]);
 
-  // Free Ping meter: soft warn at 5 min, hard stop + paywall at 0.
   useEffect(() => {
-    if (!live || !liveSession || plus) return;
-    const msLeft = Math.max(0, new Date(liveSession.expiresAt).getTime() - now.getTime());
+    if (!offlineToast) return;
+    const id = setTimeout(() => setOfflineToast(false), 2400);
+    return () => clearTimeout(id);
+  }, [offlineToast]);
 
-    if (msLeft > 0 && msLeft <= freePingWarningMs() && !warnedLowPing.current) {
-      warnedLowPing.current = true;
-      Alert.alert(
-        `${commerceConfig.freePingWarningMinutes} minutes left tonight`,
-        'Keep Ping active with DateToday+',
-        [
-          { text: 'Keep going', style: 'cancel' },
-          { text: 'Get DateToday+', onPress: () => router.push('/paywall') },
-        ],
-      );
-    }
-
-    if (msLeft <= 0 && !handledExpire.current) {
-      handledExpire.current = true;
-      void (async () => {
-        try {
-          if (isBackendConfigured() || env.supabaseUrl) await endLiveSession(liveSession.id);
-        } catch {
-          /* ignore */
-        }
-        await endPingSegment();
-        await clearTonightBoost();
-        setLiveSession(null);
-        setPingResults(0, 0);
-        Alert.alert(
-          'Your free Ping ended',
-          `Go unlimited tonight with DateToday+\n${commerceConfig.plusWeeklyFallbackPrice}/week · ${commerceConfig.plusMonthlyFallbackPrice}/month`,
-          [
-            { text: 'Not now', style: 'cancel' },
-            { text: 'Get DateToday+', onPress: () => router.push('/paywall') },
-          ],
-        );
-      })();
-    }
-  }, [live, liveSession, now, plus, router, setLiveSession, setPingResults]);
+  const leaveProgress = useSharedValue(0);
+  // Reset only once live again: resetting on exit would un-dim the feed while it fades out.
+  useEffect(() => {
+    if (!live) return;
+    leaveProgress.value = 0;
+    setLeaving(false);
+  }, [live, leaveProgress]);
+  useEffect(() => {
+    leaveProgress.value = withTiming(leaving ? 1 : 0, {
+      duration: 360,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [leaving, leaveProgress]);
+  const leavingStyle = useAnimatedStyle(() => ({
+    opacity: 1 - leaveProgress.value * 0.75,
+    transform: [{ scale: 1 - leaveProgress.value * 0.06 }],
+  }));
 
   useEffect(() => {
     return () => {
@@ -253,28 +223,7 @@ export default function LiveHomeScreen() {
     try {
       setLoading(true);
       const preset = availability[0] ?? 'flexible';
-      let { expiresAt, label } = buildExpiration(preset);
-
-      // Free: one Ping meter — clamp session to remaining daily minutes.
-      if (!plus) {
-        const leftMs = await remainingFreePingMs(entitlements);
-        if (leftMs <= 0) {
-          Alert.alert(
-            'Your free Ping ended',
-            `Go unlimited tonight with DateToday+\n${commerceConfig.plusWeeklyFallbackPrice}/week · ${commerceConfig.plusMonthlyFallbackPrice}/month`,
-            [
-              { text: 'Not now', style: 'cancel' },
-              { text: 'Get DateToday+', onPress: () => router.push('/paywall') },
-            ],
-          );
-          return;
-        }
-        const capped = new Date(Date.now() + leftMs);
-        if (capped.getTime() < expiresAt.getTime()) {
-          expiresAt = capped;
-          label = `${Math.max(1, Math.round(leftMs / 60_000))} min left today`;
-        }
-      }
+      const { expiresAt, label } = buildExpiration(preset);
 
       let latitude = 33.7838;
       let longitude = -84.383;
@@ -287,9 +236,6 @@ export default function LiveHomeScreen() {
         latitude = position.coords.latitude;
         longitude = position.coords.longitude;
       }
-
-      warnedLowPing.current = false;
-      handledExpire.current = false;
 
       // Firebase is primary — always publish a real beacon (no silent local-only pool).
       if (isBackendConfigured()) {
@@ -305,10 +251,9 @@ export default function LiveHomeScreen() {
           laterTonightHour,
         });
         setLiveSession({ ...session, isBoosted: false, boostedAt: null });
-        if (!plus) await beginPingSegment();
         setPingResults(0, 0);
         setSheet('none');
-        router.push('/(tabs)/pings');
+        void registerPushTokenAsync({ prompt: true });
         return;
       }
 
@@ -332,10 +277,8 @@ export default function LiveHomeScreen() {
           boostedAt: null,
         };
         setLiveSession(localSession);
-        if (!plus) await beginPingSegment();
         setPingResults(0, 0);
         setSheet('none');
-        router.push('/(tabs)/pings');
         return;
       }
 
@@ -351,12 +294,10 @@ export default function LiveHomeScreen() {
         laterTonightHour,
       });
       setLiveSession({ ...session, isBoosted: false, boostedAt: null });
-      if (!plus) await beginPingSegment();
       setPingResults(0, 0);
       setSheet('none');
-      router.push('/(tabs)/pings');
     } catch (error) {
-      Alert.alert('Could not go live', error instanceof Error ? error.message : 'Try again');
+      Alert.alert('Could not go live', friendlyError(error, 'Try again'));
     } finally {
       setLoading(false);
     }
@@ -405,22 +346,54 @@ export default function LiveHomeScreen() {
         text: copy.goOffline,
         style: 'destructive',
         onPress: async () => {
+          setLeaving(true);
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          const started = Date.now();
           try {
-            setLoading(true);
             if (isBackendConfigured() || env.supabaseUrl) await endLiveSession(liveSession?.id);
-            if (!plus) await endPingSegment();
             await clearTonightBoost();
+            // Let the fade-down finish even when the network is instant.
+            const wait = 380 - (Date.now() - started);
+            if (wait > 0) await new Promise((r) => setTimeout(r, wait));
             setLiveSession(null);
             setPingResults(0, 0);
+            setOfflineToast(true);
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           } catch (error) {
-            Alert.alert('Could not go offline', error instanceof Error ? error.message : 'Try again');
-          } finally {
-            setLoading(false);
+            setLeaving(false);
+            Alert.alert('Could not go offline', friendlyError(error, 'Try again'));
           }
         },
       },
     ]);
   };
+
+  // Parent re-renders every second for the timer; keep the header element stable so the feed doesn't.
+  const onStopRef = useRef(onStop);
+  onStopRef.current = onStop;
+  const liveMeta = [
+    formatActivities(liveSession?.activities ?? activities),
+    foodBit || null,
+    `within ${radiusLabel} mi`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const statusBar = useMemo(
+    () =>
+      liveSession ? (
+        <LiveStatusBar
+          expiresAt={liveSession.expiresAt}
+          meta={liveMeta}
+          datePlanned={datePlannedTonight}
+          isBoosted={Boolean(liveSession.isBoosted)}
+          loading={loading || leaving}
+          onEdit={() => setSheet('edit')}
+          onOffline={() => onStopRef.current()}
+          onBoost={() => router.push('/paywall/boost')}
+        />
+      ) : null,
+    [liveSession, liveMeta, datePlannedTonight, loading, leaving, router],
+  );
 
   const togglePlan = (value: string) => {
     setActivities((prev) => {
@@ -455,18 +428,42 @@ export default function LiveHomeScreen() {
   };
 
   return (
-    <Screen padded={false} edges={['top', 'left', 'right']}>
+    <Screen padded={false} edges={live ? ['left', 'right'] : ['top', 'left', 'right']}>
       <LinearGradient
-        colors={
-          live
-            ? ['rgba(34,229,139,0.14)', 'rgba(124,58,237,0.18)', '#09090B']
-            : ['rgba(124,58,237,0.28)', 'rgba(12,8,20,0.95)', '#050508']
-        }
+        colors={['rgba(124,58,237,0.28)', 'rgba(12,8,20,0.95)', '#050508']}
         locations={[0, 0.35, 1]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
 
+      <LayoutAnimationConfig skipEntering>
+      {live && liveSession ? (
+        <Animated.View
+          key="live"
+          style={styles.flex}
+          entering={FadeIn.duration(420)}
+          exiting={FadeOut.duration(260)}
+        >
+          <Animated.View style={[styles.flex, leavingStyle]}>
+            <DiscoverFeed liveHeader={statusBar} />
+          </Animated.View>
+          {leaving ? (
+            <Animated.View
+              entering={FadeIn.duration(220)}
+              style={styles.leavingOverlay}
+              pointerEvents="none"
+            >
+              <AppText style={styles.leavingText}>Going offline…</AppText>
+            </Animated.View>
+          ) : null}
+        </Animated.View>
+      ) : (
+      <Animated.View
+        key="idle"
+        style={styles.flex}
+        entering={FadeInDown.duration(520).easing(Easing.out(Easing.cubic))}
+        exiting={FadeOut.duration(220)}
+      >
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
@@ -534,6 +531,14 @@ export default function LiveHomeScreen() {
                   <AppText style={styles.settingVal}>Within {radiusLabel} miles</AppText>
                   <AppText style={styles.settingChevron}>›</AppText>
                 </Pressable>
+                <Pressable style={styles.settingRow} onPress={() => router.push('/filters')}>
+                  <Ionicons name="options" size={18} color={colors.brandBright} />
+                  <AppText style={styles.settingKey}>Filters</AppText>
+                  <AppText style={[styles.settingVal, filterCount > 0 && styles.settingValOn]}>
+                    {filterCount > 0 ? `${filterCount} on` : 'Who you’ll see'}
+                  </AppText>
+                  <AppText style={styles.settingChevron}>›</AppText>
+                </Pressable>
                 {wantsDinner ? (
                   <Pressable style={styles.settingRow} onPress={() => setSheet('food')}>
                     <Ionicons name="options-outline" size={18} color={colors.brandBright} />
@@ -594,7 +599,7 @@ export default function LiveHomeScreen() {
               <Ionicons name="sparkles" size={22} color={colors.brandBright} />
               <View style={styles.plusCopy}>
                 <View style={styles.plusTitleRow}>
-                  <AppText style={styles.plusTitle}>More time. More conversation.</AppText>
+                  <AppText style={styles.plusTitle}>More matches. More conversation.</AppText>
                   {!plus ? (
                     <View style={styles.plusBadge}>
                       <AppText style={styles.plusBadgeText}>PLUS</AppText>
@@ -637,131 +642,27 @@ export default function LiveHomeScreen() {
                 </LinearGradient>
               </Pressable>
               <AppText style={styles.goLiveHint}>
-                Puts you in tonight’s pool so people nearby can find you.
-              </AppText>
-              <Button
-                label="Browse who’s live →"
-                variant="secondary"
-                onPress={() => router.push('/(tabs)/pings')}
-              />
-              <AppText style={styles.browseHint}>
-                Peek at the feed without going live.
+                Go live to see who’s free near you — they’ll show up right here.
               </AppText>
             </View>
           </>
-        ) : (
-          <>
-            <View style={styles.header}>
-              <BrandMark width={logoWidth} />
-              <View style={[styles.statusPill, styles.statusLive]}>
-                <View style={[styles.statusDot, styles.statusDotLive]} />
-                <AppText
-                  style={[
-                    styles.statusText,
-                    styles.statusTextLive,
-                    datePlannedTonight && styles.statusDate,
-                  ]}
-                >
-                  {datePlannedTonight ? 'DATE PLANNED' : 'PINGING'}
-                </AppText>
-              </View>
-            </View>
-
-            <AppText style={styles.cityLine}>{city.toUpperCase()}</AppText>
-
-            <View style={styles.stage}>
-              <AppText
-                style={[styles.kicker, { fontSize: kickerSize, lineHeight: kickerSize + 6 }]}
-              >
-                YOU'RE LIVE
-              </AppText>
-
-              <View style={[styles.controlWrap, { width: pulseSize, height: pulseSize }]}>
-                <HeartbeatPulse active size={pulseSize} />
-                <DtIconHero
-                  size={iconSize}
-                  mode="live"
-                  progress={100}
-                  live
-                  atmosphere="soft"
-                  onPress={onStop}
-                />
-              </View>
-
-              <AppText style={styles.holdCue}>TAP TO GO OFFLINE</AppText>
-              <AppText style={styles.metaLive}>
-                {[
-                  formatActivities(liveSession?.activities ?? activities),
-                  foodBit || null,
-                  `within ${radiusLabel} mi`,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </AppText>
-              <AppText style={styles.timer}>
-                {plus
-                  ? `${formatRemaining(liveSession!.expiresAt, now)} remaining`
-                  : `PINGING · ${formatPingClock(
-                      Math.max(
-                        0,
-                        new Date(liveSession!.expiresAt).getTime() - now.getTime(),
-                      ),
-                    )} LEFT`}
-              </AppText>
-              {liveSession?.isBoosted ? (
-                <AppText style={styles.boostedBadge}>BOOSTED · FRONT OF POOL</AppText>
-              ) : null}
-              <AppText style={styles.pingHint}>
-                People who match your vibe appear in Ping — within {radiusLabel} miles.
-              </AppText>
-              {!liveSession?.isBoosted ? (
-                <Pressable onPress={() => router.push('/paywall/boost')} hitSlop={8}>
-                  <AppText style={styles.boostLink}>Tonight Boost · $4.99 →</AppText>
-                </Pressable>
-              ) : null}
-            </View>
-
-            <View style={styles.liveActions}>
-              {newInPing > 0 ? (
-                <Pressable
-                  onPress={() => router.push('/(tabs)/pings')}
-                  style={styles.newPingBanner}
-                >
-                  <AppText style={styles.newPingText}>
-                    {newInPing} NEW {newInPing === 1 ? 'PERSON' : 'PEOPLE'} IN YOUR PING
-                  </AppText>
-                </Pressable>
-              ) : null}
-              <Button
-                label={
-                  pingResultCount > 0
-                    ? `See ${pingResultCount} nearby ${pingResultCount === 1 ? 'match' : 'matches'} →`
-                    : 'See people in your radius →'
-                }
-                onPress={() => router.push('/(tabs)/pings')}
-              />
-              <AppText style={styles.goLiveHint}>
-                Open Ping to browse people free tonight who match your plans.
-              </AppText>
-              <View style={styles.row}>
-                <Button
-                  label={copy.editTonight}
-                  variant="secondary"
-                  onPress={() => setSheet('edit')}
-                  style={styles.flex}
-                />
-                <Button
-                  label="GO OFFLINE"
-                  variant="ghost"
-                  loading={loading}
-                  onPress={onStop}
-                  style={styles.flex}
-                />
-              </View>
-            </View>
-          </>
-        )}
+        ) : null}
       </ScrollView>
+      </Animated.View>
+      )}
+      </LayoutAnimationConfig>
+
+      {offlineToast && !live ? (
+        <Animated.View
+          entering={FadeInDown.duration(360).delay(260)}
+          exiting={FadeOutUp.duration(260)}
+          style={[styles.offlineToast, { top: insets.top + 8 }]}
+          pointerEvents="none"
+        >
+          <View style={styles.offlineToastDot} />
+          <AppText style={styles.offlineToastText}>You’re offline · Go live anytime</AppText>
+        </Animated.View>
+      ) : null}
 
       <Modal visible={sheet !== 'none'} animationType="slide" transparent>
         <View style={styles.sheetBackdrop}>
@@ -862,15 +763,16 @@ export default function LiveHomeScreen() {
                   onPress={() => {
                     if (liveSession) {
                       const { expiresAt, label } = buildExpiration(availability[0] ?? 'flexible');
-                      setLiveSession({
-                        ...liveSession,
+                      const patch = {
                         activities: activities as TonightActivity[],
                         foodCuisines: wantsDinner ? foodCuisines : [],
                         radiusMiles: radius,
                         availabilityLabel: label,
                         availableUntil: expiresAt.toISOString(),
                         expiresAt: expiresAt.toISOString(),
-                      });
+                      };
+                      setLiveSession({ ...liveSession, ...patch });
+                      void syncLiveSessionPatch(patch);
                     }
                     setSheet('none');
                   }}
@@ -1005,6 +907,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     maxWidth: '42%',
     textAlign: 'right',
+  },
+  settingValOn: {
+    color: colors.brandBright,
   },
   settingChevron: {
     color: colors.textSecondary,
@@ -1249,6 +1154,45 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: 'row', gap: 10 },
   flex: { flex: 1 },
+  leavingOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  leavingText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  offlineToast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: 'rgba(24,20,34,0.96)',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  offlineToastDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.textSecondary,
+  },
+  offlineToastText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
   sheetBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',

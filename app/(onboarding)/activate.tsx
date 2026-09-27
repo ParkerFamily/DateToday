@@ -1,21 +1,23 @@
-import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
-import * as Location from 'expo-location';
-import { Screen } from '@/components/ui/Screen';
-import { AppText } from '@/components/ui/AppText';
-import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
 import { DtIconHero } from '@/components/onboarding/DtIconHero';
+import { friendlyError } from '@/lib/errors';
+import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
+import { AppText } from '@/components/ui/AppText';
 import { LiveBadge } from '@/components/ui/LiveBadge';
+import { Screen } from '@/components/ui/Screen';
 import { colors, radii, spacing } from '@/constants/theme';
+import { requestNotificationPermission } from '@/features/notifications/permission';
+import { registerPushTokenAsync } from '@/features/notifications/push';
+import { env } from '@/lib/env';
+import { startLiveSession } from '@/services/api';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
-import { requestNotificationPermission } from '@/features/notifications/permission';
-import { startLiveSession } from '@/services/api';
-import { clampLiveExpiration } from '@/utils/time';
-import { env } from '@/lib/env';
 import type { TonightActivity } from '@/types';
+import { clampLiveExpiration } from '@/utils/time';
+import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 const WORDS: { value: TonightActivity; label: string }[] = [
   { value: 'dinner', label: 'DINNER' },
@@ -44,6 +46,7 @@ export default function ActivateLiveScreen() {
         const granted = await requestNotificationPermission();
         draft.setNotificationsEnabled(granted);
       }
+      void registerPushTokenAsync();
       if (!draft.locationEnabled) {
         const { status } = await Location.requestForegroundPermissionsAsync();
         const granted = status === 'granted';
@@ -96,7 +99,7 @@ export default function ActivateLiveScreen() {
       setPhase('live');
       setTimeout(() => router.replace('/discovery'), 1600);
     } catch (error) {
-      Alert.alert('Could not go live', error instanceof Error ? error.message : 'Try again');
+      Alert.alert('Could not go live', friendlyError(error, 'Try again'));
     } finally {
       setLoading(false);
     }

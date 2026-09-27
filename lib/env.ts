@@ -54,12 +54,18 @@ export const env = {
   ),
   stripePublishableKey:
     process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? extra.stripePublishableKey ?? '',
-  googleWebClientId:
-    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? extra.googleWebClientId ?? '',
-  googleIosClientId:
-    process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? extra.googleIosClientId ?? '',
-  googleAndroidClientId:
-    process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? extra.googleAndroidClientId ?? '',
+  googleWebClientId: pick(
+    'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID',
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? extra.googleWebClientId,
+  ),
+  googleIosClientId: pick(
+    'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID',
+    process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? extra.googleIosClientId,
+  ),
+  googleAndroidClientId: pick(
+    'EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID',
+    process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? extra.googleAndroidClientId,
+  ),
   personaTemplateId:
     process.env.EXPO_PUBLIC_PERSONA_TEMPLATE_ID ?? extra.personaTemplateId ?? '',
   personaEnvironmentId:
