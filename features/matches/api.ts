@@ -195,7 +195,7 @@ export function subscribeMessages(
   const q = query(
     collection(getDb(), 'matches', matchId, 'messages'),
     orderBy('createdAt', 'asc'),
-    limitToLast(300),
+    limitToLast(30),
   );
   return onSnapshot(
     q,

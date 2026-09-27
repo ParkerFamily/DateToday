@@ -5,7 +5,13 @@ import {
   type Auth,
   type Persistence,
 } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  getFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore,
+} from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
@@ -91,7 +97,18 @@ export function getFirebaseAuth(): Auth {
 }
 
 export function getDb(): Firestore {
-  if (!db) db = getFirestore(getFirebaseApp());
+  if (!db) {
+    try {
+      db = initializeFirestore(getFirebaseApp(), {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+        experimentalForceLongPolling: true,
+      });
+    } catch {
+      db = getFirestore(getFirebaseApp());
+    }
+  }
   return db;
 }
 

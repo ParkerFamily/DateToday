@@ -92,19 +92,24 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
     if (saved.hasLegalConsent) {
       useOnboardingDraft.getState().acceptLegalConsent();
     }
-    const { usePrivacyControls } = await import('@/store/privacyControls');
+    
+    const [{ usePrivacyControls }, { useBlocksStore }, { restoreLiveSession }] = await Promise.all([
+      import('@/store/privacyControls'),
+      import('@/store/blocks'),
+      import('@/features/live/restoreLiveSession'),
+    ]);
     usePrivacyControls.getState().hydrate(saved.privacyControls ?? undefined);
-    const { useBlocksStore } = await import('@/store/blocks');
-    await useBlocksStore.getState().hydrate();
-    const { refreshBlockedUsers } = await import('@/features/safety/api');
-    await refreshBlockedUsers().catch(() => undefined);
-    const { restoreLiveSession } = await import('@/features/live/restoreLiveSession');
-    await restoreLiveSession(uid);
+    
+    await Promise.all([
+      useBlocksStore.getState().hydrate(),
+      import('@/features/safety/api').then((m) => m.refreshBlockedUsers().catch(() => undefined)),
+      restoreLiveSession(uid),
+    ]);
+    
     const { hydrateTonightBoostForSession } = await import('@/lib/commerce/sessionCommerce');
     const restored = useSessionStore.getState().liveSession;
     if (restored && !restored.isBoosted) await hydrateTonightBoostForSession(restored);
   } catch {
-    // Profile may not exist yet (mid-onboarding).
   } finally {
     setProfileHydration('done');
   }
