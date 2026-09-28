@@ -37,6 +37,7 @@ export default function ProfileTabScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const profile = useSessionStore((s) => s.profile);
+  const profileHydration = useSessionStore((s) => s.profileHydration);
   const entitlements = useSessionStore((s) => s.entitlements);
   const { percent, requirements, readyForLive } = useProfileCompletion();
   const plus = isPlusActive(entitlements);
@@ -50,6 +51,17 @@ export default function ProfileTabScreen() {
   const verified = profile?.verificationStatus === 'verified';
   const verificationStatus = profile?.verificationStatus ?? 'unverified';
   const name = profile?.displayName ?? 'Your profile';
+
+  // Log profile state for debugging
+  React.useEffect(() => {
+    console.log('[DateToday] ProfileTabScreen - Profile state:', {
+      hasProfile: !!profile,
+      profileHydration,
+      displayName: profile?.displayName,
+      mainPhotoUrl: profile?.mainPhotoUrl ? 'present' : 'missing',
+      verificationStatus: profile?.verificationStatus,
+    });
+  }, [profile, profileHydration]);
 
   return (
     <Screen padded={false} edges={['top', 'left', 'right']}>

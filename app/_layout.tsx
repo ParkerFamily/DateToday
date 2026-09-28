@@ -183,7 +183,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
     const unsub = subscribeAuth((user) => {
       // Ignore until initial restore finished to avoid null→user race wipes.
-      if (!bootstrapped.current) return;
+      if (!bootstrapped.current) {
+        console.log('[DateToday] Ignoring auth change - not bootstrapped yet');
+        return;
+      }
 
       void (async () => {
         if (!user) {
@@ -193,19 +196,27 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         }
         const prev = useSessionStore.getState().userId;
         const hasProfile = useSessionStore.getState().profile;
+        const hydrationState = useSessionStore.getState().profileHydration;
         console.log('[DateToday] Auth state changed:', {
           userId: user.uid,
+          email: user.email,
           prevUserId: prev,
           hasProfile: !!hasProfile,
+          hydrationState,
           isSameUser: prev === user.uid,
         });
-        if (prev === user.uid && hasProfile) {
-          // Same session — don't clobber a loaded profile on token refresh.
+        if (prev === user.uid && hasProfile && hydrationState === 'done') {
+          // Same session with loaded profile — don't clobber on token refresh.
           console.log('[DateToday] Same user with existing profile, skipping re-hydration');
           useSessionStore.getState().setAuth(user.uid, user.email ?? null);
           return;
         }
-        console.log('[DateToday] Re-hydrating user profile');
+        if (prev === user.uid && hydrationState === 'loading') {
+          // Already loading this user's profile, don't trigger another load
+          console.log('[DateToday] Profile already loading for this user, skipping');
+          return;
+        }
+        console.log('[DateToday] Hydrating user profile');
         await hydrateSignedInUser(user.uid, user.email ?? null);
         if (Platform.OS === 'android') return;
         try {
