@@ -1,13 +1,8 @@
 import {
-  collection,
   doc,
   getDoc,
-  getDocs,
-  onSnapshot,
-  query,
   serverTimestamp,
   setDoc,
-  where,
   type Timestamp,
 } from 'firebase/firestore';
 import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
@@ -22,26 +17,11 @@ import type {
   VerificationStatus,
 } from '@/types';
 import { analytics } from '@/lib/analytics';
+import { functionsUrl } from '@/features/matches/api';
 
 /** ~0.7 mi precision — enough for distance, not a street pin. */
 function approxCoord(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-function milesBetween(
-  a: { latitude: number; longitude: number },
-  b: { latitude: number; longitude: number },
-): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const R = 3958.8;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLon = toRad(b.longitude - a.longitude);
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
 export type PublishLiveInput = {
@@ -267,111 +247,44 @@ function tsToIso(value: unknown): string {
   return new Date().toISOString();
 }
 
-/** Does `viewer`'s "show me" gender preference include `other`? Missing data = no filter. */
-function wantsToSee(viewer: Record<string, unknown>, other: Record<string, unknown>): boolean {
-  const pref = viewer.interestedIn;
-  const gender = other.gender;
-  if (pref === 'men' && gender && gender !== 'man') return false;
-  if (pref === 'women' && gender && gender !== 'woman') return false;
-  return true;
-}
-
-/** Fires whenever someone goes live, updates, or ends — used to refresh the feed in realtime. */
-export function subscribeActiveLiveSessions(onChange: () => void) {
-  const q = query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'));
-  let first = true;
-  return onSnapshot(
-    q,
-    (snap) => {
-      if (first) {
-        first = false;
-        return;
-      }
-      if (snap.docChanges().length) onChange();
-    },
-    () => undefined,
-  );
-}
-
-/**
- * Active beacons near the viewer. Client filters by mutual radius + haversine.
- * Low early density — keep the query simple (status == active).
- */
+/** Fetch the authenticated, server-filtered feed. Never query other beacons directly. */
 export async function fetchFirestoreDiscoveryFeed(limit = 40): Promise<DiscoveryCard[]> {
-  const auth = getFirebaseAuth();
-  const me = auth.currentUser?.uid;
-  if (!me) return [];
-
-  const mySnap = await getDoc(doc(getDb(), 'liveSessions', me));
-  const mine = mySnap.data();
-  if (!mine || mine.status !== 'active') return [];
-
-  const myLat = Number(mine.latitude);
-  const myLng = Number(mine.longitude);
-  const myRadius = Number(mine.radiusMiles ?? 10) as RadiusMiles;
-  if (!Number.isFinite(myLat) || !Number.isFinite(myLng)) return [];
-
-  const q = query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'));
-  const snap = await getDocs(q);
-  const now = Date.now();
-  const cards: DiscoveryCard[] = [];
-
-  for (const docSnap of snap.docs) {
-    if (docSnap.id === me) continue;
-    const d = docSnap.data() as Record<string, unknown>;
-    const expiresAt = tsToIso(d.expiresAt);
-    if (new Date(expiresAt).getTime() <= now) continue;
-
-    const lat = Number(d.latitude);
-    const lng = Number(d.longitude);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-
-    const theirRadius = Number(d.radiusMiles ?? 10);
-    const dist = milesBetween(
-      { latitude: myLat, longitude: myLng },
-      { latitude: lat, longitude: lng },
-    );
-    const maxAllowed = Math.min(myRadius, theirRadius);
-    if (dist > maxAllowed) continue;
-    if (!wantsToSee(mine, d) || !wantsToSee(d, mine)) continue;
-
-    const laterHour =
-      typeof d.laterTonightHour === 'number' ? d.laterTonightHour : null;
-    const mode =
-      d.availabilityMode === 'later' || (laterHour != null && laterHour > new Date().getHours())
-        ? 'later'
-        : 'live';
-
-    cards.push({
-      userId: String(d.userId ?? docSnap.id),
-      displayName: String(d.displayName ?? 'Member'),
-      age: Number(d.age ?? 21),
-      neighborhoodLabel: (d.neighborhoodLabel as string | null) ?? null,
-      distanceMiles: Math.round(dist * 10) / 10,
-      verificationStatus: (d.verificationStatus as VerificationStatus) ?? 'unverified',
-      datingIntention: (d.datingIntention as DiscoveryCard['datingIntention']) ?? null,
-      bio: (d.bio as string | null) ?? null,
-      mainPhotoUrl: (d.mainPhotoUrl as string | null) ?? null,
-      liveSessionId: docSnap.id,
-      liveUntil: expiresAt,
-      availabilityLabel: (d.availabilityLabel as string | null) ?? null,
-      activities: (d.activities as TonightActivity[]) ?? [],
-      foodCuisines: (d.foodCuisines as FoodCuisine[]) ?? [],
-      isBoosted: Boolean(d.isBoosted),
-      rankScore: d.isBoosted ? 10 : 1,
-      videoPrompts: videoPromptsFromUser(d),
-      availabilityMode: mode,
-      laterTonightHour: laterHour,
-      heightCm: typeof d.heightCm === 'number' ? d.heightCm : null,
-      drinking: (d.drinking as string | null) ?? null,
-      smoking: (d.smoking as string | null) ?? null,
-      interests: Array.isArray(d.interests) ? (d.interests as string[]) : [],
-      kids: (d.kids as string | null) ?? null,
-      exercise: (d.exercise as string | null) ?? null,
-    });
-
-    if (cards.length >= limit) break;
-  }
-
-  return cards;
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Sign in to browse Live.');
+  const token = await user.getIdToken();
+  const response = await fetch(functionsUrl('nearbyLive'), {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  const body = (await response.json()) as { candidates?: Record<string, unknown>[]; error?: string };
+  if (!response.ok) throw new Error(body.error || 'Nearby people could not be loaded.');
+  if (!Array.isArray(body.candidates)) throw new Error('Invalid nearby feed response.');
+  return body.candidates.slice(0, limit).map(d => ({
+    userId: String(d.uid),
+    displayName: String(d.displayName),
+    age: Number(d.age),
+    neighborhoodLabel: (d.neighborhoodLabel as string | null) ?? null,
+    distanceMiles: typeof d.distanceMiles === 'number' ? d.distanceMiles : 0,
+    hideDistance: d.hideDistance === true,
+    verificationStatus: (d.verificationStatus as VerificationStatus) ?? 'unverified',
+    datingIntention: (d.datingIntention as DiscoveryCard['datingIntention']) ?? null,
+    bio: (d.bio as string | null) ?? null,
+    mainPhotoUrl: (d.mainPhotoUrl as string | null) ?? null,
+    liveSessionId: String(d.uid),
+    liveUntil: String(d.expiresAt),
+    availabilityLabel: (d.availabilityLabel as string | null) ?? null,
+    activities: (d.activities as TonightActivity[]) ?? [],
+    foodCuisines: (d.foodCuisines as FoodCuisine[]) ?? [],
+    isBoosted: d.isBoosted === true,
+    rankScore: d.isBoosted === true ? 10 : 1,
+    videoPrompts: videoPromptsFromUser(d),
+    availabilityMode: d.availabilityMode === 'later' ? 'later' : 'live',
+    laterTonightHour: typeof d.laterTonightHour === 'number' ? d.laterTonightHour : null,
+    heightCm: typeof d.heightCm === 'number' ? d.heightCm : null,
+    drinking: (d.drinking as string | null) ?? null,
+    smoking: (d.smoking as string | null) ?? null,
+    interests: Array.isArray(d.interests) ? (d.interests as string[]) : [],
+    kids: (d.kids as string | null) ?? null,
+    exercise: (d.exercise as string | null) ?? null,
+  }));
 }
