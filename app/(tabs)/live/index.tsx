@@ -28,8 +28,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
     Modal,
@@ -157,10 +157,13 @@ export default function LiveHomeScreen() {
     : formatFreeUntilLabel(availability[0] ?? '7_10');
   const radiusLabel = live ? (liveSession?.radiusMiles ?? radius) : radius;
 
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  // Only update time when screen is focused to prevent unnecessary rerenders
+  useFocusEffect(
+    useCallback(() => {
+      const id = setInterval(() => setNow(new Date()), 5000);
+      return () => clearInterval(id);
+    }, [])
+  );
 
   useEffect(() => {
     if (!live) void clearTonightBoost();

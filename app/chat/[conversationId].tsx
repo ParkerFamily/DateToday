@@ -44,9 +44,16 @@ import {
 import { useTheirChatState } from '@/features/matches/useTheirChatState';
 import { TypingDots } from '@/components/chat/TypingDots';
 import { dismissNotificationsForMatch, setActiveChat } from '@/features/notifications/push';
+import {
+  generateClientId,
+  logMessageEvent,
+  mergeMessages,
+  type OptimisticMessage,
+  type MessageWithStatus,
+} from './message-queue';
 
 type ListItem =
-  | { kind: 'message'; message: MatchMessage }
+  | { kind: 'message'; message: MessageWithStatus }
   | { kind: 'nudge'; id: string };
 
 function markRead(matchId: string) {
@@ -109,12 +116,14 @@ export default function ChatScreen() {
   const userId = useSessionStore((s) => s.userId) ?? '';
   const entitlements = useSessionStore((s) => s.entitlements);
   const listRef = useRef<FlatList<ListItem>>(null);
+  const sendingRef = useRef(false);
 
   const [match, setMatch] = useState<MatchDoc | null>(null);
   const [matchState, setMatchState] = useState<'loading' | 'ready' | 'missing'>('loading');
   const [messages, setMessages] = useState<MatchMessage[]>([]);
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [messageLocked, setMessageLocked] = useState(false);
@@ -147,15 +156,44 @@ export default function ChatScreen() {
       setMatchState('missing');
       return;
     }
+    setMessagesLoaded(false);
     const unsubMatch = subscribeMatch(
       matchId,
       (m) => {
         setMatch(m);
         setMatchState(m ? 'ready' : 'missing');
       },
-      () => setMatchState('missing'),
+      (error) => {
+        console.error('[DateToday] ChatScreen: match subscription error', error);
+        setMatchState('missing');
+      },
     );
-    const unsubMessages = subscribeMessages(matchId, setMessages);
+    const unsubMessages = subscribeMessages(matchId, (msgs) => {
+      setMessages(msgs);
+      setMessagesLoaded(true);
+      
+      // Clean up optimistic messages that have been confirmed by server
+      const serverIds = new Set(msgs.map(m => m.id));
+      setOptimisticMessages((prev) => {
+        const cleaned = prev.filter(opt => {
+          // Keep if no serverId yet (still sending/failed)
+          if (!opt.serverId) return true;
+          // Remove if serverId is in the real messages
+          return !serverIds.has(opt.serverId);
+        });
+        if (cleaned.length !== prev.length) {
+          logMessageEvent('optimistic_cleanup', {
+            before: prev.length,
+            after: cleaned.length,
+            removed: prev.length - cleaned.length,
+          });
+        }
+        return cleaned;
+      });
+    }, (error) => {
+      console.error('[DateToday] ChatScreen: messages subscription error', error);
+      setMessagesLoaded(true);
+    });
     return () => {
       unsubMatch();
       unsubMessages();
@@ -205,24 +243,31 @@ export default function ChatScreen() {
     return null;
   }, [messages, userId]);
 
-  const receiptFor = (message: MatchMessage) => {
+  // Merge optimistic and real messages
+  const mergedMessages = useMemo<MessageWithStatus[]>(() => {
+    return mergeMessages(messages, optimisticMessages, userId);
+  }, [messages, optimisticMessages, userId]);
+
+  const receiptFor = (message: MessageWithStatus) => {
+    if (message.isOptimistic && message.status === 'sending') return 'Sending…';
+    if (message.isOptimistic && message.status === 'failed') return 'Failed';
     if (!message.createdAt) return 'Sending…';
     if (theirLastReadAt && theirLastReadAt.getTime() >= message.createdAt.getTime()) return 'Seen';
     return 'Sent';
   };
 
   const openers = useMemo(() => icebreakersFor({ food: '', name: theirName }), [theirName]);
-  const showIcebreakers = matchState === 'ready' && messages.length === 0;
-  const mySentCount = messages.filter((m) => m.senderId === userId && m.type === 'text').length;
-  const hasProposal = messages.some((m) => m.type === 'date_proposal');
+  const showIcebreakers = matchState === 'ready' && messagesLoaded && mergedMessages.length === 0;
+  const mySentCount = mergedMessages.filter((m) => m.senderId === userId && m.type === 'text').length;
+  const hasProposal = mergedMessages.some((m) => m.type === 'date_proposal');
 
   const items = useMemo<ListItem[]>(() => {
-    const list: ListItem[] = messages.map((message) => ({ kind: 'message', message }));
+    const list: ListItem[] = mergedMessages.map((message) => ({ kind: 'message', message }));
     if (mySentCount >= 3 && !hasProposal && !nudgeDismissed) {
       list.push({ kind: 'nudge', id: 'nudge' });
     }
     return list;
-  }, [messages, mySentCount, hasProposal, nudgeDismissed]);
+  }, [mergedMessages, mySentCount, hasProposal, nudgeDismissed]);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -230,26 +275,70 @@ export default function ChatScreen() {
   };
 
   const sendBody = (body: string) => {
+    // CRITICAL: Capture the exact input value synchronously before any async operations
     const text = body.trim();
-    if (!text || sending) return;
+    if (!text) return;
+
+    const clientId = generateClientId();
+    const timestamp = Date.now();
+
+    logMessageEvent('send_tap', { clientId, textLength: text.length, timestamp });
+
+    // Immediately add optimistic message
+    const optimisticMsg: OptimisticMessage = {
+      clientId,
+      text,
+      status: 'sending',
+      createdAt: new Date(),
+    };
+
+    setOptimisticMessages((prev) => [...prev, optimisticMsg]);
+    setDraft('');
+    stopTyping();
+
+    logMessageEvent('optimistic_added', { clientId, cleared_draft: true });
+
+    // Send in background without blocking UI
     void (async () => {
-      const gate = await canMessageMatch(entitlements, matchId);
-      if (!gate.ok) {
-        setMessageLocked(true);
-        openUpgrade(router, 'message');
-        return;
-      }
-      setSending(true);
-      setDraft('');
-      stopTyping();
       try {
-        await sendMatchMessage(matchId, text);
+        const gate = await canMessageMatch(entitlements, matchId);
+        if (!gate.ok) {
+          // Remove optimistic message and restore draft
+          setOptimisticMessages((prev) => prev.filter((m) => m.clientId !== clientId));
+          setDraft(text);
+          setMessageLocked(true);
+          openUpgrade(router, 'message');
+          logMessageEvent('gate_failed', { clientId });
+          return;
+        }
+
+        logMessageEvent('backend_write_start', { clientId, timestamp: Date.now() });
+
+        const serverId = await sendMatchMessage(matchId, text);
+
+        logMessageEvent('backend_ack', { clientId, serverId, timestamp: Date.now() });
+
+        // Update optimistic message with server ID
+        setOptimisticMessages((prev) =>
+          prev.map((m) =>
+            m.clientId === clientId
+              ? { ...m, status: 'sent' as const, serverId }
+              : m
+          )
+        );
+
         if (!isPlusActive(entitlements)) await recordMessagedMatch(matchId);
       } catch (error) {
-        setDraft(text);
-        Alert.alert('Message not sent', friendlyError(error, 'Try again.'));
-      } finally {
-        setSending(false);
+        logMessageEvent('send_failed', { clientId, error: String(error) });
+
+        // Mark as failed (don't remove - user can retry)
+        setOptimisticMessages((prev) =>
+          prev.map((m) =>
+            m.clientId === clientId
+              ? { ...m, status: 'failed' as const, error: friendlyError(error, 'Try again.') }
+              : m
+          )
+        );
       }
     })();
   };
@@ -271,7 +360,7 @@ export default function ChatScreen() {
     router.push({ pathname: '/profile/[userId]', params: { userId: theirId, fromMatch: '1' } });
   };
 
-  const respond = async (message: MatchMessage, status: 'accepted' | 'declined') => {
+  const respond = async (message: MessageWithStatus, status: 'accepted' | 'declined') => {
     setRespondingId(message.id);
     try {
       await respondToDate(matchId, message.id, status);
@@ -348,11 +437,11 @@ export default function ChatScreen() {
     : 'You matched · plan something';
 
   return (
-    <Screen padded={false} edges={['left', 'right']}>
+    <Screen padded={false} edges={['left', 'right', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={8}
+        keyboardVerticalOffset={0}
       >
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <Pressable
@@ -410,7 +499,12 @@ export default function ChatScreen() {
           keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           ListHeaderComponent={
-            showIcebreakers ? (
+            !messagesLoaded ? (
+              <View style={styles.loadingMessages}>
+                <ActivityIndicator color={colors.brandBright} />
+                <AppText style={styles.loadingText}>Loading messages…</AppText>
+              </View>
+            ) : showIcebreakers ? (
               <View style={styles.ice}>
                 <AppText style={styles.iceTitle}>
                   YOU MATCHED WITH {theirName.toUpperCase()} · {flowCopy.breakTheIce}
@@ -435,7 +529,7 @@ export default function ChatScreen() {
                   <AppText style={styles.nudgeTitle}>{flowCopy.feelingVibe}</AppText>
                   <AppText style={styles.nudgeBody}>{flowCopy.feelingVibeBody}</AppText>
                   <Button label={flowCopy.makeAPlan} onPress={openPlan} style={styles.nudgeCta} />
-                  <Pressable onPress={() => setNudgeDismissed(true)}>
+                  <Pressable hitSlop={16} onPress={() => setNudgeDismissed(true)}>
                     <AppText style={styles.writeOwn}>Not yet</AppText>
                   </Pressable>
                 </View>
@@ -556,7 +650,7 @@ export default function ChatScreen() {
             <Ionicons name="chevron-forward" size={18} color={colors.brandBright} />
           </Pressable>
         ) : (
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <View style={styles.composer}>
           <TextInput
             value={draft}
             onChangeText={(text) => {
@@ -575,7 +669,7 @@ export default function ChatScreen() {
           <Button
             label="Send"
             onPress={() => sendBody(draft)}
-            disabled={!draft.trim() || sending}
+            disabled={!draft.trim()}
             style={styles.send}
           />
         </View>
@@ -646,6 +740,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   blockedCopy: { marginBottom: spacing.md },
+  loadingMessages: {
+    paddingVertical: spacing.xl,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
   pressed: { opacity: 0.8 },
   list: { padding: spacing.lg, gap: spacing.sm, flexGrow: 1 },
   ice: {
@@ -746,6 +849,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     width: '100%',
@@ -764,7 +868,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
   },
-  send: { minHeight: 48, width: 88, flexGrow: 0, flexShrink: 0 },
+  send: { minHeight: 48, minWidth: 80, paddingHorizontal: 20, flexGrow: 0, flexShrink: 0 },
   lockedComposer: {
     flexDirection: 'row',
     alignItems: 'center',

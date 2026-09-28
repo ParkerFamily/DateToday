@@ -44,12 +44,17 @@ export function useMatchesSubscription() {
     store.set({ loaded: false, error: null, likedMe: null });
     const unsubMatches = subscribeMatches(
       uid,
-      (matches) => useMatchesStore.getState().set({ matches, loaded: true, error: null }),
-      (error) => useMatchesStore.getState().set({ loaded: true, error: error.message }),
+      (matches) => {
+        useMatchesStore.getState().set({ matches, loaded: true, error: null });
+      },
+      (error) => {
+        console.error('[DateToday] Matches: subscription error', error);
+        useMatchesStore.getState().set({ loaded: true, error: error.message });
+      },
     );
-    const unsubLikes = subscribeReceivedInterests(uid, (likedMe) =>
-      useMatchesStore.getState().set({ likedMe }),
-    );
+    const unsubLikes = subscribeReceivedInterests(uid, (likedMe) => {
+      useMatchesStore.getState().set({ likedMe });
+    });
     return () => {
       unsubMatches();
       unsubLikes();

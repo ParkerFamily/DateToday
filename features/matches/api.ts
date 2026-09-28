@@ -195,7 +195,7 @@ export function subscribeMessages(
   const q = query(
     collection(getDb(), 'matches', matchId, 'messages'),
     orderBy('createdAt', 'asc'),
-    limitToLast(300),
+    limitToLast(30),
   );
   return onSnapshot(
     q,
@@ -225,15 +225,24 @@ function requireUid() {
   return uid;
 }
 
-export async function sendMatchMessage(matchId: string, text: string) {
+export async function sendMatchMessage(matchId: string, text: string): Promise<string> {
   const body = text.trim().slice(0, 2000);
-  if (!body) return;
-  await addDoc(collection(getDb(), 'matches', matchId, 'messages'), {
-    senderId: requireUid(),
-    type: 'text',
-    text: body,
-    createdAt: serverTimestamp(),
-  });
+  if (!body) throw new Error('Empty message');
+  try {
+    const docRef = await addDoc(collection(getDb(), 'matches', matchId, 'messages'), {
+      senderId: requireUid(),
+      type: 'text',
+      text: body,
+      createdAt: serverTimestamp(),
+    });
+    if (!docRef?.id) {
+      throw new Error('Message was not created');
+    }
+    return docRef.id;
+  } catch (error) {
+    console.error('[DateToday] sendMatchMessage failed:', error);
+    throw error;
+  }
 }
 
 function cleanProposal(p: DateProposal): DateProposal {
@@ -246,13 +255,21 @@ function cleanProposal(p: DateProposal): DateProposal {
 }
 
 export async function proposeDate(matchId: string, proposal: DateProposal) {
-  await addDoc(collection(getDb(), 'matches', matchId, 'messages'), {
-    senderId: requireUid(),
-    type: 'date_proposal',
-    proposal: cleanProposal(proposal),
-    status: 'proposed',
-    createdAt: serverTimestamp(),
-  });
+  try {
+    const docRef = await addDoc(collection(getDb(), 'matches', matchId, 'messages'), {
+      senderId: requireUid(),
+      type: 'date_proposal',
+      proposal: cleanProposal(proposal),
+      status: 'proposed',
+      createdAt: serverTimestamp(),
+    });
+    if (!docRef?.id) {
+      throw new Error('Date proposal was not created');
+    }
+  } catch (error) {
+    console.error('[DateToday] proposeDate failed:', error);
+    throw error;
+  }
 }
 
 export async function respondToDate(matchId: string, messageId: string, status: 'accepted' | 'declined') {

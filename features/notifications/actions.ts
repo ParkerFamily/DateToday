@@ -72,9 +72,15 @@ export async function handleNotificationAction(response: Notifications.Notificat
 async function performNotificationAction(response: Notifications.NotificationResponse) {
   const data = response.notification.request.content.data as { matchId?: unknown } | undefined;
   const matchId = typeof data?.matchId === 'string' ? data.matchId : null;
-  if (!matchId) return;
+  if (!matchId) {
+    console.error('[DateToday] performNotificationAction: no matchId', { data });
+    return;
+  }
   const text = response.actionIdentifier === REPLY_ACTION ? (response.userText ?? '').trim() : '';
-  if (response.actionIdentifier === REPLY_ACTION && !text) return;
+  if (response.actionIdentifier === REPLY_ACTION && !text) {
+    console.log('[DateToday] performNotificationAction: empty reply text');
+    return;
+  }
 
   try {
     const entitlements = useSessionStore.getState().entitlements;
@@ -90,10 +96,13 @@ async function performNotificationAction(response: Notifications.NotificationRes
         return;
       }
     }
+    console.log('[DateToday] performNotificationAction: calling API', { matchId, hasText: Boolean(text) });
     await callNotificationAction({ matchId, text: text.slice(0, 2000) || undefined });
+    console.log('[DateToday] performNotificationAction: API call successful');
     if (text && !isPlusActive(entitlements)) await recordMessagedMatch(matchId);
     await dismissNotificationsForMatch(matchId);
-  } catch {
+  } catch (error) {
+    console.error('[DateToday] performNotificationAction failed:', error);
     await dismissNotificationsForMatch(matchId);
     if (text) await notifyReplyProblem(matchId, 'Reply not sent', `Tap to open the chat and send “${text.slice(0, 60)}” again.`);
   }
