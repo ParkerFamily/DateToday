@@ -11,7 +11,7 @@ import {
   getAdditionalUserInfo,
   type UserCredential,
 } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
 import { assertFirebaseConfigured, env } from '@/lib/env';
 import { analytics } from '@/lib/analytics';
@@ -92,9 +92,17 @@ async function ensureUserDoc(
     };
     if (displayName) payload.displayName = displayName;
     if (extras?.photoURL) payload.photoURL = extras.photoURL;
+    
+    // Only set initial fields for truly new accounts that don't exist in Firestore yet.
+    // Firebase Auth's isNewUser can be true even for existing accounts (e.g. adding a new provider),
+    // so we must check Firestore to avoid resetting verification status on existing accounts.
     if (extras?.isNewUser) {
-      payload.createdAt = serverTimestamp();
-      payload.verificationStatus = 'unverified';
+      const userRef = doc(getDb(), 'users', uid);
+      const existingDoc = await getDoc(userRef);
+      if (!existingDoc.exists()) {
+        payload.createdAt = serverTimestamp();
+        payload.verificationStatus = 'unverified';
+      }
     }
     await setDoc(doc(getDb(), 'users', uid), payload, { merge: true });
   } catch (error) {
