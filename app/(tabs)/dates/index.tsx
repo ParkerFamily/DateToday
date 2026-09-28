@@ -8,7 +8,7 @@ import { useMatchesStore, usePendingLikes, useVisibleMatches } from '@/store/mat
 import { useSessionStore } from '@/store/session';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useCallback, useRef } from 'react';
+import { useMemo, useCallback, useRef, memo } from 'react';
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -24,8 +24,8 @@ function timeAgo(date: Date | null): string {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function Avatar({ uri, size }: { uri: string | null | undefined; size: number }) {
-  const style = { width: size, height: size, borderRadius: size / 2 };
+const Avatar = memo(function Avatar({ uri, size }: { uri: string | null | undefined; size: number }) {
+  const style = useMemo(() => ({ width: size, height: size, borderRadius: size / 2 }), [size]);
   return uri ? (
     <Image source={{ uri }} style={[styles.avatar, style]} />
   ) : (
@@ -33,9 +33,9 @@ function Avatar({ uri, size }: { uri: string | null | undefined; size: number })
       <Ionicons name="person" size={size * 0.45} color={colors.textSecondary} />
     </View>
   );
-}
+});
 
-function NewMatchItem({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
+const NewMatchItem = memo(function NewMatchItem({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
   const theirId = otherUserId(match, uid);
   const other = match.users[theirId];
   return (
@@ -48,11 +48,12 @@ function NewMatchItem({ match, uid, onPress }: { match: MatchDoc; uid: string; o
       </AppText>
     </Pressable>
   );
-}
+});
 
-function DateRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
+const DateRow = memo(function DateRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
   const theirId = otherUserId(match, uid);
   const other = match.users[theirId];
+  const summary = useMemo(() => proposalSummary(match.nextDate), [match.nextDate]);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.dateCard, pressed && styles.pressed]}>
       <Avatar uri={other?.mainPhotoUrl} size={52} />
@@ -60,19 +61,20 @@ function DateRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPres
         <AppText style={styles.dateEyebrow}>IT’S A DATE</AppText>
         <AppText style={styles.rowName}>{other?.displayName ?? 'Match'}</AppText>
         <AppText style={styles.dateLine} numberOfLines={2}>
-          {proposalSummary(match.nextDate)}
+          {summary}
         </AppText>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
     </Pressable>
   );
-}
+});
 
-function ThreadRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
+const ThreadRow = memo(function ThreadRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
   const theirId = otherUserId(match, uid);
   const other = match.users[theirId];
   const unread = match.unread[uid] ?? 0;
   const mine = match.lastMessage?.senderId === uid;
+  const timeLabel = useMemo(() => timeAgo(match.lastActivityAt), [match.lastActivityAt]);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.thread, pressed && styles.pressed]}>
       <Avatar uri={other?.mainPhotoUrl} size={56} />
@@ -81,7 +83,7 @@ function ThreadRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPr
           <AppText style={styles.rowName} numberOfLines={1}>
             {other?.displayName ?? 'Match'}
           </AppText>
-          <AppText style={styles.time}>{timeAgo(match.lastActivityAt)}</AppText>
+          <AppText style={styles.time}>{timeLabel}</AppText>
         </View>
         <View style={styles.threadTop}>
           <AppText style={[styles.preview, unread > 0 && styles.previewUnread]} numberOfLines={1}>
@@ -97,7 +99,7 @@ function ThreadRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPr
       </View>
     </Pressable>
   );
-}
+});
 
 type Row =
   | { type: 'section'; key: string; title: string }
