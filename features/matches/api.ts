@@ -225,9 +225,9 @@ function requireUid() {
   return uid;
 }
 
-export async function sendMatchMessage(matchId: string, text: string) {
+export async function sendMatchMessage(matchId: string, text: string): Promise<string> {
   const body = text.trim().slice(0, 2000);
-  if (!body) return;
+  if (!body) throw new Error('Empty message');
   try {
     const docRef = await addDoc(collection(getDb(), 'matches', matchId, 'messages'), {
       senderId: requireUid(),
@@ -238,6 +238,7 @@ export async function sendMatchMessage(matchId: string, text: string) {
     if (!docRef?.id) {
       throw new Error('Message was not created');
     }
+    return docRef.id;
   } catch (error) {
     console.error('[DateToday] sendMatchMessage failed:', error);
     throw error;

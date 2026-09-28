@@ -44,9 +44,16 @@ import {
 import { useTheirChatState } from '@/features/matches/useTheirChatState';
 import { TypingDots } from '@/components/chat/TypingDots';
 import { dismissNotificationsForMatch, setActiveChat } from '@/features/notifications/push';
+import {
+  generateClientId,
+  logMessageEvent,
+  mergeMessages,
+  type OptimisticMessage,
+  type MessageWithStatus,
+} from './message-queue';
 
 type ListItem =
-  | { kind: 'message'; message: MatchMessage }
+  | { kind: 'message'; message: MessageWithStatus }
   | { kind: 'nudge'; id: string };
 
 function markRead(matchId: string) {
@@ -114,9 +121,9 @@ export default function ChatScreen() {
   const [match, setMatch] = useState<MatchDoc | null>(null);
   const [matchState, setMatchState] = useState<'loading' | 'ready' | 'missing'>('loading');
   const [messages, setMessages] = useState<MatchMessage[]>([]);
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [messageLocked, setMessageLocked] = useState(false);
@@ -164,6 +171,25 @@ export default function ChatScreen() {
     const unsubMessages = subscribeMessages(matchId, (msgs) => {
       setMessages(msgs);
       setMessagesLoaded(true);
+      
+      // Clean up optimistic messages that have been confirmed by server
+      const serverIds = new Set(msgs.map(m => m.id));
+      setOptimisticMessages((prev) => {
+        const cleaned = prev.filter(opt => {
+          // Keep if no serverId yet (still sending/failed)
+          if (!opt.serverId) return true;
+          // Remove if serverId is in the real messages
+          return !serverIds.has(opt.serverId);
+        });
+        if (cleaned.length !== prev.length) {
+          logMessageEvent('optimistic_cleanup', {
+            before: prev.length,
+            after: cleaned.length,
+            removed: prev.length - cleaned.length,
+          });
+        }
+        return cleaned;
+      });
     }, (error) => {
       console.error('[DateToday] ChatScreen: messages subscription error', error);
       setMessagesLoaded(true);
@@ -177,8 +203,6 @@ export default function ChatScreen() {
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
-      sendingRef.current = false;
-      setSending(false);
       setActiveChat(matchId);
       if (matchId) {
         if (AppState.currentState === 'active') void markRead(matchId);
@@ -219,24 +243,31 @@ export default function ChatScreen() {
     return null;
   }, [messages, userId]);
 
-  const receiptFor = (message: MatchMessage) => {
+  // Merge optimistic and real messages
+  const mergedMessages = useMemo<MessageWithStatus[]>(() => {
+    return mergeMessages(messages, optimisticMessages, userId);
+  }, [messages, optimisticMessages, userId]);
+
+  const receiptFor = (message: MessageWithStatus) => {
+    if (message.isOptimistic && message.status === 'sending') return 'Sending…';
+    if (message.isOptimistic && message.status === 'failed') return 'Failed';
     if (!message.createdAt) return 'Sending…';
     if (theirLastReadAt && theirLastReadAt.getTime() >= message.createdAt.getTime()) return 'Seen';
     return 'Sent';
   };
 
   const openers = useMemo(() => icebreakersFor({ food: '', name: theirName }), [theirName]);
-  const showIcebreakers = matchState === 'ready' && messagesLoaded && messages.length === 0;
-  const mySentCount = messages.filter((m) => m.senderId === userId && m.type === 'text').length;
-  const hasProposal = messages.some((m) => m.type === 'date_proposal');
+  const showIcebreakers = matchState === 'ready' && messagesLoaded && mergedMessages.length === 0;
+  const mySentCount = mergedMessages.filter((m) => m.senderId === userId && m.type === 'text').length;
+  const hasProposal = mergedMessages.some((m) => m.type === 'date_proposal');
 
   const items = useMemo<ListItem[]>(() => {
-    const list: ListItem[] = messages.map((message) => ({ kind: 'message', message }));
+    const list: ListItem[] = mergedMessages.map((message) => ({ kind: 'message', message }));
     if (mySentCount >= 3 && !hasProposal && !nudgeDismissed) {
       list.push({ kind: 'nudge', id: 'nudge' });
     }
     return list;
-  }, [messages, mySentCount, hasProposal, nudgeDismissed]);
+  }, [mergedMessages, mySentCount, hasProposal, nudgeDismissed]);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -244,28 +275,70 @@ export default function ChatScreen() {
   };
 
   const sendBody = (body: string) => {
+    // CRITICAL: Capture the exact input value synchronously before any async operations
     const text = body.trim();
-    if (!text || sending || sendingRef.current) return;
-    sendingRef.current = true;
-    setSending(true);
+    if (!text) return;
+
+    const clientId = generateClientId();
+    const timestamp = Date.now();
+
+    logMessageEvent('send_tap', { clientId, textLength: text.length, timestamp });
+
+    // Immediately add optimistic message
+    const optimisticMsg: OptimisticMessage = {
+      clientId,
+      text,
+      status: 'sending',
+      createdAt: new Date(),
+    };
+
+    setOptimisticMessages((prev) => [...prev, optimisticMsg]);
+    setDraft('');
+    stopTyping();
+
+    logMessageEvent('optimistic_added', { clientId, cleared_draft: true });
+
+    // Send in background without blocking UI
     void (async () => {
       try {
         const gate = await canMessageMatch(entitlements, matchId);
         if (!gate.ok) {
+          // Remove optimistic message and restore draft
+          setOptimisticMessages((prev) => prev.filter((m) => m.clientId !== clientId));
+          setDraft(text);
           setMessageLocked(true);
           openUpgrade(router, 'message');
+          logMessageEvent('gate_failed', { clientId });
           return;
         }
-        setDraft('');
-        stopTyping();
-        await sendMatchMessage(matchId, text);
+
+        logMessageEvent('backend_write_start', { clientId, timestamp: Date.now() });
+
+        const serverId = await sendMatchMessage(matchId, text);
+
+        logMessageEvent('backend_ack', { clientId, serverId, timestamp: Date.now() });
+
+        // Update optimistic message with server ID
+        setOptimisticMessages((prev) =>
+          prev.map((m) =>
+            m.clientId === clientId
+              ? { ...m, status: 'sent' as const, serverId }
+              : m
+          )
+        );
+
         if (!isPlusActive(entitlements)) await recordMessagedMatch(matchId);
       } catch (error) {
-        setDraft(text);
-        Alert.alert('Message not sent', friendlyError(error, 'Try again.'));
-      } finally {
-        sendingRef.current = false;
-        setSending(false);
+        logMessageEvent('send_failed', { clientId, error: String(error) });
+
+        // Mark as failed (don't remove - user can retry)
+        setOptimisticMessages((prev) =>
+          prev.map((m) =>
+            m.clientId === clientId
+              ? { ...m, status: 'failed' as const, error: friendlyError(error, 'Try again.') }
+              : m
+          )
+        );
       }
     })();
   };
@@ -287,7 +360,7 @@ export default function ChatScreen() {
     router.push({ pathname: '/profile/[userId]', params: { userId: theirId, fromMatch: '1' } });
   };
 
-  const respond = async (message: MatchMessage, status: 'accepted' | 'declined') => {
+  const respond = async (message: MessageWithStatus, status: 'accepted' | 'declined') => {
     setRespondingId(message.id);
     try {
       await respondToDate(matchId, message.id, status);
@@ -596,7 +669,7 @@ export default function ChatScreen() {
           <Button
             label="Send"
             onPress={() => sendBody(draft)}
-            disabled={!draft.trim() || sending}
+            disabled={!draft.trim()}
             style={styles.send}
           />
         </View>
