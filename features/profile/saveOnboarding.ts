@@ -385,6 +385,20 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
     ...(ageConfirmed ? { age: true } : {}),
   };
 
+  // FIX: Use photoUrls[0] as mainPhotoUrl if mainPhotoUrl is missing
+  const photoUrlsArray = Array.isArray(d.photoUrls)
+    ? (d.photoUrls as unknown[]).filter((u): u is string => typeof u === 'string' && u.length > 0)
+    : [];
+  const fallbackMainPhoto =
+    (d.mainPhotoUrl as string | null) ||
+    (photoUrlsArray[0] as string | null) ||
+    (typeof d.photoURL === 'string' && d.photoURL ? d.photoURL : null) ||
+    null;
+
+  // FIX: If verifiedAt exists, user is verified regardless of verificationStatus field
+  const actualVerificationStatus: Profile['verificationStatus'] =
+    d.verifiedAt ? 'verified' : ((d.verificationStatus as Profile['verificationStatus']) ?? 'unverified');
+
   const profile: Profile = {
     userId: uid,
     displayName: String(d.displayName ?? 'You'),
@@ -408,21 +422,9 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
     kids: (d.kids as string | null) ?? null,
     pets: (d.pets as string | null) ?? null,
     quizLevel: Number((d.quiz as { level?: unknown } | undefined)?.level) || 0,
-    verificationStatus: (d.verificationStatus as Profile['verificationStatus']) ?? 'unverified',
-    mainPhotoUrl:
-      (d.mainPhotoUrl as string | null) ??
-      (typeof d.photoURL === 'string' && d.photoURL ? d.photoURL : null) ??
-      null,
-    photoUrls: (() => {
-      const fromArray = Array.isArray(d.photoUrls)
-        ? (d.photoUrls as unknown[]).filter((u): u is string => typeof u === 'string' && u.length > 0)
-        : [];
-      if (fromArray.length) return fromArray.slice(0, 3);
-      const main =
-        (d.mainPhotoUrl as string | null) ??
-        (typeof d.photoURL === 'string' && d.photoURL ? d.photoURL : null);
-      return main ? [main] : [];
-    })(),
+    verificationStatus: actualVerificationStatus,
+    mainPhotoUrl: fallbackMainPhoto,
+    photoUrls: photoUrlsArray.length > 0 ? photoUrlsArray.slice(0, 3) : (fallbackMainPhoto ? [fallbackMainPhoto] : []),
     aboutPromptId: (d.aboutPromptId as string | null) ?? null,
     aboutPromptText: (d.aboutPromptText as string | null) ?? null,
     aboutVideoUrl: (d.aboutVideoUrl as string | null) ?? null,
