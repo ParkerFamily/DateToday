@@ -20,6 +20,7 @@ import { isPlusActive } from '@/lib/entitlements';
 import { useSessionStore } from '@/store/session';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import type { ProfileCompletionRequirements } from '@/types';
+import { useContentLayout } from '@/lib/layout';
 
 type ChecklistKey = keyof ProfileCompletionRequirements;
 
@@ -39,6 +40,7 @@ export default function ProfileTabScreen() {
   const entitlements = useSessionStore((s) => s.entitlements);
   const { percent, requirements, readyForLive } = useProfileCompletion();
   const plus = isPlusActive(entitlements);
+  const { contentWidth, isWide } = useContentLayout();
 
   const openSteps = useMemo(
     () => CHECKLIST.filter((step) => !requirements[step.key]),
@@ -56,6 +58,7 @@ export default function ProfileTabScreen() {
         contentContainerStyle={[
           styles.content,
           livePad,
+          isWide && { alignSelf: 'center', width: contentWidth },
           { paddingBottom: Math.max(insets.bottom, 8) + 24 },
         ]}
         showsVerticalScrollIndicator={false}

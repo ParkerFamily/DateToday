@@ -82,11 +82,18 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
   setAuth(uid, email);
   setProfileHydration('loading');
   try {
+    console.log('[DateToday] Loading profile for user:', uid);
     const saved = await loadUserProfile(uid);
     if (!saved) {
+      console.log('[DateToday] No profile found for user:', uid);
       setProfileHydration('done');
       return;
     }
+    console.log('[DateToday] Profile loaded successfully:', {
+      displayName: saved.profile.displayName,
+      hasPhoto: !!saved.profile.mainPhotoUrl,
+      verified: saved.profile.verificationStatus,
+    });
     setProfile(saved.profile);
     setPreferences(saved.preferences);
     if (saved.hasLegalConsent) {
@@ -103,7 +110,8 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
     const { hydrateTonightBoostForSession } = await import('@/lib/commerce/sessionCommerce');
     const restored = useSessionStore.getState().liveSession;
     if (restored && !restored.isBoosted) await hydrateTonightBoostForSession(restored);
-  } catch {
+  } catch (error) {
+    console.error('[DateToday] Profile hydration failed:', error);
     // Profile may not exist yet (mid-onboarding).
   } finally {
     setProfileHydration('done');
@@ -179,15 +187,25 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
       void (async () => {
         if (!user) {
+          console.log('[DateToday] Auth state changed: user signed out');
           useSessionStore.getState().setAuth(null, null);
           return;
         }
         const prev = useSessionStore.getState().userId;
-        if (prev === user.uid && useSessionStore.getState().profile) {
+        const hasProfile = useSessionStore.getState().profile;
+        console.log('[DateToday] Auth state changed:', {
+          userId: user.uid,
+          prevUserId: prev,
+          hasProfile: !!hasProfile,
+          isSameUser: prev === user.uid,
+        });
+        if (prev === user.uid && hasProfile) {
           // Same session — don't clobber a loaded profile on token refresh.
+          console.log('[DateToday] Same user with existing profile, skipping re-hydration');
           useSessionStore.getState().setAuth(user.uid, user.email ?? null);
           return;
         }
+        console.log('[DateToday] Re-hydrating user profile');
         await hydrateSignedInUser(user.uid, user.email ?? null);
         if (Platform.OS === 'android') return;
         try {

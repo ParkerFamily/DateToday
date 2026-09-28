@@ -329,8 +329,17 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
 export async function loadUserProfile(uid: string): Promise<SavedOnboarding | null> {
   assertFirebaseConfigured();
   const snap = await getDoc(doc(getDb(), 'users', uid));
-  if (!snap.exists()) return null;
+  if (!snap.exists()) {
+    console.log('[DateToday] No Firestore document found for user:', uid);
+    return null;
+  }
   const d = snap.data();
+  console.log('[DateToday] Loaded user document:', {
+    uid,
+    hasDisplayName: !!d.displayName,
+    hasMainPhotoUrl: !!d.mainPhotoUrl,
+    verificationStatus: d.verificationStatus,
+  });
 
   const storedCompletion = (d.profileCompletion as Record<string, boolean>) ?? {};
   const dateOfBirth = typeof d.dateOfBirth === 'string' ? d.dateOfBirth : null;
