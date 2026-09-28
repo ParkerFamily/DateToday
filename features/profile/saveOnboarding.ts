@@ -9,7 +9,7 @@ import {
 import { firstName, type OnboardingDraft } from '@/store/onboardingDraft';
 import type { DatingPreferences, Profile } from '@/types';
 import { isAtLeast18 } from '@/utils/time';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, serverTimestamp, setDoc } from 'firebase/firestore';
 
 const DEV_SKIP = 'datetoday://dev-skip-video';
 
@@ -328,13 +328,28 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
 }
 export async function loadUserProfile(uid: string): Promise<SavedOnboarding | null> {
   assertFirebaseConfigured();
-  const snap = await getDoc(doc(getDb(), 'users', uid));
+  const docRef = doc(getDb(), 'users', uid);
+  
+  // Try to get from cache first for speed, but if it fails or doesn't exist,
+  // fetch from server to ensure we have the latest data (important for iPad/multi-device scenarios)
+  let snap = await getDoc(docRef);
+  if (!snap.exists()) {
+    console.log('[DateToday] No cached document found, fetching from server for user:', uid);
+    try {
+      snap = await getDocFromServer(docRef);
+    } catch (error) {
+      console.error('[DateToday] Failed to fetch from server:', error);
+    }
+  }
+  
   if (!snap.exists()) {
     console.log('[DateToday] No Firestore document found for user:', uid);
     return null;
   }
+  
   const d = snap.data();
-  console.log('[DateToday] Loaded user document:', {
+  const source = snap.metadata.fromCache ? 'cache' : 'server';
+  console.log('[DateToday] Loaded user document from', source, ':', {
     uid,
     hasDisplayName: !!d.displayName,
     hasMainPhotoUrl: !!d.mainPhotoUrl,
