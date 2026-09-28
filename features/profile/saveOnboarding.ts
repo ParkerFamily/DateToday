@@ -330,15 +330,22 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
   assertFirebaseConfigured();
   const docRef = doc(getDb(), 'users', uid);
   
-  // Try to get from cache first for speed, but if it fails or doesn't exist,
-  // fetch from server to ensure we have the latest data (important for iPad/multi-device scenarios)
-  let snap = await getDoc(docRef);
-  if (!snap.exists()) {
-    console.log('[DateToday] No cached document found, fetching from server for user:', uid);
+  // Always try server first for iPad/multi-device reliability, then fall back to cache
+  let snap;
+  let source = 'unknown';
+  
+  try {
+    console.log('[DateToday] Fetching profile from server for user:', uid);
+    snap = await getDocFromServer(docRef);
+    source = 'server';
+  } catch (serverError) {
+    console.warn('[DateToday] Server fetch failed, trying cache:', serverError);
     try {
-      snap = await getDocFromServer(docRef);
-    } catch (error) {
-      console.error('[DateToday] Failed to fetch from server:', error);
+      snap = await getDoc(docRef);
+      source = snap.metadata.fromCache ? 'cache' : 'server';
+    } catch (cacheError) {
+      console.error('[DateToday] Both server and cache failed:', cacheError);
+      throw cacheError;
     }
   }
   
@@ -348,12 +355,12 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
   }
   
   const d = snap.data();
-  const source = snap.metadata.fromCache ? 'cache' : 'server';
   console.log('[DateToday] Loaded user document from', source, ':', {
     uid,
     hasDisplayName: !!d.displayName,
     hasMainPhotoUrl: !!d.mainPhotoUrl,
     verificationStatus: d.verificationStatus,
+    photoURL: d.photoURL ? 'present' : 'missing',
   });
 
   const storedCompletion = (d.profileCompletion as Record<string, boolean>) ?? {};

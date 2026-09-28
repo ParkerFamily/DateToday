@@ -67,10 +67,10 @@ export default function ProfileTabScreen() {
     <Screen padded={false} edges={['top', 'left', 'right']}>
       <LiveAtmosphere />
       <ScrollView
+        style={isWide && { width: contentWidth, alignSelf: 'center' }}
         contentContainerStyle={[
           styles.content,
           livePad,
-          isWide && { alignSelf: 'center', width: contentWidth },
           { paddingBottom: Math.max(insets.bottom, 8) + 24 },
         ]}
         showsVerticalScrollIndicator={false}
