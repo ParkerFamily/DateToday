@@ -109,6 +109,7 @@ export default function ChatScreen() {
   const userId = useSessionStore((s) => s.userId) ?? '';
   const entitlements = useSessionStore((s) => s.entitlements);
   const listRef = useRef<FlatList<ListItem>>(null);
+  const sendingRef = useRef(false);
 
   const [match, setMatch] = useState<MatchDoc | null>(null);
   const [matchState, setMatchState] = useState<'loading' | 'ready' | 'missing'>('loading');
@@ -176,6 +177,7 @@ export default function ChatScreen() {
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
+      sendingRef.current = false;
       setSending(false);
       setActiveChat(matchId);
       if (matchId) {
@@ -243,7 +245,8 @@ export default function ChatScreen() {
 
   const sendBody = (body: string) => {
     const text = body.trim();
-    if (!text || sending) return;
+    if (!text || sending || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
     void (async () => {
       try {
@@ -261,6 +264,7 @@ export default function ChatScreen() {
         setDraft(text);
         Alert.alert('Message not sent', friendlyError(error, 'Try again.'));
       } finally {
+        sendingRef.current = false;
         setSending(false);
       }
     })();
@@ -452,7 +456,7 @@ export default function ChatScreen() {
                   <AppText style={styles.nudgeTitle}>{flowCopy.feelingVibe}</AppText>
                   <AppText style={styles.nudgeBody}>{flowCopy.feelingVibeBody}</AppText>
                   <Button label={flowCopy.makeAPlan} onPress={openPlan} style={styles.nudgeCta} />
-                  <Pressable onPress={() => setNudgeDismissed(true)}>
+                  <Pressable hitSlop={16} onPress={() => setNudgeDismissed(true)}>
                     <AppText style={styles.writeOwn}>Not yet</AppText>
                   </Pressable>
                 </View>
