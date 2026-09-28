@@ -13,8 +13,11 @@ const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
+const { nearbyLive } = require('./nearbyLive');
 
 initializeApp();
+
+exports.nearbyLive = onRequest({ cors: true, invoker: 'public' }, nearbyLive);
 
 function personaKey() {
   return process.env.PERSONA_API_KEY || '';
