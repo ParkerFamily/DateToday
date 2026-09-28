@@ -146,9 +146,11 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
-    // Approximate live beacons for Ping discovery (rounded lat/lng only).
+    // Coordinates stay private. Only the backend may list beacons and it
+    // returns eligible nearby candidates without coordinates.
     match /liveSessions/{userId} {
-      allow read: if signedIn();
+      allow get: if isOwner(userId);
+      allow list: if false;
       allow create, update: if isOwner(userId);
       allow delete: if isOwner(userId);
     }
