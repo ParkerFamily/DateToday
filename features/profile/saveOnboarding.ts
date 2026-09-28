@@ -355,13 +355,16 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
   }
   
   const d = snap.data();
-  console.log('[DateToday] Loaded user document from', source, ':', {
-    uid,
-    hasDisplayName: !!d.displayName,
-    hasMainPhotoUrl: !!d.mainPhotoUrl,
-    verificationStatus: d.verificationStatus,
-    photoURL: d.photoURL ? 'present' : 'missing',
-  });
+  console.log('[DateToday] ===== FULL FIREBASE DATA =====');
+  console.log('[DateToday] Loaded from:', source);
+  console.log('[DateToday] UID:', uid);
+  console.log('[DateToday] displayName:', d.displayName);
+  console.log('[DateToday] mainPhotoUrl:', d.mainPhotoUrl);
+  console.log('[DateToday] photoURL:', d.photoURL);
+  console.log('[DateToday] verificationStatus:', d.verificationStatus);
+  console.log('[DateToday] onboardingComplete:', d.onboardingComplete);
+  console.log('[DateToday] ALL FIELDS:', Object.keys(d).join(', '));
+  console.log('[DateToday] =============================');
 
   const storedCompletion = (d.profileCompletion as Record<string, boolean>) ?? {};
   const dateOfBirth = typeof d.dateOfBirth === 'string' ? d.dateOfBirth : null;
