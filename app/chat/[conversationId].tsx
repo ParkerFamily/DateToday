@@ -364,11 +364,11 @@ export default function ChatScreen() {
     : 'You matched · plan something';
 
   return (
-    <Screen padded={false} edges={['left', 'right']}>
+    <Screen padded={false} edges={['left', 'right', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={8}
+        keyboardVerticalOffset={0}
       >
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <Pressable
@@ -577,7 +577,7 @@ export default function ChatScreen() {
             <Ionicons name="chevron-forward" size={18} color={colors.brandBright} />
           </Pressable>
         ) : (
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <View style={styles.composer}>
           <TextInput
             value={draft}
             onChangeText={(text) => {
@@ -776,6 +776,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     width: '100%',
