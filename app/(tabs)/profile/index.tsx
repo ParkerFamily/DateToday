@@ -19,6 +19,7 @@ import { colors, spacing } from '@/constants/theme';
 import { isPlusActive } from '@/lib/entitlements';
 import { useSessionStore } from '@/store/session';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
+import { useContentLayout } from '@/lib/layout';
 import type { ProfileCompletionRequirements } from '@/types';
 
 type ChecklistKey = keyof ProfileCompletionRequirements;
@@ -35,6 +36,7 @@ const CHECKLIST: { key: ChecklistKey; label: string; href: string }[] = [
 export default function ProfileTabScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { contentWidth, isWide } = useContentLayout();
   const profile = useSessionStore((s) => s.profile);
   const entitlements = useSessionStore((s) => s.entitlements);
   const { percent, requirements, readyForLive } = useProfileCompletion();
@@ -57,6 +59,7 @@ export default function ProfileTabScreen() {
           styles.content,
           livePad,
           { paddingBottom: Math.max(insets.bottom, 8) + 24 },
+          isWide && { width: contentWidth, alignSelf: 'center' },
         ]}
         showsVerticalScrollIndicator={false}
       >
