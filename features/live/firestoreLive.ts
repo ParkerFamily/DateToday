@@ -6,7 +6,6 @@ import {
   type Timestamp,
 } from 'firebase/firestore';
 import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
-import { calculateAge } from '@/utils/time';
 import type {
   DiscoveryCard,
   FoodCuisine,
@@ -18,11 +17,6 @@ import type {
 } from '@/types';
 import { analytics } from '@/lib/analytics';
 import { functionsUrl } from '@/features/matches/api';
-
-/** ~0.7 mi precision — enough for distance, not a street pin. */
-function approxCoord(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 export type PublishLiveInput = {
   latitude: number;
@@ -73,90 +67,41 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('Sign in to Go Live.');
 
-  const userSnap = await getDoc(doc(getDb(), 'users', uid));
-  const u = (userSnap.data() ?? {}) as Record<string, unknown>;
-  const nowIso = new Date().toISOString();
-  const lat = approxCoord(input.latitude);
-  const lng = approxCoord(input.longitude);
-
-  let age = 21;
-  try {
-    if (typeof u.dateOfBirth === 'string' && u.dateOfBirth) {
-      age = calculateAge(u.dateOfBirth);
-    }
-  } catch {
-    /* keep default */
-  }
-
-  const laterHour =
-    input.laterTonightHour != null && input.laterTonightHour >= 18
-      ? input.laterTonightHour
-      : null;
-
-  const payload = {
-    userId: uid,
-    status: 'active',
-    startedAt: nowIso,
-    expiresAt: input.expiresAt,
-    endedAt: null,
-    radiusMiles: input.radiusMiles,
-    latitude: lat,
-    longitude: lng,
-    availableFrom: input.availableFrom ?? null,
-    availableUntil: input.availableUntil ?? input.expiresAt,
-    availabilityLabel: input.availabilityLabel ?? null,
-    activities: input.activities,
-    foodCuisines: input.foodCuisines ?? [],
-    laterTonightHour: laterHour,
-    availabilityMode: laterHour != null ? 'later' : 'live',
-    isBoosted: Boolean(input.isBoosted),
-    boostedAt: input.isBoosted ? nowIso : null,
-    displayName: String(u.displayName ?? 'Member'),
-    age,
-    neighborhoodLabel: (u.neighborhoodLabel as string | null) ?? null,
-    mainPhotoUrl: (u.mainPhotoUrl as string | null) ?? null,
-    verificationStatus: (u.verificationStatus as string) ?? 'unverified',
-    datingIntention: (u.datingIntention as string | null) ?? null,
-    bio: (u.bio as string | null) ?? null,
-    // Advanced Filters (height / lifestyle).
-    heightCm: typeof u.heightCm === 'number' ? u.heightCm : null,
-    drinking: (u.drinking as string | null) ?? null,
-    smoking: (u.smoking as string | null) ?? null,
-    interests: Array.isArray(u.interests) ? (u.interests as string[]).slice(0, 10) : [],
-    kids: (u.kids as string | null) ?? null,
-    exercise: (u.exercise as string | null) ?? null,
-    // Needed so both people's "show me" preferences can be honored in the feed.
-    gender: (u.gender as string | null) ?? null,
-    interestedIn: (u.interestedIn as string | null) ?? 'everyone',
-    aboutVideoUrl: (u.aboutVideoUrl as string | null) ?? null,
-    tonightVideoUrl: (u.tonightVideoUrl as string | null) ?? null,
-    aboutPromptId: (u.aboutPromptId as string | null) ?? null,
-    aboutPromptText: (u.aboutPromptText as string | null) ?? null,
-    tonightPromptId: (u.tonightPromptId as string | null) ?? null,
-    tonightPromptText: (u.tonightPromptText as string | null) ?? null,
-    updatedAt: serverTimestamp(),
+  const token = await auth.currentUser!.getIdToken();
+  const response = await fetch(functionsUrl('activateLive'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+    cache: 'no-store',
+  });
+  const body = (await response.json()) as {
+    session?: { startedAt: string; expiresAt: string };
+    error?: string;
   };
-
-  await setDoc(doc(getDb(), 'liveSessions', uid), payload, { merge: true });
+  if (!response.ok || !body.session) throw new Error(body.error || 'Could not go Live.');
+  const nowIso = body.session.startedAt;
+  const expiresAt = body.session.expiresAt;
+  const laterHour = input.laterTonightHour != null && input.laterTonightHour >= 18
+    ? input.laterTonightHour : null;
   analytics.track('go_live_completed');
 
   return {
     id: uid,
     userId: uid,
     startedAt: nowIso,
-    expiresAt: input.expiresAt,
+    expiresAt,
     endedAt: null,
     status: 'active',
     radiusMiles: input.radiusMiles,
     availableFrom: input.availableFrom ?? null,
-    availableUntil: input.availableUntil ?? input.expiresAt,
+    availableUntil: input.availableUntil ?? expiresAt,
     availabilityLabel: input.availabilityLabel ?? null,
     activities: input.activities,
     foodCuisines: input.foodCuisines,
     laterTonightHour: laterHour,
     availabilityMode: laterHour != null ? 'later' : 'live',
-    isBoosted: Boolean(input.isBoosted),
-    boostedAt: input.isBoosted ? nowIso : null,
+    isBoosted: false,
+    boostedAt: null,
   };
 }
 
@@ -195,19 +140,15 @@ export async function updateMyLiveSession(patch: LiveSessionPatch): Promise<void
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return;
   const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  if (Object.keys(clean).some(key => !['activities', 'foodCuisines', 'availabilityLabel'].includes(key))) {
+    throw new Error('Location, radius, expiry and boosts cannot be changed during this Live session.');
+  }
   await setDoc(doc(getDb(), 'liveSessions', uid), { ...clean, updatedAt: serverTimestamp() }, { merge: true });
 }
 
-/**
- * The beacon copies public profile fields when you go live; mirror later profile edits
- * (new videos, interests) so people already browsing see them. No-op when not live.
- */
+/** The protected feed always reads current profile fields from users/{uid}. */
 export async function refreshLiveProfileFields(fields: Record<string, unknown>): Promise<void> {
-  const uid = getFirebaseAuth().currentUser?.uid;
-  if (!uid) return;
-  const snap = await getDoc(doc(getDb(), 'liveSessions', uid));
-  if (!snap.exists() || snap.data()?.status !== 'active') return;
-  await setDoc(doc(getDb(), 'liveSessions', uid), { ...fields, updatedAt: serverTimestamp() }, { merge: true });
+  void fields;
 }
 
 /** The signed-in user's session if it's still active — restores "live" after the OS killed the app. */
