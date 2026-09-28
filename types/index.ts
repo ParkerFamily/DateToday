@@ -201,6 +201,7 @@ export interface DiscoveryCard {
   age: number;
   neighborhoodLabel: string | null;
   distanceMiles: number;
+  hideDistance?: boolean;
   verificationStatus: VerificationStatus;
   datingIntention: DatingIntention | null;
   bio: string | null;
