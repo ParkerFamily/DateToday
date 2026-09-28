@@ -202,11 +202,13 @@ service cloud.firestore {
               && request.resource.data.text is string
               && request.resource.data.text.size() > 0
               && request.resource.data.text.size() <= 2000
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'text', 'createdAt'])
             )
             || (
               request.resource.data.type == 'date_proposal'
               && request.resource.data.status == 'proposed'
               && request.resource.data.proposal is map
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'proposal', 'status', 'createdAt'])
             )
           );
 
