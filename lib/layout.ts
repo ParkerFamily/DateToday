@@ -2,21 +2,25 @@ import { Platform, useWindowDimensions } from 'react-native';
 
 /**
  * Phone-first column — keeps Live / Ping / paywall readable on iPad.
- * Use wider layout on tablets for better space utilization.
+ * iPad uses FULL WIDTH minus margins for better screen utilization.
  */
 export const CONTENT_MAX_WIDTH = 430;
-export const TABLET_MAX_WIDTH = 600;
+export const TABLET_MAX_WIDTH = 10000; // Effectively no limit - use full width on iPad
 
 function getContentMaxWidth(screenWidth: number): number {
-  // iPad detection: aspect ratio < 1.6 and min width >= 600
+  // iPad detection: use full screen width on tablets
   const isTablet = Platform.isPad || screenWidth >= 600;
-  return isTablet ? TABLET_MAX_WIDTH : CONTENT_MAX_WIDTH;
+  if (isTablet) {
+    // Use full width on iPad minus small margins
+    return screenWidth - 32; // 16px margin on each side
+  }
+  return CONTENT_MAX_WIDTH;
 }
 
 export function useContentLayout() {
   const { width, height } = useWindowDimensions();
   const maxWidth = getContentMaxWidth(width);
-  const isWide = width > maxWidth + 16;
+  const isWide = width > 600; // Consider wide if bigger than phone
   const contentWidth = Math.min(width, maxWidth);
   /**
    * iPads are tall; hero math that keys off raw height blows up.

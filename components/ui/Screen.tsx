@@ -2,7 +2,7 @@ import React from 'react';
 import { Platform, StyleSheet, View, type ViewProps } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing } from '@/constants/theme';
-import { CONTENT_MAX_WIDTH, TABLET_MAX_WIDTH } from '@/lib/layout';
+import { CONTENT_MAX_WIDTH } from '@/lib/layout';
 
 interface ScreenProps extends ViewProps {
   padded?: boolean;
@@ -19,12 +19,15 @@ export function Screen({
   fluid = false,
   ...rest
 }: ScreenProps) {
+  // On iPad, use full width. On phone, constrain to max width.
+  const useFullWidth = Platform.isPad || fluid;
+  
   return (
     <SafeAreaView edges={edges} style={styles.safe}>
       <View
         style={[
           styles.inner,
-          !fluid && (Platform.isPad ? styles.columnTablet : styles.column),
+          !useFullWidth && styles.column,
           padded && styles.padded,
           style,
         ]}
@@ -48,10 +51,6 @@ const styles = StyleSheet.create({
   },
   column: {
     maxWidth: CONTENT_MAX_WIDTH,
-    alignSelf: 'center',
-  },
-  columnTablet: {
-    maxWidth: TABLET_MAX_WIDTH,
     alignSelf: 'center',
   },
   padded: {
