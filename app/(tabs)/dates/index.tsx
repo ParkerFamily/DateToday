@@ -124,10 +124,10 @@ export default function MatchesScreen() {
     }
     navigatingRef.current = true;
     router.push(`/chat/${matchId}`);
-    // Reset after a delay to allow navigation to complete
+    // Reset after navigation starts (300ms is enough to prevent double-tap)
     setTimeout(() => {
       navigatingRef.current = false;
-    }, 1000);
+    }, 300);
   }, [router]);
 
   const rows = useMemo<Row[]>(() => {
