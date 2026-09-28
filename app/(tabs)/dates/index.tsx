@@ -116,18 +116,8 @@ export default function MatchesScreen() {
   const matches = useVisibleMatches();
   const likesCount = usePendingLikes()?.length ?? 0;
 
-  // Prevent rapid navigation taps that cause multiple screen opens
-  const navigatingRef = useRef(false);
   const openChat = useCallback((matchId: string) => {
-    if (navigatingRef.current) {
-      return;
-    }
-    navigatingRef.current = true;
     router.push(`/chat/${matchId}`);
-    // Reset after navigation starts (300ms is enough to prevent double-tap)
-    setTimeout(() => {
-      navigatingRef.current = false;
-    }, 300);
   }, [router]);
 
   const rows = useMemo<Row[]>(() => {
