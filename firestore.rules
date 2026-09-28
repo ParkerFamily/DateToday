@@ -151,8 +151,41 @@ service cloud.firestore {
     match /liveSessions/{userId} {
       allow get: if isOwner(userId);
       allow list: if false;
-      allow create, update: if isOwner(userId);
-      allow delete: if isOwner(userId);
+      allow create, delete: if false;
+      allow update: if isOwner(userId)
+        && resource.data.status == 'active'
+        && (
+          (
+            request.resource.data.status == resource.data.status
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'activities',
+              'foodCuisines',
+              'availabilityMode',
+              'availabilityLabel',
+              'updatedAt',
+            ])
+            && request.resource.data.activities is list
+            && request.resource.data.activities.size() <= 8
+            && request.resource.data.foodCuisines is list
+            && request.resource.data.foodCuisines.size() <= 8
+            && request.resource.data.availabilityMode in ['live', 'later']
+          )
+          || (
+            request.resource.data.status == 'ended'
+            && request.resource.data.endedAt != null
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status',
+              'endedAt',
+              'updatedAt',
+            ])
+          )
+        );
+    }
+
+    // Activation coordinates and cooldown timestamps are only readable/writable
+    // by the Admin SDK. Clients cannot forge or sweep these records.
+    match /liveActivations/{userId} {
+      allow read, write: if false;
     }
 
     // Hearts. Written only by the sendInterest Cloud Function (mutual check + push).
