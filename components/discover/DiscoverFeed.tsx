@@ -33,7 +33,6 @@ import { canUseAdvancedFilters, canUsePriorityPool } from '@/lib/entitlements';
 import { env, isBackendConfigured } from '@/lib/env';
 import { useContentLayout } from '@/lib/layout';
 import { fetchDiscoveryFeed, sendPing } from '@/services/api';
-import { subscribeActiveLiveSessions } from '@/features/live/firestoreLive';
 import { sendInterest, subscribeSentInterests } from '@/features/matches/api';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { useHiddenUserMap } from '@/store/blocks';
@@ -44,7 +43,7 @@ import type { DiscoveryCard, FoodCuisine, TonightActivity } from '@/types';
 import { formatDistanceMiles, formatLiveUntil, isLiveSessionActive } from '@/utils/time';
 import { tonightCompatibility } from '@/utils/tonightCompatibility';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -107,7 +106,6 @@ export const DiscoverFeed = memo(DiscoverFeedInner);
 
 function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const topPad = liveHeader ? 0 : insets.top;
   const { layoutHeight } = useContentLayout();
@@ -158,22 +156,6 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     return subscribeSentInterests(uid, setSentTo);
   }, [live, uid]);
 
-  // Someone going live nearby shows up without waiting for the 45s poll.
-  useEffect(() => {
-    if (!live || !isBackendConfigured()) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const unsub = subscribeActiveLiveSessions(() => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        void queryClient.invalidateQueries({ queryKey: ['discovery-feed'] });
-      }, 1500);
-    });
-    return () => {
-      if (timer) clearTimeout(timer);
-      unsub();
-    };
-  }, [live, queryClient]);
-
   const matchedIds = useMemo(() => {
     const ids = new Set<string>();
     for (const m of matches) for (const u of m.userIds) if (u !== uid) ids.add(u);
@@ -192,11 +174,12 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   /** Real Firestore/Supabase feed only — never invent people when empty. */
   const rawFeed = useMemo((): DiscoveryCard[] => {
     if (!live) return [];
+    if (feedQuery.isError) return [];
     if (feedQuery.data && feedQuery.data.length > 0) return feedQuery.data;
     // Opt-in sandbox only (`EXPO_PUBLIC_USE_MOCK_DATA=true`). Default: empty → low-density UX.
     if (env.useMockData) return DEMO_CARDS;
     return [];
-  }, [live, feedQuery.data]);
+  }, [live, feedQuery.data, feedQuery.isError]);
 
   const nearbyBeforeFilters = useMemo(() => {
     return rawFeed
@@ -581,7 +564,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                         {p.laterTonightHour != null
                           ? `Free after ${formatLaterHour(p.laterTonightHour)}`
                           : 'Later tonight'}{' '}
-                        · {formatDistanceMiles(p.distanceMiles)}
+                        · {p.hideDistance ? 'Nearby' : formatDistanceMiles(p.distanceMiles)}
                       </AppText>
                     </View>
                   </Pressable>
@@ -676,7 +659,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 <VerificationTag status={card.verificationStatus} compact />
               </View>
               <AppText style={styles.place}>
-                {formatDistanceMiles(card.distanceMiles)} · Free until{' '}
+                {card.hideDistance ? 'Nearby' : formatDistanceMiles(card.distanceMiles)} · Free until{' '}
                 {new Date(card.liveUntil).toLocaleTimeString([], {
                   hour: 'numeric',
                   minute: '2-digit',
