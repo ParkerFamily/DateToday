@@ -14,6 +14,7 @@ import Animated, {
 import { colors } from '@/constants/theme';
 import { useLiveActivitySync } from '@/features/live/liveActivity';
 import { useLiveSessionResync } from '@/features/live/restoreLiveSession';
+import { useNearbyPresence } from '@/features/live/nearbyPresence';
 import { useTonightNudgeOptIn } from '@/features/notifications/nudgeOptIn';
 import { useMatchesSubscription, useUnreadMatchCount } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
@@ -89,6 +90,7 @@ export default function TabsLayout() {
   useLiveSessionResync();
   useLiveActivitySync();
   useTonightNudgeOptIn();
+  useNearbyPresence();
   const insets = useSafeAreaInsets();
   const liveSession = useSessionStore((s) => s.liveSession);
   const live = liveSession ? isLiveSessionActive(liveSession, new Date()) : false;

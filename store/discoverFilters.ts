@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import type { DatingIntention, TonightActivity } from '@/types';
 import type { FoodCuisine } from '@/constants/tonightVibe';
 import { FREE_DEFAULT_RADIUS } from '@/constants/tonightVibe';
+import type { HowSoon, OutLate, SpontaneousOption } from '@/constants/afterHours';
 
 const STORAGE_KEY = 'datetoday.discoverFilters.v2';
 
@@ -47,6 +48,16 @@ export interface DiscoverFilterValues {
   videoOnly: boolean;
   /** Plus: require every filter (and hide people missing that info). */
   matchAllFilters: boolean;
+  /** Free: right now / within the hour / later tonight. */
+  howSoon: HowSoon | null;
+  /** Plus, 9 PM–5 AM only: free until at least this late. */
+  outLate: OutLate | null;
+  /** Plus, 9 PM–5 AM only: live right now (not "free later"). */
+  afterHoursNow: boolean;
+  /** Plus, 9 PM–5 AM only: picked any late-night option when going live. */
+  lateNightOpen: boolean;
+  /** Plus: just went live / close by / free for a while. */
+  spontaneous: SpontaneousOption[];
 }
 
 export interface DiscoverFilterState extends DiscoverFilterValues {
@@ -59,7 +70,14 @@ export interface DiscoverFilterState extends DiscoverFilterValues {
   setVerifiedOnly: (value: boolean) => void;
   setMatchAllFilters: (value: boolean) => void;
   toggleIn: (
-    key: 'intents' | 'drinking' | 'smoking' | 'interestFilter' | 'kids' | 'exercise',
+    key:
+      | 'intents'
+      | 'drinking'
+      | 'smoking'
+      | 'interestFilter'
+      | 'kids'
+      | 'exercise'
+      | 'spontaneous',
     value: string,
   ) => void;
   reset: () => void;
@@ -84,6 +102,11 @@ export const DEFAULT_FILTERS: DiscoverFilterValues = {
   smoking: [],
   videoOnly: false,
   matchAllFilters: false,
+  howSoon: null,
+  outLate: null,
+  afterHoursNow: false,
+  lateNightOpen: false,
+  spontaneous: [],
 };
 
 const VALUE_KEYS = Object.keys(DEFAULT_FILTERS) as (keyof DiscoverFilterValues)[];
@@ -95,7 +118,7 @@ function pickValues(state: DiscoverFilterValues): DiscoverFilterValues {
 function isValidSaved(fallback: unknown, value: unknown): boolean {
   if (value === undefined) return false;
   if (Array.isArray(fallback)) return Array.isArray(value);
-  if (fallback === null) return value === null || typeof value === 'number';
+  if (fallback === null) return value === null || typeof value === 'number' || typeof value === 'string';
   return typeof value === typeof fallback;
 }
 

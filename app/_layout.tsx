@@ -1,5 +1,5 @@
 import { colors } from '@/constants/theme';
-import { subscribeAuth, waitForAuthUser } from '@/features/auth/api';
+import { clearSignedOutMark, restoreAuthUser, subscribeAuth } from '@/features/auth/api';
 import {
     configureNotificationHandler,
     listenForPushTokenChanges,
@@ -134,7 +134,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         }
 
         // Wait for AsyncStorage auth restore — do NOT trust currentUser alone.
-        const user = await waitForAuthUser();
+        const user = await restoreAuthUser();
         if (!mounted) return;
 
         if (user) {
@@ -182,6 +182,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           useSessionStore.getState().setAuth(null, null);
           return;
         }
+        void clearSignedOutMark();
         const prev = useSessionStore.getState().userId;
         if (prev === user.uid && useSessionStore.getState().profile) {
           // Same session — don't clobber a loaded profile on token refresh.

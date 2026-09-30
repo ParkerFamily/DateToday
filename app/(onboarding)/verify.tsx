@@ -19,7 +19,11 @@ import { VerificationTag } from '@/components/ui/VerificationTag';
 import { env, personaClientConfigured } from '@/lib/env';
 import { LEGAL_URLS } from '@/constants/legal';
 import { startPersonaVerification } from '@/features/verification/persona';
-import { finalizePersonaVerification } from '@/features/verification/persistVerification';
+import {
+  checkPersonaAfterClose,
+  finalizePersonaVerification,
+} from '@/features/verification/persistVerification';
+import type { VerificationStatus } from '@/types';
 import { firstName, useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import { colors, spacing } from '@/constants/theme';
@@ -101,15 +105,18 @@ export default function VerifyScreen() {
         birthdate: profile?.dateOfBirth || draft.dateOfBirth || undefined,
       });
 
+      let finalStatus: VerificationStatus | null;
       if ('canceled' in result) {
-        return;
+        // Android often closes the browser tab instead of following the redirect.
+        finalStatus = result.inquiryId ? await checkPersonaAfterClose(result.inquiryId) : null;
+        if (!finalStatus || finalStatus === 'unverified' || finalStatus === 'pending') return;
+      } else {
+        finalStatus = await finalizePersonaVerification({
+          status: result.status,
+          inquiryId: result.inquiryId || '',
+          rawStatus: result.rawStatus,
+        });
       }
-
-      const finalStatus = await finalizePersonaVerification({
-        status: result.status,
-        inquiryId: result.inquiryId || '',
-        rawStatus: result.rawStatus,
-      });
 
       if (finalStatus === 'verified') {
         Alert.alert('You’re verified', 'Your DateToday account now shows VERIFIED.', [

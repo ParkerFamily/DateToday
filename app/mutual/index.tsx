@@ -23,6 +23,7 @@ import { colors, spacing } from '@/constants/theme';
 import { sharedFoodHeadline } from '@/utils/tonightCompatibility';
 import type { FoodCuisine, TonightActivity } from '@/types';
 import { useSessionStore } from '@/store/session';
+import { canStartPlan } from '@/features/live/planGate';
 
 function CollideRing({
   side,
@@ -202,6 +203,7 @@ export default function MutualMatchScreen() {
             label={flowCopy.makeAPlan}
             variant="secondary"
             onPress={() => {
+              if (!canStartPlan(router)) return;
               router.replace({
                 pathname: '/chat/[conversationId]',
                 params: { conversationId },

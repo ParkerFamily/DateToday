@@ -88,7 +88,7 @@ async function createInquiryOnServer(input: {
 
 /**
  * Create the inquiry on our Cloud Function (API key stays server-side), then open hosted flow.
- * Dev-only fallback: client sandbox key. Template-only URLs need an environment id to load.
+ * Fallback: template-only hosted URL, which needs an environment id to load.
  */
 export async function createPersonaInquiry(input: {
   referenceId: string;
@@ -104,61 +104,6 @@ export async function createPersonaInquiry(input: {
     if (verifyUrl) return { ...created, verifyUrl };
   } catch (error) {
     serverError = error instanceof Error ? error : new Error(String(error));
-  }
-
-  const sandboxKey = env.personaSandboxApiKey;
-  if (sandboxKey?.startsWith('persona_sandbox_') && env.personaTemplateId) {
-    try {
-      const fields: Record<string, string> = {};
-      if (input.nameFirst?.trim()) fields['name-first'] = input.nameFirst.trim();
-      if (input.birthdate?.trim()) fields.birthdate = input.birthdate.trim();
-
-      const res = await fetch('https://api.withpersona.com/api/v1/inquiries', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${sandboxKey}`,
-          'Persona-Version': '2023-01-05',
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          data: {
-            attributes: {
-              'inquiry-template-id': env.personaTemplateId,
-              'reference-id': input.referenceId,
-              ...(Object.keys(fields).length ? { fields } : {}),
-            },
-          },
-        }),
-      });
-
-      const json = (await res.json()) as {
-        data?: {
-          id?: string;
-          attributes?: { 'session-token'?: string | null };
-        };
-        meta?: { 'session-token'?: string | null };
-        errors?: { title?: string; details?: string }[];
-      };
-
-      if (res.ok && json.data?.id) {
-        const inquiryId = json.data.id;
-        const sessionToken =
-          json.meta?.['session-token'] ||
-          json.data.attributes?.['session-token'] ||
-          undefined;
-        const verifyUrl = buildPersonaVerifyUrl({
-          inquiryId,
-          sessionToken: sessionToken || undefined,
-          redirectUri,
-        });
-        if (verifyUrl) {
-          return { inquiryId, sessionToken: sessionToken || undefined, verifyUrl };
-        }
-      }
-    } catch {
-      // Fall through to template hosted URL.
-    }
   }
 
   if (!env.personaEnvironmentId) {
@@ -181,7 +126,7 @@ export async function startPersonaVerification(input: {
   referenceId: string;
   nameFirst?: string;
   birthdate?: string;
-}): Promise<PersonaInquiryResult | { canceled: true }> {
+}): Promise<PersonaInquiryResult | { canceled: true; inquiryId: string }> {
   if (!personaClientConfigured()) {
     throw new Error(
       'Persona template missing. Add EXPO_PUBLIC_PERSONA_TEMPLATE_ID (itmpl_…) to .env.',
@@ -191,7 +136,7 @@ export async function startPersonaVerification(input: {
   const created = await createPersonaInquiry(input);
   if (!created) {
     throw new Error(
-      'Could not start Persona. Check EXPO_PUBLIC_PERSONA_TEMPLATE_ID and sandbox API key.',
+      'Could not start Persona. Check EXPO_PUBLIC_PERSONA_TEMPLATE_ID.',
     );
   }
 
@@ -199,7 +144,7 @@ export async function startPersonaVerification(input: {
   const result = await WebBrowser.openAuthSessionAsync(created.verifyUrl, redirect);
 
   if (result.type !== 'success' || !result.url) {
-    return { canceled: true };
+    return { canceled: true, inquiryId: created.inquiryId };
   }
 
   const parsed = Linking.parse(result.url);

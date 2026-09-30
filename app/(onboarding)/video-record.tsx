@@ -103,6 +103,8 @@ export default function VideoRecordScreen() {
       title={title}
       subtitle={subtitle}
       footer={<SkipVideosButton />}
+      compact
+      still
     >
       <View style={styles.wrap}>
         {slot === 'tonight' && aboutVideoUri ? (

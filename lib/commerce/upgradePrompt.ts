@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 
 type Router = ReturnType<typeof useRouter>;
 
-export type UpgradeReason = 'match' | 'message' | 'filters';
+export type UpgradeReason = 'match' | 'message' | 'filters' | 'likes';
 
 export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; body: string }> = {
   match: {
@@ -17,6 +17,10 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
   filters: {
     title: 'Find exactly your type ✦',
     body: 'Age, intent, height, lifestyle and more — Advanced Filters come with DateToday+.',
+  },
+  likes: {
+    title: 'See everyone who likes you ✦',
+    body: 'Free shows 1 like at a time. See every like and match instantly with DateToday+.',
   },
   default: {
     title: 'More matches. More conversation. ✦',

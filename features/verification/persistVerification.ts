@@ -38,9 +38,10 @@ function applyStatusToSession(status: VerificationStatus, inquiryId?: string | n
   }
 }
 
+/** In-progress states only — rules reject a client writing 'verified'; the server confirms that. */
 async function writeVerificationDocs(
   uid: string,
-  status: VerificationStatus,
+  status: Exclude<VerificationStatus, 'verified'>,
   inquiryId: string | null,
 ) {
   const userPayload = {
@@ -48,7 +49,6 @@ async function writeVerificationDocs(
     personaInquiryId: inquiryId,
     verificationCheckedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-    ...(status === 'verified' ? { verifiedAt: serverTimestamp() } : {}),
   };
   // Private account doc — full verification metadata.
   await setDoc(doc(getDb(), 'users', uid), userPayload, { merge: true });
@@ -63,12 +63,9 @@ async function writeVerificationDocs(
   );
 }
 
-/**
- * Persist inquiry + status. Prefer confirmPersonaOnServer / finalizePersonaVerification
- * after hosted Persona so VERIFIED is written only when Persona confirms.
- */
+/** Persist inquiry + an in-progress status before asking the server to confirm with Persona. */
 export async function persistVerificationProgress(input: {
-  status: VerificationStatus;
+  status: Exclude<VerificationStatus, 'verified'>;
   inquiryId?: string | null;
 }): Promise<void> {
   assertFirebaseConfigured();
@@ -78,58 +75,6 @@ export async function persistVerificationProgress(input: {
 
   await writeVerificationDocs(uid, input.status, input.inquiryId ?? null);
   applyStatusToSession(input.status, input.inquiryId ?? null);
-}
-
-type PersonaInquiry = {
-  id?: string;
-  attributes?: {
-    status?: string;
-    'reference-id'?: string | null;
-  };
-};
-
-async function personaHeaders(): Promise<Record<string, string> | null> {
-  const key = env.personaSandboxApiKey;
-  if (!key?.startsWith('persona_sandbox_') && !key?.startsWith('persona_production_')) {
-    return null;
-  }
-  return {
-    Authorization: `Bearer ${key}`,
-    'Persona-Version': '2023-01-05',
-    Accept: 'application/json',
-  };
-}
-
-async function fetchInquiry(inquiryId: string): Promise<PersonaInquiry | null> {
-  const headers = await personaHeaders();
-  if (!headers) return null;
-  const res = await fetch(`https://api.withpersona.com/api/v1/inquiries/${inquiryId}`, {
-    headers,
-  });
-  if (!res.ok) return null;
-  const json = (await res.json()) as { data?: PersonaInquiry };
-  return json.data ?? null;
-}
-
-async function findInquiryByReferenceId(referenceId: string): Promise<PersonaInquiry | null> {
-  const headers = await personaHeaders();
-  if (!headers) return null;
-  const url = new URL('https://api.withpersona.com/api/v1/inquiries');
-  url.searchParams.set('filter[reference-id]', referenceId);
-  url.searchParams.set('page[size]', '10');
-  const res = await fetch(url.toString(), { headers });
-  if (!res.ok) return null;
-  const json = (await res.json()) as { data?: PersonaInquiry[] };
-  const rows = Array.isArray(json.data) ? json.data : [];
-  if (!rows.length) return null;
-  const ranked = [...rows].sort((a, b) => {
-    const as = mapPersonaStatus(a.attributes?.status);
-    const bs = mapPersonaStatus(b.attributes?.status);
-    if (as === 'verified' && bs !== 'verified') return -1;
-    if (bs === 'verified' && as !== 'verified') return 1;
-    return 0;
-  });
-  return ranked[0];
 }
 
 async function confirmViaCloudFunction(inquiryId: string | null): Promise<{
@@ -161,8 +106,8 @@ async function confirmViaCloudFunction(inquiryId: string | null): Promise<{
 }
 
 /**
- * Re-check Persona for this account and save VERIFIED onto the user + profile docs.
- * Uses Cloud Function when deployed (Blaze); otherwise polls Persona with the sandbox key.
+ * Ask the server to re-check Persona for this account. Only the server can save VERIFIED; if it
+ * can't be reached, fall back to whatever status it last saved.
  */
 export async function confirmPersonaOnServer(inquiryId?: string | null): Promise<{
   status: VerificationStatus;
@@ -179,72 +124,49 @@ export async function confirmPersonaOnServer(inquiryId?: string | null): Promise
 
   const viaFn = await confirmViaCloudFunction(inquiryId ?? null);
   if (viaFn) {
-    // Function may have written Firestore already — still mirror into session.
     applyStatusToSession(viaFn.status, viaFn.inquiryId);
     return viaFn;
   }
 
-  let id =
-    (typeof inquiryId === 'string' && inquiryId.trim()) ||
-    useOnboardingDraft.getState().personaInquiryId ||
-    null;
+  const snap = await getDoc(doc(getDb(), 'users', uid)).catch(() => null);
+  const status = (snap?.data()?.verificationStatus as VerificationStatus | undefined) ?? 'unverified';
+  applyStatusToSession(status, inquiryId ?? null);
+  return { status, inquiryId: inquiryId ?? null };
+}
 
-  if (!id) {
-    try {
-      const snap = await getDoc(doc(getDb(), 'users', uid));
-      const stored = snap.exists() ? snap.data()?.personaInquiryId : null;
-      if (typeof stored === 'string' && stored.trim()) id = stored.trim();
-    } catch {
-      // Continue with Persona lookup by email / uid.
-    }
-  }
+let lastSyncAt = 0;
 
-  let inquiry: PersonaInquiry | null = null;
-  if (id) {
-    inquiry = await fetchInquiry(id);
-  }
-  if (!inquiry) {
-    inquiry = await findInquiryByReferenceId(uid);
-    id = inquiry?.id ?? null;
-  }
-  if (!inquiry) {
-    const email =
-      authUser.email ||
-      useSessionStore.getState().email ||
-      useOnboardingDraft.getState().email ||
-      null;
-    if (email) {
-      inquiry = await findInquiryByReferenceId(email);
-      id = inquiry?.id ?? null;
-    }
-  }
+/**
+ * Pull the saved status (the server may have approved since) and, while it's pending,
+ * ask the server to re-check Persona. Cheap enough to run on screen focus.
+ */
+export async function syncVerificationStatus(opts: { force?: boolean } = {}): Promise<VerificationStatus | null> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) return null;
+  if (!opts.force && Date.now() - lastSyncAt < 30_000) return null;
+  lastSyncAt = Date.now();
 
-  if (!inquiry) {
-    await writeVerificationDocs(uid, 'unverified', null);
-    applyStatusToSession('unverified', null);
-    return { status: 'unverified', inquiryId: null };
+  const snap = await getDoc(doc(getDb(), 'users', user.uid));
+  let status = (snap.data()?.verificationStatus as VerificationStatus | undefined) ?? 'unverified';
+  if (status === 'pending' || status === 'manual_review' || opts.force) {
+    const viaFn = await confirmViaCloudFunction(null);
+    if (viaFn) status = viaFn.status;
   }
-
-  const refId = inquiry.attributes?.['reference-id'];
-  const email =
-    authUser.email ||
-    useSessionStore.getState().email ||
-    useOnboardingDraft.getState().email ||
-    null;
-  const refOk =
-    !refId ||
-    refId === uid ||
-    (email && refId.toLowerCase() === email.toLowerCase()) ||
-    String(refId).startsWith('local-');
-  if (!refOk) {
-    throw new Error('Inquiry does not belong to this account');
+  if (useSessionStore.getState().profile?.verificationStatus !== status) {
+    applyStatusToSession(status);
   }
+  return status;
+}
 
-  const status = mapPersonaStatus(inquiry.attributes?.status);
-  const resolvedId = inquiry.id || id;
-  await writeVerificationDocs(uid, status, resolvedId);
-  applyStatusToSession(status, resolvedId);
-  return { status, inquiryId: resolvedId };
+/**
+ * Browser closed without the redirect (common on Android): ask the server what Persona has,
+ * without first marking the account pending.
+ */
+export async function checkPersonaAfterClose(inquiryId: string): Promise<VerificationStatus | null> {
+  const viaFn = await confirmViaCloudFunction(inquiryId);
+  if (!viaFn) return null;
+  applyStatusToSession(viaFn.status, viaFn.inquiryId);
+  return viaFn.status;
 }
 
 /**
@@ -255,7 +177,7 @@ export async function finalizePersonaVerification(input: {
   inquiryId: string;
   rawStatus?: string;
 }): Promise<VerificationStatus> {
-  const initial: VerificationStatus =
+  const initial: Exclude<VerificationStatus, 'verified'> =
     input.status === 'failed'
       ? 'failed'
       : input.status === 'manual_review'

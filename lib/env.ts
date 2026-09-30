@@ -10,7 +10,6 @@ type Extra = {
   appEnv?: string;
   personaTemplateId?: string;
   personaEnvironmentId?: string;
-  personaSandboxApiKey?: string;
   revenueCatIosKey?: string;
   revenueCatAndroidKey?: string;
   firebaseApiKey?: string;
@@ -70,9 +69,6 @@ export const env = {
     process.env.EXPO_PUBLIC_PERSONA_TEMPLATE_ID ?? extra.personaTemplateId ?? '',
   personaEnvironmentId:
     process.env.EXPO_PUBLIC_PERSONA_ENVIRONMENT_ID ?? extra.personaEnvironmentId ?? '',
-  /** Sandbox-only API key for creating inquiries from the client during development. */
-  personaSandboxApiKey:
-    process.env.EXPO_PUBLIC_PERSONA_SANDBOX_API_KEY ?? extra.personaSandboxApiKey ?? '',
   revenueCatIosKey:
     process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ?? extra.revenueCatIosKey ?? '',
   revenueCatAndroidKey:

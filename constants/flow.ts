@@ -39,7 +39,7 @@ export const flowCopy = {
   pingingHint: 'Finding people free tonight who match your vibe.',
   yourPing: 'YOUR PING',
   viewYourPing: 'VIEW YOUR PING →',
-  goLiveToEnter: 'Go Live to see who’s free tonight.',
+  goLiveToEnter: 'Go live to appear higher and let people know you’re actually free tonight.',
   seeWhosLive: "SEE WHO'S LIVE →",
   fineTuneTitle: 'More time. More conversation. ✦',
   fineTuneBody: 'Unlimited matches + messages with DateToday+',

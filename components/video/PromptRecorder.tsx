@@ -5,10 +5,10 @@ import { VIDEO_DURATION } from '@/constants/videoPrompts';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useIsFocused } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 type Phase = 'permission' | 'ready' | 'countdown' | 'recording' | 'review';
@@ -49,6 +49,33 @@ function waitFor(check: () => boolean, timeoutMs: number): Promise<boolean> {
     tick();
   });
 }
+
+/** Memoized so the per-second timer re-renders never touch the native camera view. */
+const Camera = memo(function Camera({
+  cameraRef,
+  active,
+  onReady,
+  onError,
+}: {
+  cameraRef: React.RefObject<CameraView | null>;
+  active: boolean;
+  onReady: () => void;
+  onError: () => void;
+}) {
+  return (
+    <CameraView
+      ref={cameraRef}
+      style={styles.fill}
+      facing="front"
+      mode="video"
+      videoQuality="720p"
+      mirror
+      active={active}
+      onCameraReady={onReady}
+      onMountError={onError}
+    />
+  );
+});
 
 function LoopingPreview({ uri }: { uri: string }) {
   const player = useVideoPlayer(uri, (instance) => {
@@ -91,6 +118,31 @@ export function PromptRecorder({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const permitted = Boolean(camPerm?.granted && micPerm?.granted);
+  // Only one camera session may run; release it when another screen covers this one.
+  const focused = useIsFocused();
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  const onCameraReady = useCallback(() => {
+    cameraReadyRef.current = true;
+  }, []);
+  const onCameraError = useCallback(() => {
+    cameraReadyRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    if (focused) return;
+    cameraReadyRef.current = false;
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (recordingRef.current) {
+      try {
+        cameraRef.current?.stopRecording();
+      } catch {}
+    }
+    setPhase((p) => (p === 'countdown' ? 'ready' : p));
+  }, [focused]);
 
   useEffect(() => {
     if (existingUri) {
@@ -123,6 +175,7 @@ export function PromptRecorder({
     }
   };
 
+  // Wall-clock based so a busy JS thread (camera warm-up on Android) can't stall the countdown.
   const startCountdown = async () => {
     const ok = await ensurePermissions();
     if (!ok) {
@@ -130,20 +183,25 @@ export function PromptRecorder({
       return;
     }
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setCount(VIDEO_DURATION.countdownFrom);
+    const from = VIDEO_DURATION.countdownFrom;
+    setCount(from);
     setPhase('countdown');
-    let n = VIDEO_DURATION.countdownFrom;
+    const started = Date.now();
+    let shown: number = from;
     clearTimers();
     timerRef.current = setInterval(() => {
-      n -= 1;
-      if (n <= 0) {
+      const left = from - Math.floor((Date.now() - started) / 1000);
+      if (left <= 0) {
         clearTimers();
         void beginRecording();
-      } else {
-        setCount(n);
+        return;
+      }
+      if (left !== shown) {
+        shown = left;
+        setCount(left);
         void Haptics.selectionAsync();
       }
-    }, 1000);
+    }, 200);
   };
 
   const recordingFailed = (message: string) => {
@@ -156,8 +214,10 @@ export function PromptRecorder({
   const beginRecording = async () => {
     if (recordingRef.current) return;
     // recordAsync fails if called before the camera finishes starting (common right after granting access).
-    const ready = await waitFor(() => Boolean(cameraRef.current) && cameraReadyRef.current, 5000);
-    if (!ready || !cameraRef.current) {
+    // Some Android devices never fire onCameraReady, so after the wait we still try if the view exists.
+    await waitFor(() => Boolean(cameraRef.current) && cameraReadyRef.current, 4000);
+    if (!focusedRef.current) return;
+    if (!cameraRef.current) {
       recordingFailed('The camera didn’t start in time. Tap record to try again.');
       return;
     }
@@ -166,16 +226,18 @@ export function PromptRecorder({
     recordingRef.current = true;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+    const started = Date.now();
+    let shown = 0;
     clearTimers();
     timerRef.current = setInterval(() => {
-      setElapsed((s) => {
-        const next = s + 1;
-        if (next >= VIDEO_DURATION.maxSeconds) {
-          stopRecording();
-        }
-        return next;
-      });
-    }, 1000);
+      const secs = Math.floor((Date.now() - started) / 1000);
+      if (secs !== shown) {
+        shown = secs;
+        setElapsed(secs);
+      }
+      // maxDuration normally ends it natively; this is the backstop.
+      if (secs >= VIDEO_DURATION.maxSeconds + 1) stopRecording();
+    }, 250);
 
     try {
       const result = await cameraRef.current.recordAsync({
@@ -197,11 +259,11 @@ export function PromptRecorder({
 
   const stopRecording = () => {
     if (!recordingRef.current) return;
-    if (elapsed < VIDEO_DURATION.minSeconds && elapsed > 0) {
-      // allow early stop only after min — otherwise keep going until user waits
-      // soft: still stop if they insist via long press end; min is guidance
+    try {
+      cameraRef.current?.stopRecording();
+    } catch {
+      /* recordAsync's catch reports the failure */
     }
-    cameraRef.current?.stopRecording();
   };
 
   const tryAgain = () => {
@@ -257,19 +319,11 @@ export function PromptRecorder({
   return (
     <View style={styles.stage}>
       {permitted ? (
-        <CameraView
-          ref={cameraRef}
-          style={styles.fill}
-          facing="front"
-          mode="video"
-          videoQuality="720p"
-          mirror
-          onCameraReady={() => {
-            cameraReadyRef.current = true;
-          }}
-          onMountError={() => {
-            cameraReadyRef.current = false;
-          }}
+        <Camera
+          cameraRef={cameraRef}
+          active={focused}
+          onReady={onCameraReady}
+          onError={onCameraError}
         />
       ) : (
         <View style={[styles.fill, styles.camFallback]}>

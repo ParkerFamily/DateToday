@@ -60,6 +60,8 @@ interface OnboardingChromeProps {
   /** @deprecated Skip removed from onboarding. */
   showSkipSetup?: boolean;
   onBack?: (() => void) | 'landing';
+  /** Freeze the logo's glow loop (camera screens). */
+  still?: boolean;
 }
 
 export function OnboardingChrome({
@@ -74,6 +76,7 @@ export function OnboardingChrome({
   compact = false,
   showBack = true,
   onBack,
+  still = false,
 }: OnboardingChromeProps) {
   const router = useRouter();
   const ringSize = iconSize ?? (compact ? 64 : 88);
@@ -118,7 +121,7 @@ export function OnboardingChrome({
           )}
 
           <View style={[styles.iconBlock, compact && styles.iconBlockCompact]}>
-            <DtIconHero size={ringSize} mode={mode} progress={progress} live={live} />
+            <DtIconHero size={ringSize} mode={mode} progress={progress} live={live} still={still} />
             <AppText style={[styles.ready, live && styles.readyLive]}>
               {live ? 'LIVE' : readyLabel(progress)}
             </AppText>

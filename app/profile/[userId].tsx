@@ -23,7 +23,7 @@ import {
 import { TONIGHT_SIGNATURE_PROMPT } from '@/constants/videoPrompts';
 import { normalizeInterests, sharedInterests } from '@/constants/interests';
 import { formatHeight } from '@/features/discover/applyFilters';
-import { copy } from '@/constants/copy';
+import { copy, vibeLabel } from '@/constants/copy';
 import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { useMatchesStore } from '@/store/matches';
@@ -246,6 +246,8 @@ export default function PublicProfileScreen() {
   const shared = isSelf ? [] : sharedInterests(sessionProfile?.interests, theirInterests);
   const interestList = [...shared, ...theirInterests.filter((i) => !shared.includes(i))];
   const lifestyle = [
+    profile.occupation?.trim() ? `💼 ${profile.occupation.trim()}` : null,
+    profile.school?.trim() ? `🎓 ${profile.school.trim()}` : null,
     profile.heightCm ? formatHeight(profile.heightCm) : null,
     profile.exercise ? `Works out: ${profile.exercise}` : null,
     profile.drinking ? `Drinks: ${profile.drinking}` : null,
@@ -302,8 +304,26 @@ export default function PublicProfileScreen() {
             {[profile.hometown, profile.neighborhoodLabel].filter(Boolean).join(' · ') ||
               'Nearby'}
           </AppText>
-          {profile.datingIntention ? (
-            <AppText variant="caption">{String(profile.datingIntention).replace(/_/g, ' ')}</AppText>
+          {vibeLabel(profile.datingIntention) ? (
+            <View style={styles.vibePill}>
+              <AppText style={styles.vibePillText}>{vibeLabel(profile.datingIntention)}</AppText>
+            </View>
+          ) : null}
+
+          {profile.bio?.trim() ? (
+            <View style={styles.aboutCard}>
+              <AppText variant="label">About</AppText>
+              <AppText style={styles.aboutText}>{profile.bio.trim()}</AppText>
+            </View>
+          ) : isSelf ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/settings/edit-profile', params: { open: 'bio' } })}
+              style={({ pressed }) => [styles.aboutCard, styles.aboutEmpty, pressed && { opacity: 0.85 }]}
+            >
+              <AppText variant="label">About</AppText>
+              <AppText variant="secondary">Add a short bio so people know who they’re meeting ›</AppText>
+            </Pressable>
           ) : null}
 
           {!isSelf && userId && isBackendConfigured() ? <CompatibilityCard otherUid={userId} /> : null}
@@ -333,7 +353,7 @@ export default function PublicProfileScreen() {
           {lifestyle.length ? (
             <>
               <AppText variant="label" style={styles.section}>
-                Lifestyle
+                The basics
               </AppText>
               <View style={styles.chips}>
                 {lifestyle.map((item) => (
@@ -344,13 +364,6 @@ export default function PublicProfileScreen() {
                   </View>
                 ))}
               </View>
-            </>
-          ) : null}
-
-          {profile.bio ? (
-            <>
-              <AppText variant="label">About</AppText>
-              <AppText>{profile.bio}</AppText>
             </>
           ) : null}
 
@@ -500,6 +513,27 @@ const styles = StyleSheet.create({
   chipText: {
     color: colors.textSecondary,
   },
+  vibePill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.brandBright,
+    backgroundColor: 'rgba(124, 58, 237, 0.2)',
+  },
+  vibePillText: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  aboutCard: {
+    gap: 6,
+    padding: spacing.md,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.elevated,
+    marginTop: spacing.xs,
+  },
+  aboutEmpty: { borderStyle: 'dashed' },
+  aboutText: { color: colors.text, fontSize: 15, lineHeight: 21 },
   chipShared: {
     borderColor: colors.brandBright,
     backgroundColor: 'rgba(124, 58, 237, 0.25)',

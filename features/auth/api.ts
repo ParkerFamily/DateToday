@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { z } from 'zod';
 import {
   createUserWithEmailAndPassword,
@@ -106,6 +107,21 @@ export async function signInWithEmail(input: LoginInput) {
   return { user: { id: cred.user.uid, email: cred.user.email } };
 }
 
+const SIGNED_OUT_KEY = 'dt.auth.signedOut';
+
+/**
+ * Written the instant someone taps Log out, before any slow cleanup. If the app is closed or
+ * reloaded mid-logout, startup still sees it and finishes the sign-out instead of restoring.
+ */
+export async function markSignedOut() {
+  await AsyncStorage.setItem(SIGNED_OUT_KEY, '1').catch(() => undefined);
+}
+
+/** Only a real sign-in during this run clears the mark — never a restored session. */
+export async function clearSignedOutMark() {
+  await AsyncStorage.removeItem(SIGNED_OUT_KEY).catch(() => undefined);
+}
+
 /** Cleanup must never block sign-out: offline Firestore writes can hang indefinitely. */
 async function bestEffort(task: () => Promise<unknown>, ms = 4000) {
   try {
@@ -117,6 +133,7 @@ async function bestEffort(task: () => Promise<unknown>, ms = 4000) {
 
 export async function signOut() {
   if (!isFirebaseConfigured()) return;
+  await markSignedOut();
   const { useSessionStore } = await import('@/store/session');
   const live = useSessionStore.getState().liveSession;
   await Promise.all([
@@ -164,7 +181,7 @@ export async function exitToWelcome() {
 
 export async function getSession(): Promise<AuthSession> {
   if (!isFirebaseConfigured()) return null;
-  const user = await waitForAuthUser();
+  const user = await restoreAuthUser();
   if (!user) return null;
   return { user: { id: user.uid, email: user.email } };
 }
@@ -185,6 +202,19 @@ export function waitForAuthUser(): Promise<User | null> {
       resolve(user);
     });
   });
+}
+
+/** Saved session on cold start — unless this device logged out, even if that logout never finished. */
+export async function restoreAuthUser(): Promise<User | null> {
+  const [user, mark] = await Promise.all([
+    waitForAuthUser(),
+    AsyncStorage.getItem(SIGNED_OUT_KEY).catch(() => null),
+  ]);
+  if (user && mark === '1') {
+    await firebaseSignOut(getFirebaseAuth()).catch(() => undefined);
+    return null;
+  }
+  return user;
 }
 
 export function subscribeAuth(callback: (user: User | null) => void): Unsubscribe {

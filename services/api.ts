@@ -11,6 +11,7 @@ import type {
   DiscoveryCard,
   SendPingResult,
 } from '@/types';
+import type { AfterHoursTag } from '@/constants/afterHours';
 import { analytics } from '@/lib/analytics';
 
 function mapProfile(row: Record<string, unknown>): Profile {
@@ -154,6 +155,7 @@ export interface StartLiveInput {
   availableUntil?: string | null;
   availabilityLabel?: string | null;
   laterTonightHour?: number | null;
+  afterHours?: AfterHoursTag[];
 }
 
 export async function startLiveSession(input: StartLiveInput): Promise<LiveSession> {
@@ -208,10 +210,10 @@ export async function endLiveSession(sessionId?: string): Promise<void> {
   analytics.track('go_live_ended');
 }
 
-export async function fetchDiscoveryFeed(limit = 20): Promise<DiscoveryCard[]> {
+export async function fetchDiscoveryFeed(limit = 20, browseRadiusMiles = 10): Promise<DiscoveryCard[]> {
   if (isBackendConfigured()) {
     const { fetchFirestoreDiscoveryFeed } = await import('@/features/live/firestoreLive');
-    return fetchFirestoreDiscoveryFeed(limit);
+    return fetchFirestoreDiscoveryFeed(limit, browseRadiusMiles);
   }
   if (!env.supabaseUrl || !env.supabaseAnonKey) return [];
   assertSupabaseConfigured();

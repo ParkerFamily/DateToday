@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -24,6 +24,7 @@ import { flowCopy, icebreakersFor } from '@/constants/flow';
 import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { confirmBlockAndReport } from '@/features/safety/blockFlow';
+import { canStartPlan } from '@/features/live/planGate';
 import { useBlocksStore } from '@/store/blocks';
 import { usePrivacyControls } from '@/store/privacyControls';
 import { canMessageMatch, recordMessagedMatch } from '@/lib/usage/dailyLimits';
@@ -100,6 +101,182 @@ function useTypingSender(matchId: string) {
   return { onDraftChange, stopTyping: stop };
 }
 
+function receiptLabel(message: MatchMessage, theirReadMs: number): string {
+  if (!message.createdAt) return 'Sending…';
+  if (theirReadMs && theirReadMs >= message.createdAt.getTime()) return 'Seen';
+  return 'Sent';
+}
+
+function openDirections(p: NonNullable<MatchMessage['proposal']>) {
+  const label = encodeURIComponent(p.venueName || 'Date spot');
+  const url =
+    Platform.OS === 'ios'
+      ? `http://maps.apple.com/?ll=${p.venueLat},${p.venueLng}&q=${label}`
+      : `geo:${p.venueLat},${p.venueLng}?q=${p.venueLat},${p.venueLng}(${label})`;
+  void Linking.openURL(url).catch(() =>
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${p.venueLat},${p.venueLng}`),
+  );
+}
+
+/** Owns the draft so typing never re-renders the message list. Clears on the first tap. */
+const Composer = memo(function Composer({
+  bottomPad,
+  onSend,
+  onDraftChange,
+  onBlur,
+}: {
+  bottomPad: number;
+  onSend: (text: string) => Promise<boolean>;
+  onDraftChange: (text: string) => void;
+  onBlur: () => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const draftRef = useRef('');
+
+  const update = (text: string) => {
+    draftRef.current = text;
+    setDraft(text);
+  };
+
+  const submit = () => {
+    const text = draftRef.current.trim();
+    if (!text) return;
+    update('');
+    void onSend(text).then((ok) => {
+      if (!ok && !draftRef.current) update(text);
+    });
+  };
+
+  return (
+    <View style={[styles.composer, { paddingBottom: bottomPad }]}>
+      <TextInput
+        value={draft}
+        onChangeText={(text) => {
+          update(text);
+          onDraftChange(text);
+        }}
+        onBlur={onBlur}
+        placeholder="Message…"
+        placeholderTextColor={colors.textSecondary}
+        style={styles.input}
+        onSubmitEditing={submit}
+        returnKeyType="send"
+        maxLength={2000}
+        multiline
+      />
+      <Button label="Send" onPress={submit} disabled={!draft.trim()} style={styles.send} />
+    </View>
+  );
+});
+
+const NudgeCard = memo(function NudgeCard({
+  onPlan,
+  onDismiss,
+}: {
+  onPlan: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <View style={styles.nudge}>
+      <AppText style={styles.nudgeTitle}>{flowCopy.feelingVibe}</AppText>
+      <AppText style={styles.nudgeBody}>{flowCopy.feelingVibeBody}</AppText>
+      <Button label={flowCopy.makeAPlan} onPress={onPlan} style={styles.nudgeCta} />
+      <Pressable onPress={onDismiss}>
+        <AppText style={styles.writeOwn}>Not yet</AppText>
+      </Pressable>
+    </View>
+  );
+});
+
+const MessageRow = memo(function MessageRow({
+  message,
+  mine,
+  theirName,
+  receipt,
+  responding,
+  onRespond,
+  onPlan,
+}: {
+  message: MatchMessage;
+  mine: boolean;
+  theirName: string;
+  receipt: string | null;
+  responding: boolean;
+  onRespond: (message: MatchMessage, status: 'accepted' | 'declined') => Promise<void>;
+  onPlan: () => void;
+}) {
+  if (message.type === 'date_proposal') {
+    const p = message.proposal;
+    return (
+      <View style={[styles.proposal, mine ? styles.proposalMine : styles.proposalTheirs]}>
+        <AppText style={styles.proposalEyebrow}>
+          {mine ? 'YOU SUGGESTED A DATE' : `${theirName.toUpperCase()} SUGGESTED A DATE`}
+        </AppText>
+        <AppText style={styles.proposalVenue}>{p?.venueName || 'Somewhere fun'}</AppText>
+        {p?.venueAddress || p?.neighborhood ? (
+          <AppText style={styles.proposalMeta} numberOfLines={1}>
+            {[p?.venueAddress, p?.neighborhood].filter(Boolean).join(' · ')}
+          </AppText>
+        ) : null}
+        <AppText style={styles.proposalMeta}>
+          {[p?.activityLabel, p?.whenLabel].filter(Boolean).join(' · ')}
+        </AppText>
+        {p && typeof p.venueLat === 'number' && typeof p.venueLng === 'number' ? (
+          <Pressable hitSlop={8} onPress={() => openDirections(p)}>
+            <AppText style={styles.proposalDirections}>Directions ›</AppText>
+          </Pressable>
+        ) : null}
+        {message.status === 'proposed' ? (
+          mine ? (
+            <AppText style={styles.proposalStatus}>Waiting for {theirName}…</AppText>
+          ) : (
+            <View style={styles.proposalActions}>
+              <Button
+                label={flowCopy.accept}
+                loading={responding}
+                onPress={() => void onRespond(message, 'accepted')}
+              />
+              <Button label="Suggest something else" variant="secondary" onPress={onPlan} />
+              <Button
+                label={flowCopy.decline}
+                variant="ghost"
+                disabled={responding}
+                onPress={() => void onRespond(message, 'declined')}
+              />
+            </View>
+          )
+        ) : (
+          <AppText
+            style={[styles.proposalStatus, message.status === 'declined' && styles.proposalDeclined]}
+          >
+            {message.status === 'accepted' ? 'It’s a date ⚡' : 'Declined'}
+          </AppText>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
+        <AppText style={mine ? styles.mineText : undefined}>{message.text}</AppText>
+      </View>
+      {receipt ? <AppText style={styles.receipt}>{receipt}</AppText> : null}
+    </View>
+  );
+},
+// Snapshots rebuild every message object; a proposal's details never change after it's sent.
+(a, b) =>
+  a.message.id === b.message.id &&
+  a.message.text === b.message.text &&
+  a.message.status === b.message.status &&
+  a.mine === b.mine &&
+  a.theirName === b.theirName &&
+  a.receipt === b.receipt &&
+  a.responding === b.responding &&
+  a.onRespond === b.onRespond &&
+  a.onPlan === b.onPlan);
+
 export default function ChatScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -113,8 +290,6 @@ export default function ChatScreen() {
   const [match, setMatch] = useState<MatchDoc | null>(null);
   const [matchState, setMatchState] = useState<'loading' | 'ready' | 'missing'>('loading');
   const [messages, setMessages] = useState<MatchMessage[]>([]);
-  const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [messageLocked, setMessageLocked] = useState(false);
@@ -205,12 +380,6 @@ export default function ChatScreen() {
     return null;
   }, [messages, userId]);
 
-  const receiptFor = (message: MatchMessage) => {
-    if (!message.createdAt) return 'Sending…';
-    if (theirLastReadAt && theirLastReadAt.getTime() >= message.createdAt.getTime()) return 'Seen';
-    return 'Sent';
-  };
-
   const openers = useMemo(() => icebreakersFor({ food: '', name: theirName }), [theirName]);
   const showIcebreakers = matchState === 'ready' && messages.length === 0;
   const mySentCount = messages.filter((m) => m.senderId === userId && m.type === 'text').length;
@@ -229,70 +398,115 @@ export default function ChatScreen() {
     else router.replace('/(tabs)/dates');
   };
 
-  const sendBody = (body: string) => {
-    const text = body.trim();
-    if (!text || sending) return;
-    void (async () => {
-      const gate = await canMessageMatch(entitlements, matchId);
+  const entitlementsRef = useRef(entitlements);
+  entitlementsRef.current = entitlements;
+  const lastSentRef = useRef<{ text: string; at: number }>({ text: '', at: 0 });
+
+  /** Resolves false when the message didn't go out, so the composer can restore it. */
+  const sendBody = useCallback(
+    async (body: string): Promise<boolean> => {
+      const text = body.trim();
+      if (!text || !matchId) return false;
+      // Repeated taps on a busy device can fire the same send several times.
+      const now = Date.now();
+      if (lastSentRef.current.text === text && now - lastSentRef.current.at < 2500) return true;
+      lastSentRef.current = { text, at: now };
+      stopTyping();
+
+      const ent = entitlementsRef.current;
+      const gate = await canMessageMatch(ent, matchId);
       if (!gate.ok) {
+        lastSentRef.current = { text: '', at: 0 };
         setMessageLocked(true);
         openUpgrade(router, 'message');
-        return;
+        return false;
       }
-      setSending(true);
-      setDraft('');
-      stopTyping();
       try {
         await sendMatchMessage(matchId, text);
-        if (!isPlusActive(entitlements)) await recordMessagedMatch(matchId);
+        if (!isPlusActive(ent)) await recordMessagedMatch(matchId);
+        return true;
       } catch (error) {
-        setDraft(text);
+        lastSentRef.current = { text: '', at: 0 };
         Alert.alert('Message not sent', friendlyError(error, 'Try again.'));
-      } finally {
-        setSending(false);
+        return false;
       }
-    })();
-  };
+    },
+    [matchId, router, stopTyping],
+  );
 
-  const openPlan = () => {
+  const themPhoto = them?.mainPhotoUrl ?? '';
+  const openPlan = useCallback(() => {
+    if (!canStartPlan(router)) return;
     router.push({
       pathname: '/dates/plan',
       params: {
         name: theirName,
-        photo: them?.mainPhotoUrl ?? '',
+        photo: themPhoto,
         conversationId: matchId,
         mode: 'plan',
       },
     });
-  };
+  }, [router, theirName, themPhoto, matchId]);
 
   const openProfile = () => {
     if (!theirId) return;
     router.push({ pathname: '/profile/[userId]', params: { userId: theirId, fromMatch: '1' } });
   };
 
-  const respond = async (message: MatchMessage, status: 'accepted' | 'declined') => {
-    setRespondingId(message.id);
-    try {
-      await respondToDate(matchId, message.id, status);
-      if (status === 'accepted') {
-        router.push({
-          pathname: '/dates/its-a-date',
-          params: {
-            name: theirName,
-            venue: message.proposal?.venueName ?? '',
-            when: message.proposal?.whenLabel ?? '',
-            activity: message.proposal?.activityLabel ?? '',
-            conversationId: matchId,
-          },
-        });
+  const respond = useCallback(
+    async (message: MatchMessage, status: 'accepted' | 'declined') => {
+      setRespondingId(message.id);
+      try {
+        await respondToDate(matchId, message.id, status);
+        if (status === 'accepted') {
+          router.push({
+            pathname: '/dates/its-a-date',
+            params: {
+              name: theirName,
+              venue: message.proposal?.venueName ?? '',
+              when: message.proposal?.whenLabel ?? '',
+              activity: message.proposal?.activityLabel ?? '',
+              conversationId: matchId,
+            },
+          });
+        }
+      } catch (error) {
+        Alert.alert('Couldn’t update the plan', friendlyError(error, 'Try again.'));
+      } finally {
+        setRespondingId(null);
       }
-    } catch (error) {
-      Alert.alert('Couldn’t update the plan', friendlyError(error, 'Try again.'));
-    } finally {
-      setRespondingId(null);
-    }
-  };
+    },
+    [matchId, router, theirName],
+  );
+
+  const scrollToEnd = useCallback(() => {
+    listRef.current?.scrollToEnd({ animated: true });
+  }, []);
+
+  const theirReadMs = theirLastReadAt?.getTime() ?? 0;
+  const dismissNudge = useCallback(() => setNudgeDismissed(true), []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: ListItem }) => {
+      if (item.kind === 'nudge') {
+        return <NudgeCard onPlan={openPlan} onDismiss={dismissNudge} />;
+      }
+      const message = item.message;
+      const showReceipt = receiptsOn && message.id === lastMineId;
+      return (
+        <MessageRow
+          message={message}
+          mine={message.senderId === userId}
+          theirName={theirName}
+          receipt={showReceipt ? receiptLabel(message, theirReadMs) : null}
+          responding={respondingId === message.id}
+          onRespond={respond}
+          onPlan={openPlan}
+        />
+      );
+    },
+    [openPlan, dismissNudge, receiptsOn, lastMineId, userId, theirName, theirReadMs, respondingId, respond],
+  );
 
   const openChatMenu = () => {
     Alert.alert(theirName, undefined, [
@@ -408,7 +622,7 @@ export default function ChatScreen() {
           keyExtractor={(item) => (item.kind === 'message' ? item.message.id : item.id)}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+          onContentSizeChange={scrollToEnd}
           ListHeaderComponent={
             showIcebreakers ? (
               <View style={styles.ice}>
@@ -418,7 +632,7 @@ export default function ChatScreen() {
                 {openers.map((line) => (
                   <Pressable
                     key={line}
-                    onPress={() => sendBody(line)}
+                    onPress={() => void sendBody(line)}
                     style={({ pressed }) => [styles.iceChip, pressed && styles.pressed]}
                   >
                     <AppText style={styles.iceChipText}>{line}</AppText>
@@ -428,102 +642,9 @@ export default function ChatScreen() {
               </View>
             ) : null
           }
-          renderItem={({ item }) => {
-            if (item.kind === 'nudge') {
-              return (
-                <View style={styles.nudge}>
-                  <AppText style={styles.nudgeTitle}>{flowCopy.feelingVibe}</AppText>
-                  <AppText style={styles.nudgeBody}>{flowCopy.feelingVibeBody}</AppText>
-                  <Button label={flowCopy.makeAPlan} onPress={openPlan} style={styles.nudgeCta} />
-                  <Pressable onPress={() => setNudgeDismissed(true)}>
-                    <AppText style={styles.writeOwn}>Not yet</AppText>
-                  </Pressable>
-                </View>
-              );
-            }
-
-            const message = item.message;
-            const mine = message.senderId === userId;
-
-            if (message.type === 'date_proposal') {
-              const p = message.proposal;
-              return (
-                <View style={[styles.proposal, mine ? styles.proposalMine : styles.proposalTheirs]}>
-                  <AppText style={styles.proposalEyebrow}>
-                    {mine ? 'YOU SUGGESTED A DATE' : `${theirName.toUpperCase()} SUGGESTED A DATE`}
-                  </AppText>
-                  <AppText style={styles.proposalVenue}>{p?.venueName || 'Somewhere fun'}</AppText>
-                  {p?.venueAddress || p?.neighborhood ? (
-                    <AppText style={styles.proposalMeta} numberOfLines={1}>
-                      {[p?.venueAddress, p?.neighborhood].filter(Boolean).join(' · ')}
-                    </AppText>
-                  ) : null}
-                  <AppText style={styles.proposalMeta}>
-                    {[p?.activityLabel, p?.whenLabel].filter(Boolean).join(' · ')}
-                  </AppText>
-                  {typeof p?.venueLat === 'number' && typeof p?.venueLng === 'number' ? (
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => {
-                        const label = encodeURIComponent(p.venueName || 'Date spot');
-                        const url =
-                          Platform.OS === 'ios'
-                            ? `http://maps.apple.com/?ll=${p.venueLat},${p.venueLng}&q=${label}`
-                            : `geo:${p.venueLat},${p.venueLng}?q=${p.venueLat},${p.venueLng}(${label})`;
-                        void Linking.openURL(url).catch(() =>
-                          Linking.openURL(
-                            `https://www.google.com/maps/search/?api=1&query=${p.venueLat},${p.venueLng}`,
-                          ),
-                        );
-                      }}
-                    >
-                      <AppText style={styles.proposalDirections}>Directions ›</AppText>
-                    </Pressable>
-                  ) : null}
-                  {message.status === 'proposed' ? (
-                    mine ? (
-                      <AppText style={styles.proposalStatus}>Waiting for {theirName}…</AppText>
-                    ) : (
-                      <View style={styles.proposalActions}>
-                        <Button
-                          label={flowCopy.accept}
-                          loading={respondingId === message.id}
-                          onPress={() => void respond(message, 'accepted')}
-                        />
-                        <Button label="Suggest something else" variant="secondary" onPress={openPlan} />
-                        <Button
-                          label={flowCopy.decline}
-                          variant="ghost"
-                          disabled={respondingId === message.id}
-                          onPress={() => void respond(message, 'declined')}
-                        />
-                      </View>
-                    )
-                  ) : (
-                    <AppText
-                      style={[
-                        styles.proposalStatus,
-                        message.status === 'declined' && styles.proposalDeclined,
-                      ]}
-                    >
-                      {message.status === 'accepted' ? 'It’s a date ⚡' : 'Declined'}
-                    </AppText>
-                  )}
-                </View>
-              );
-            }
-
-            return (
-              <View>
-                <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
-                  <AppText style={mine ? styles.mineText : undefined}>{message.text}</AppText>
-                </View>
-                {receiptsOn && message.id === lastMineId ? (
-                  <AppText style={styles.receipt}>{receiptFor(message)}</AppText>
-                ) : null}
-              </View>
-            );
-          }}
+          renderItem={renderItem}
+          initialNumToRender={20}
+          windowSize={9}
           ListFooterComponent={
             theyAreTyping ? (
               <View style={styles.typingRow} accessibilityLiveRegion="polite">
@@ -556,29 +677,12 @@ export default function ChatScreen() {
             <Ionicons name="chevron-forward" size={18} color={colors.brandBright} />
           </Pressable>
         ) : (
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-          <TextInput
-            value={draft}
-            onChangeText={(text) => {
-              setDraft(text);
-              onDraftChange(text);
-            }}
+          <Composer
+            bottomPad={Math.max(insets.bottom, 12)}
+            onSend={sendBody}
+            onDraftChange={onDraftChange}
             onBlur={stopTyping}
-            placeholder="Message…"
-            placeholderTextColor={colors.textSecondary}
-            style={styles.input}
-            onSubmitEditing={() => sendBody(draft)}
-            returnKeyType="send"
-            maxLength={2000}
-            multiline
           />
-          <Button
-            label="Send"
-            onPress={() => sendBody(draft)}
-            disabled={!draft.trim() || sending}
-            style={styles.send}
-          />
-        </View>
         )}
       </KeyboardAvoidingView>
     </Screen>

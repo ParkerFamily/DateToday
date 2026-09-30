@@ -27,8 +27,18 @@ import { compareDiscoveryRank } from '@/lib/commerce/sessionCommerce';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { canMatchToday } from '@/lib/usage/dailyLimits';
 import { applyDiscoverFilters } from '@/features/discover/applyFilters';
+import {
+  availabilityText,
+  cardStatusTags,
+  feedTier,
+  isRecentlyActive,
+  keyTraits,
+  openToLabel,
+} from '@/features/discover/statusTags';
 import { sharedInterests } from '@/constants/interests';
 import { FilterBar } from '@/components/discover/FilterBar';
+import { MatchPill } from '@/components/discover/MatchPill';
+import { AFTER_HOURS_TAGS, isAfterHours } from '@/constants/afterHours';
 import { canUseAdvancedFilters, canUsePriorityPool } from '@/lib/entitlements';
 import { env, isBackendConfigured } from '@/lib/env';
 import { useContentLayout } from '@/lib/layout';
@@ -120,7 +130,12 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   /** Preview: first ♥ is one-way interest; second ♥ simulates mutual match */
   const interestsSentRef = useRef(0);
   const uid = useSessionStore((s) => s.userId);
-  const matches = useMatchesStore((s) => s.matches);
+  // A primitive key so new messages / read receipts on matches don't re-render the whole feed.
+  const matchedKey = useMatchesStore((s) => {
+    const ids: string[] = [];
+    for (const m of s.matches) for (const u of m.userIds) if (u !== uid) ids.push(u);
+    return ids.sort().join(',');
+  });
   const liveSession = useSessionStore((s) => s.liveSession);
   const discoveryPaused = useSessionStore((s) => s.discoveryPaused);
   const setDiscoverAttention = useSessionStore((s) => s.setDiscoverAttention);
@@ -142,11 +157,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   );
 
   const feedQuery = useQuery({
-    queryKey: ['discovery-feed', liveSession?.id, liveSession?.radiusMiles],
-    queryFn: () => fetchDiscoveryFeed(40),
-    enabled: Boolean(live && (isBackendConfigured() || (env.supabaseUrl && env.supabaseAnonKey))),
+    queryKey: ['discovery-feed', live, liveSession?.id, liveSession?.radiusMiles, filters.maxDistanceMiles],
+    queryFn: () => fetchDiscoveryFeed(40, filters.maxDistanceMiles),
+    // People who aren't live browse from their nearby presence (Firestore only).
+    enabled: live
+      ? Boolean(isBackendConfigured() || (env.supabaseUrl && env.supabaseAnonKey))
+      : isBackendConfigured(),
     retry: false,
-    refetchInterval: live ? 45_000 : false,
+    refetchInterval: live ? 45_000 : 90_000,
   });
 
   useEffect(() => {
@@ -154,9 +172,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   }, [liveSession?.id]);
 
   useEffect(() => {
-    if (!live || !uid || !isBackendConfigured()) return;
+    if (!uid || !isBackendConfigured()) return;
     return subscribeSentInterests(uid, setSentTo);
-  }, [live, uid]);
+  }, [uid]);
 
   // Someone going live nearby shows up without waiting for the 45s poll.
   useEffect(() => {
@@ -174,11 +192,10 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     };
   }, [live, queryClient]);
 
-  const matchedIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const m of matches) for (const u of m.userIds) if (u !== uid) ids.add(u);
-    return ids;
-  }, [matches, uid]);
+  const matchedIds = useMemo(
+    () => new Set(matchedKey ? matchedKey.split(',') : []),
+    [matchedKey],
+  );
 
   const myVibe = useMemo(
     () => ({
@@ -191,10 +208,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   /** Real Firestore/Supabase feed only — never invent people when empty. */
   const rawFeed = useMemo((): DiscoveryCard[] => {
-    if (!live) return [];
     if (feedQuery.data && feedQuery.data.length > 0) return feedQuery.data;
     // Opt-in sandbox only (`EXPO_PUBLIC_USE_MOCK_DATA=true`). Default: empty → low-density UX.
-    if (env.useMockData) return DEMO_CARDS;
+    if (live && env.useMockData) return DEMO_CARDS;
     return [];
   }, [live, feedQuery.data]);
 
@@ -206,18 +222,27 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   }, [rawFeed, filters.maxDistanceMiles, blockedMap, handled, sentTo, matchedIds]);
 
   const cards = useMemo(() => {
-    let list = applyDiscoverFilters(nearbyBeforeFilters, filters, { plus: plusFoods, myInterests });
-
-    // Live Now first; Later Tonight stays in pool but ranked after.
-    list = list.filter((c) => c.availabilityMode !== 'later');
+    const list = applyDiscoverFilters(nearbyBeforeFilters, filters, { plus: plusFoods, myInterests });
 
     // Each shared interest is worth a bit less than a shared plan for tonight.
     const score = (c: DiscoveryCard) =>
       tonightCompatibility(myVibe, { activities: c.activities, foodCuisines: c.foodCuisines }).score +
       sharedInterests(myInterests, c.interests).length * 4;
+    // Live now, then free later tonight, then nearby people who aren't live.
     return [...list].sort((a, b) => {
+      const ta = feedTier(a);
+      const tb = feedTier(b);
+      if (ta !== tb) return ta - tb;
+      if (ta === 1) return (a.laterTonightHour ?? 99) - (b.laterTonightHour ?? 99);
       const sa = score(a);
       const sb = score(b);
+      if (ta === 2) {
+        const ra = isRecentlyActive(a) ? 1 : 0;
+        const rb = isRecentlyActive(b) ? 1 : 0;
+        if (ra !== rb) return rb - ra;
+        if (sa !== sb) return sb - sa;
+        return a.distanceMiles - b.distanceMiles;
+      }
       return compareDiscoveryRank(
         { isBoosted: a.isBoosted, distanceMiles: a.distanceMiles, compatScore: sa },
         { isBoosted: b.isBoosted, distanceMiles: b.distanceMiles, compatScore: sb },
@@ -232,13 +257,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       .sort((a, b) => (a.laterTonightHour ?? 99) - (b.laterTonightHour ?? 99));
   }, [nearbyBeforeFilters]);
 
-  const filtersTight =
-    cards.length === 0 &&
-    nearbyBeforeFilters.filter((c) => c.availabilityMode !== 'later').length > 0;
+  const filtersTight = cards.length === 0 && nearbyBeforeFilters.length > 0;
+  const tonightCount = cards.filter((c) => feedTier(c) < 2).length;
+  const nearbyCount = cards.length - tonightCount;
 
   useEffect(() => {
-    if (live) setPingResults(cards.length);
-  }, [live, cards.length, setPingResults]);
+    if (live) setPingResults(tonightCount);
+  }, [live, tonightCount, setPingResults]);
 
   const pingSummary = useMemo(() => {
     const acts = (liveSession?.activities ?? []).map(
@@ -266,6 +291,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const signature = prompts.find((p) => p.kind === 'tonight_signature') ?? prompts[0];
   const about = prompts.find((p) => p.kind === 'about_you') ?? prompts[1];
   const tonightFeeling = (card?.activities ?? []).map(activityLabel).join(' · ');
+  const statusTags = card ? cardStatusTags(card) : [];
+  const tier = card ? feedTier(card) : 0;
+  const traits = card ? keyTraits(card) : [];
 
   const markHandled = (userId: string) => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -304,7 +332,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   const onInterested = async () => {
     if (!card || interestFlash) return;
-    if (!canMatchToday(entitlements, matches).ok) {
+    if (!canMatchToday(entitlements, useMatchesStore.getState().matches).ok) {
       openUpgrade(router, 'match');
       return;
     }
@@ -375,7 +403,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     );
   }
 
-  if (!live) {
+  if (!live && cards.length === 0) {
     const city =
       profile?.neighborhoodLabel?.split(',')[0]?.trim() ||
       profile?.hometown ||
@@ -483,7 +511,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               <>
                 <AppText style={styles.quietTitle}>{flowCopy.loosenFiltersTitle}</AppText>
                 <AppText variant="secondary" style={styles.quietBody}>
-                  {nearbyBeforeFilters.filter((c) => c.availabilityMode !== 'later').length}{' '}
+                  {nearbyBeforeFilters.length}{' '}
                   {flowCopy.loosenFiltersBody}
                 </AppText>
                 <Button
@@ -612,12 +640,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         {liveHeader}
         <View style={[styles.pingHeader, { paddingTop: topPad + 8 }]}>
           <View style={styles.pingHeaderLeft}>
-            <AppText style={styles.pingHeaderEyebrow}>{flowCopy.yourPing}</AppText>
+            <AppText style={styles.pingHeaderEyebrow}>
+              {tier === 2 ? 'MORE PEOPLE NEARBY' : "WHO'S OUT TONIGHT"}
+            </AppText>
             <AppText style={styles.pingHeaderTitle}>
-              {formatPingMatchLine(cards.length)}
+              {tonightCount > 0 ? formatPingMatchLine(tonightCount) : 'No one’s live near you yet'}
             </AppText>
             <AppText style={styles.pingHeaderMeta} numberOfLines={1}>
-              {pingSummary}
+              {nearbyCount > 0 ? `${pingSummary} · ${nearbyCount} more nearby` : pingSummary}
             </AppText>
           </View>
           <View style={styles.pingHeaderActions}>
@@ -631,6 +661,19 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           </View>
         </View>
         <FilterBar />
+        {!live ? (
+          <Pressable
+            onPress={() => router.navigate('/(tabs)/live')}
+            style={styles.goLiveBanner}
+            accessibilityRole="button"
+          >
+            <View style={styles.goLiveDot} />
+            <AppText style={styles.goLiveText}>
+              Go live to appear higher and let people know you're actually free tonight.
+            </AppText>
+            <AppText style={styles.goLiveCta}>GO LIVE</AppText>
+          </Pressable>
+        ) : null}
 
         <ScrollView
           ref={scrollRef}
@@ -656,7 +699,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               ) : (
                 <View style={styles.topSpacer} />
               )}
-              <LiveBadge label={formatLiveUntil(card.liveUntil)} />
+              {tier === 0 ? (
+                <LiveBadge label={formatLiveUntil(card.liveUntil)} />
+              ) : tier === 1 ? (
+                <View style={styles.laterBadge}>
+                  <AppText style={styles.laterBadgeText}>{availabilityText(card).toUpperCase()}</AppText>
+                </View>
+              ) : null}
             </View>
             {card.isBoosted ? (
               <View style={styles.boostedTag}>
@@ -674,26 +723,60 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               </AppText>
               <View style={styles.verifyRow}>
                 <VerificationTag status={card.verificationStatus} compact />
+                <MatchPill otherUid={card.userId} theirLevel={card.quizLevel ?? 0} />
               </View>
               <AppText style={styles.place}>
-                {formatDistanceMiles(card.distanceMiles)} · Free until{' '}
-                {new Date(card.liveUntil).toLocaleTimeString([], {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
-                {compat && compat.sharedActivities.length > 0
-                  ? ` · ${compat.sharedActivities.length} tonight vibe${
-                      compat.sharedActivities.length === 1 ? '' : 's'
-                    } match`
-                  : ''}
+                {tier === 0
+                  ? `${formatDistanceMiles(card.distanceMiles)} · Free until ${new Date(
+                      card.liveUntil,
+                    ).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                  : tier === 1
+                    ? `${formatDistanceMiles(card.distanceMiles)} · ${availabilityText(card)}`
+                    : `${formatDistanceMiles(card.distanceMiles)} away`}
               </AppText>
+              {tier === 2 ? (
+                <AppText style={styles.notLiveNote}>
+                  Not live right now — you can still match and chat
+                </AppText>
+              ) : null}
               <View style={styles.activities}>
-                {card.activities.map((a) => (
-                  <View key={a} style={styles.pill}>
-                    <AppText style={styles.pillText}>{activityLabel(a)}</AppText>
+                {statusTags.map((t) => (
+                  <View
+                    key={t.key}
+                    style={[
+                      styles.statusPill,
+                      t.tone === 'live' ? styles.statusLive : t.tone === 'brand' ? styles.statusBrand : null,
+                    ]}
+                  >
+                    {t.key === 'availability' ? <View style={styles.statusDot} /> : null}
+                    <AppText style={styles.statusText}>{t.label}</AppText>
                   </View>
                 ))}
               </View>
+              <View style={styles.activities}>
+                {card.activities.map((a) => (
+                  <View key={a} style={styles.pill}>
+                    <AppText style={styles.pillText}>
+                      {ACTIVITY_EMOJI[a] ? `${ACTIVITY_EMOJI[a]} ` : ''}
+                      {openToLabel(a)}
+                    </AppText>
+                  </View>
+                ))}
+                {isAfterHours()
+                  ? (card.afterHours ?? []).map((t) => (
+                      <View key={t} style={[styles.pill, styles.nightPill]}>
+                        <AppText style={styles.pillText}>
+                          🌙 {AFTER_HOURS_TAGS.find((o) => o.value === t)?.label}
+                        </AppText>
+                      </View>
+                    ))
+                  : null}
+              </View>
+              {traits.length ? (
+                <AppText style={styles.traits} numberOfLines={1}>
+                  {traits.join('  ·  ')}
+                </AppText>
+              ) : null}
               {commonInterests.length ? (
                 <View style={styles.sharedRow}>
                   <Ionicons name="heart" size={12} color={colors.brandBright} />
@@ -705,6 +788,18 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               ) : null}
             </View>
           </View>
+
+          {card.bio?.trim() ? (
+            <View style={styles.block}>
+              <View style={styles.promptHead}>
+                <Ionicons name="person-circle-outline" size={14} color={colors.brandBright} />
+                <AppText style={styles.promptHeadText}>ABOUT {card.displayName.toUpperCase()}</AppText>
+              </View>
+              <AppText style={styles.bioText} numberOfLines={5}>
+                {card.bio.trim()}
+              </AppText>
+            </View>
+          ) : null}
 
           {signature ? (
           <View style={styles.block}>
@@ -970,6 +1065,15 @@ const styles = StyleSheet.create({
   verifyRow: {
     marginTop: 2,
     marginBottom: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  nightPill: {
+    borderWidth: 1,
+    borderColor: 'rgba(167,139,250,0.6)',
+    backgroundColor: 'rgba(76,29,149,0.45)',
   },
   place: {
     color: 'rgba(250,250,250,0.85)',
@@ -997,6 +1101,54 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  statusLive: {
+    backgroundColor: 'rgba(34,229,139,0.14)',
+    borderColor: 'rgba(34,229,139,0.45)',
+  },
+  statusBrand: {
+    backgroundColor: 'rgba(124,58,237,0.22)',
+    borderColor: 'rgba(168,85,247,0.5)',
+  },
+  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.live },
+  statusText: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  traits: { color: 'rgba(250,250,250,0.8)', fontSize: 14, fontWeight: '600', marginTop: 4 },
+  goLiveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: spacing.lg,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radii.input,
+    backgroundColor: 'rgba(34,229,139,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,229,139,0.35)',
+  },
+  goLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22E58B' },
+  goLiveText: { flex: 1, color: colors.white, fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  goLiveCta: { color: '#22E58B', fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
+  notLiveNote: { color: 'rgba(250,250,250,0.62)', fontSize: 13, fontWeight: '600' },
+  laterBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(5,5,6,0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(250,204,21,0.55)',
+  },
+  laterBadgeText: { color: '#FDE68A', fontSize: 11, fontWeight: '800', letterSpacing: 0.6 },
   block: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.lg,
@@ -1009,6 +1161,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  bioText: { color: colors.text, fontSize: 16, lineHeight: 23 },
   promptHeadText: {
     color: colors.brandBright,
     fontSize: 11,

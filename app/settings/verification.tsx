@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
@@ -8,13 +8,17 @@ import { VerificationTag } from '@/components/ui/VerificationTag';
 import { SettingsHeader, SettingsGroup, SettingsRow } from '@/components/settings/SettingsUI';
 import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
-import { confirmPersonaOnServer } from '@/features/verification/persistVerification';
+import {
+  confirmPersonaOnServer,
+  syncVerificationStatus,
+} from '@/features/verification/persistVerification';
 import { loadUserProfile } from '@/features/profile/saveOnboarding';
 import { isBackendConfigured } from '@/lib/env';
 import { friendlyError } from '@/lib/errors';
 
 export default function VerificationSettingsScreen() {
   const router = useRouter();
+  const { check } = useLocalSearchParams<{ check?: string }>();
   const profile = useSessionStore((s) => s.profile);
   const setProfile = useSessionStore((s) => s.setProfile);
   const userId = useSessionStore((s) => s.userId);
@@ -36,8 +40,10 @@ export default function VerificationSettingsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void reloadFromFirestore();
-    }, [reloadFromFirestore]),
+      void reloadFromFirestore().then(() =>
+        syncVerificationStatus({ force: check === '1' }).catch(() => undefined),
+      );
+    }, [reloadFromFirestore, check]),
   );
 
   const refreshStatus = async () => {

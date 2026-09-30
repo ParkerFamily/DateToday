@@ -165,6 +165,8 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public' }, async (req,
     await db.collection('liveSessions').doc(uid).delete().catch(() => undefined);
     await db.collection('users').doc(uid).delete().catch(() => undefined);
     await db.collection('profiles').doc(uid).delete().catch(() => undefined);
+    await db.collection('userStats').doc(uid).delete().catch(() => undefined);
+    await db.collection('nearbyProfiles').doc(uid).delete().catch(() => undefined);
     await db.collection('deleted_users').doc(uid).set({
       uid,
       deletedAt: new Date().toISOString(),
@@ -235,7 +237,7 @@ exports.confirmPersonaVerification = onRequest(
         inquiryId = inquiry?.id || null;
       }
       if (!inquiry) {
-        const email = decoded.email || null;
+        const email = decoded.email_verified ? decoded.email : null;
         if (email) {
           inquiry = await findInquiryByReferenceId(apiKey, email);
           inquiryId = inquiry?.id || null;
@@ -248,18 +250,29 @@ exports.confirmPersonaVerification = onRequest(
         return;
       }
 
+      // An opened-but-untouched inquiry says nothing about the person; prefer any approved one.
+      const untouched = (s) => s === 'created' || s === 'expired';
+      if (untouched(inquiry.attributes?.status)) {
+        const better = await findInquiryByReferenceId(apiKey, uid);
+        if (better && mapPersonaStatus(better.attributes?.status) === 'verified') {
+          inquiry = better;
+          inquiryId = better.id || inquiryId;
+        }
+      }
       const raw = inquiry.attributes?.status;
+      if (untouched(raw)) {
+        const userSnap = await db.collection('users').doc(uid).get();
+        const current = (userSnap.exists && userSnap.data()?.verificationStatus) || 'unverified';
+        res.json({ status: current, inquiryId: inquiry.id || inquiryId, rawStatus: raw || null });
+        return;
+      }
       const status = mapPersonaStatus(raw);
       const id = inquiry.id || inquiryId;
 
-      // Bind inquiry to this account when possible.
+      // The inquiry must belong to this account, or someone else's approved inquiry id could verify it.
       const refId = inquiry.attributes?.['reference-id'];
-      const email = decoded.email || null;
-      const refOk =
-        !refId ||
-        refId === uid ||
-        (email && refId === email) ||
-        String(refId).startsWith('local-');
+      const email = decoded.email_verified ? decoded.email : null;
+      const refOk = refId === uid || Boolean(email && refId === email);
       if (!refOk) {
         res.status(403).json({ error: 'Inquiry does not belong to this account' });
         return;
@@ -1122,6 +1135,62 @@ function proposalSummary(p) {
   return [p.activityLabel || p.activity, p.whenLabel, p.venueName].filter(Boolean).join(' · ') || 'a date';
 }
 
+const FAST_REPLY_MS = 15 * 60 * 1000;
+
+/**
+ * Public, server-owned signals for Discover status tags (userStats/{uid}; clients can't write).
+ * Only the first message after the other person's counts as a reply.
+ */
+async function recordReplySpeed(db, matchRef, messageId, msg, otherId) {
+  const createdAt = msg.createdAt && msg.createdAt.toMillis ? msg.createdAt.toMillis() : Date.now();
+  const recent = await matchRef.collection('messages').orderBy('createdAt', 'desc').limit(3).get();
+  const prev = recent.docs.find((d) => d.id !== messageId);
+  if (!prev) return;
+  const p = prev.data();
+  if (p.senderId !== otherId || !p.createdAt || !p.createdAt.toMillis) return;
+  const delay = createdAt - p.createdAt.toMillis();
+  if (delay < 0) return;
+  await db.collection('userStats').doc(msg.senderId).set(
+    {
+      replies: FieldValue.increment(1),
+      fastReplies: FieldValue.increment(delay <= FAST_REPLY_MS ? 1 : 0),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+/** Authoritative join date (Auth creation time) in userStats for "New here". */
+async function ensureJoinedAt(uid) {
+  const db = getFirestore();
+  const ref = db.collection('userStats').doc(uid);
+  const snap = await ref.get();
+  if (snap.exists && snap.data().joinedAt) return;
+  try {
+    const user = await getAuth().getUser(uid);
+    const created = Date.parse(user.metadata.creationTime);
+    if (!Number.isFinite(created)) return;
+    await ref.set(
+      { joinedAt: Timestamp.fromMillis(created), updatedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+  } catch (e) {
+    console.warn('joinedAt failed', uid, e && e.message);
+  }
+}
+
+exports.onLiveSessionStarted = onDocumentWritten('liveSessions/{uid}', async (event) => {
+  const before = event.data && event.data.before.exists ? event.data.before.data() : null;
+  const after = event.data && event.data.after.exists ? event.data.after.data() : null;
+  if (!after || after.status !== 'active') return;
+  if (before && before.status === 'active' && before.startedAt === after.startedAt) return;
+  await ensureJoinedAt(event.params.uid);
+});
+
+exports.onNearbyProfileCreated = onDocumentCreated('nearbyProfiles/{uid}', async (event) => {
+  await ensureJoinedAt(event.params.uid);
+});
+
 /** New chat message → update match preview/unread and notify the other person. */
 exports.onMatchMessageCreated = onDocumentCreated(
   'matches/{matchId}/messages/{messageId}',
@@ -1148,6 +1217,10 @@ exports.onMatchMessageCreated = onDocumentCreated(
       lastActivityAt: FieldValue.serverTimestamp(),
       [`unread.${otherId}`]: FieldValue.increment(1),
     });
+
+    await recordReplySpeed(db, matchRef, messageId, msg, otherId).catch((e) =>
+      console.warn('recordReplySpeed failed', e && e.message),
+    );
 
     const senderName = match.users?.[senderId]?.displayName || 'Your match';
     await pushToUser(db, otherId, isProposal
@@ -1206,6 +1279,15 @@ exports.onMatchMessageUpdated = onDocumentUpdated(
           }
         : {}),
     });
+
+    if (accepted) {
+      const stamp = { lastPlanAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() };
+      await Promise.all(
+        [proposerId, responderId]
+          .filter(Boolean)
+          .map((uid) => db.collection('userStats').doc(uid).set(stamp, { merge: true })),
+      ).catch((e) => console.warn('lastPlanAt failed', e && e.message));
+    }
 
     await pushToUser(db, proposerId, {
       title: accepted ? `${responderName} said yes!` : `${responderName} passed on that plan`,
@@ -1287,6 +1369,15 @@ exports.onUserVerificationChanged = onDocumentUpdated('users/{uid}', async (even
   const after = (event.data && event.data.after.data()) || {};
   const next = after.verificationStatus;
   if (before.verificationStatus === next) return;
+  // Public cards copy the badge when written; keep them current without waiting for a re-publish.
+  const db = getFirestore();
+  await Promise.all(
+    ['liveSessions', 'nearbyProfiles'].map(async (col) => {
+      const ref = db.collection(col).doc(event.params.uid);
+      const snap = await ref.get();
+      if (snap.exists) await ref.update({ verificationStatus: next || 'unverified' });
+    }),
+  ).catch((e) => console.warn('verification mirror failed', e && e.message));
   if (next !== 'verified' && next !== 'failed') return;
   const verified = next === 'verified';
   await pushToUser(getFirestore(), event.params.uid, {

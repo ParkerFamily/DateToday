@@ -53,6 +53,10 @@ export async function saveQuiz(answers: QuizAnswers, level: number) {
     { merge: true },
   );
   await setDoc(doc(db, 'profiles', uid), { quizLevel: level, updatedAt: serverTimestamp() }, { merge: true });
+  compatCache.clear();
+  void import('@/features/live/firestoreLive')
+    .then((m) => m.refreshLiveProfileFields({ quizLevel: level }))
+    .catch(() => undefined);
   const profile = useSessionStore.getState().profile;
   if (profile) useSessionStore.getState().setProfile({ ...profile, quizLevel: level });
 }
@@ -82,4 +86,18 @@ export async function fetchCompatibility(otherUid: string): Promise<Compatibilit
   const json = (await res.json().catch(() => ({}))) as Compatibility & { error?: string };
   if (!res.ok) throw new Error(json.error || 'Couldn’t check compatibility right now.');
   return json;
+}
+
+const compatCache = new Map<string, Promise<Compatibility>>();
+
+/** Feed cards ask for the same people over and over — one request per person per quiz state. */
+export function cachedCompatibility(otherUid: string, theirLevel: number): Promise<Compatibility> {
+  const key = `${otherUid}:${theirLevel}`;
+  let hit = compatCache.get(key);
+  if (!hit) {
+    hit = fetchCompatibility(otherUid);
+    hit.catch(() => compatCache.delete(key));
+    compatCache.set(key, hit);
+  }
+  return hit;
 }

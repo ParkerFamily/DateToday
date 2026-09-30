@@ -12,7 +12,19 @@ import { Button } from '@/components/ui/Button';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { OptionChip } from '@/components/ui/OptionChip';
 import { FOOD_CUISINES } from '@/constants/tonightVibe';
-import { ALL_INTERESTS, EXERCISE_OPTIONS, KIDS_OPTIONS } from '@/constants/interests';
+import {
+  HOW_SOON_OPTIONS,
+  isAfterHours,
+  OUT_LATE_OPTIONS,
+  SPONTANEOUS_OPTIONS,
+} from '@/constants/afterHours';
+import {
+  ALL_INTERESTS,
+  BROAD_INTERESTS,
+  EXERCISE_OPTIONS,
+  isBroadInterest,
+  KIDS_OPTIONS,
+} from '@/constants/interests';
 import { colors, gradients, radii, spacing } from '@/constants/theme';
 import {
   INTENT_OPTIONS,
@@ -39,21 +51,6 @@ const FREE_UNTIL = [
   { hour: 21, label: '9 PM+' },
   { hour: 22, label: '10 PM+' },
   { hour: 23, label: '11 PM+' },
-];
-
-const POPULAR_INTERESTS = [
-  'Active',
-  'Homebody',
-  'Hiking',
-  'Cooking',
-  'Reading',
-  'Gym',
-  'Travel',
-  'Movies',
-  'Gaming',
-  'Live music',
-  'Coffee',
-  'Dogs',
 ];
 
 const HEIGHT_IN = { min: 58, max: 84 } as const;
@@ -137,6 +134,16 @@ function ToggleRow({
   );
 }
 
+function PlusLock({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={styles.unlockPill}>
+      <LinearGradient colors={[...gradients.brand]} style={styles.unlockGrad}>
+        <AppText style={styles.unlockText}>Unlock</AppText>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
 /** Step a nullable bound: "Any" sits just outside the range on both ends. */
 function stepBound(value: number | null, dir: 1 | -1, min: number, max: number, start: number) {
   if (value == null) return dir === 1 ? start : null;
@@ -157,9 +164,10 @@ export default function FiltersScreen() {
   const [allInterests, setAllInterests] = useState(false);
   const interestChoices = allInterests
     ? ALL_INTERESTS
-    : [...new Set([...filters.interestFilter, ...POPULAR_INTERESTS])];
+    : [...new Set([...BROAD_INTERESTS, ...filters.interestFilter.filter((i) => plus || isBroadInterest(i))])];
   const hidden = useHiddenUserMap();
   const labels = activeFilterLabels(filters, { plus });
+  const afterHoursOpen = isAfterHours();
 
   const pool = useMemo(() => {
     const cached = queryClient.getQueriesData<DiscoveryCard[]>({ queryKey: ['discovery-feed'] });
@@ -168,12 +176,7 @@ export default function FiltersScreen() {
 
   const count = pool
     ? applyDiscoverFilters(
-        pool.filter(
-          (c) =>
-            c.distanceMiles <= filters.maxDistanceMiles &&
-            !hidden[c.userId] &&
-            c.availabilityMode !== 'later',
-        ),
+        pool.filter((c) => c.distanceMiles <= filters.maxDistanceMiles && !hidden[c.userId]),
         filters,
         { plus, myInterests },
       ).length
@@ -257,20 +260,19 @@ export default function FiltersScreen() {
           </View>
         </Section>
 
-        <Section icon="people" title="Age">
-          <View style={styles.stepperRow}>
-            <Stepper
-              label="From"
-              display={filters.ageMin == null ? 'Any' : String(filters.ageMin)}
-              onMinus={() => setAge('ageMin', -1)}
-              onPlus={() => setAge('ageMin', 1)}
-            />
-            <Stepper
-              label="To"
-              display={filters.ageMax == null ? 'Any' : String(filters.ageMax)}
-              onMinus={() => setAge('ageMax', -1)}
-              onPlus={() => setAge('ageMax', 1)}
-            />
+        <Section icon="timer" title="How soon?" hint="Free">
+          <View style={styles.chips}>
+            {HOW_SOON_OPTIONS.map((o) => (
+              <OptionChip
+                key={o.value}
+                label={o.label}
+                selected={filters.howSoon === o.value}
+                onPress={() => {
+                  tap();
+                  filters.patch({ howSoon: filters.howSoon === o.value ? null : o.value });
+                }}
+              />
+            ))}
           </View>
         </Section>
 
@@ -322,7 +324,40 @@ export default function FiltersScreen() {
           </View>
         </Section>
 
-        <Section icon="heart" title="Interests" hint={filters.interestFilter.length ? `${filters.interestFilter.length} picked` : undefined}>
+        <View style={styles.section}>
+          <ToggleRow
+            title="Verified only"
+            body="Photo-verified people. Always free."
+            value={filters.verifiedOnly}
+            onChange={(v) => {
+              tap();
+              filters.setVerifiedOnly(v);
+            }}
+          />
+        </View>
+
+        <Section icon="people" title="Age">
+          <View style={styles.stepperRow}>
+            <Stepper
+              label="From"
+              display={filters.ageMin == null ? 'Any' : String(filters.ageMin)}
+              onMinus={() => setAge('ageMin', -1)}
+              onPlus={() => setAge('ageMin', 1)}
+            />
+            <Stepper
+              label="To"
+              display={filters.ageMax == null ? 'Any' : String(filters.ageMax)}
+              onMinus={() => setAge('ageMax', -1)}
+              onPlus={() => setAge('ageMax', 1)}
+            />
+          </View>
+        </Section>
+
+        <Section
+          icon="heart"
+          title="Interests"
+          hint={filters.interestFilter.length ? `${filters.interestFilter.length} picked` : plus ? undefined : 'Specific ✦'}
+        >
           <ToggleRow
             title="Shares my interests"
             body={
@@ -342,33 +377,116 @@ export default function FiltersScreen() {
           />
           <AppText style={styles.subLabel}>Into any of these</AppText>
           <View style={styles.chips}>
-            {interestChoices.map((i) => (
-              <OptionChip
-                key={i}
-                label={i}
-                selected={filters.interestFilter.includes(i)}
-                onPress={() => {
-                  tap();
-                  filters.toggleIn('interestFilter', i);
-                }}
-              />
-            ))}
+            {interestChoices.map((i) => {
+              const specific = !isBroadInterest(i);
+              if (specific && !plus) {
+                return <OptionChip key={i} label={`${i} ✦`} selected={false} onPress={locked} />;
+              }
+              return (
+                <OptionChip
+                  key={i}
+                  label={i}
+                  selected={filters.interestFilter.includes(i)}
+                  onPress={() => {
+                    tap();
+                    filters.toggleIn('interestFilter', i);
+                  }}
+                />
+              );
+            })}
           </View>
           <Pressable onPress={() => setAllInterests((v) => !v)} hitSlop={6}>
-            <AppText style={styles.moreLink}>{allInterests ? 'Show fewer' : 'See all interests'}</AppText>
+            <AppText style={styles.moreLink}>
+              {allInterests ? 'Show fewer' : plus ? 'See all interests' : 'See all interests ✦'}
+            </AppText>
           </Pressable>
         </Section>
 
-        <View style={styles.section}>
-          <ToggleRow
-            title="Verified only"
-            body="Photo-verified people. Always free."
-            value={filters.verifiedOnly}
-            onChange={(v) => {
-              tap();
-              filters.setVerifiedOnly(v);
-            }}
-          />
+        <View style={[styles.plusCard, styles.nightCard, !plus && styles.plusCardLocked]}>
+          <LinearGradient
+            colors={['rgba(30,27,75,0.95)', 'rgba(88,28,135,0.35)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.plusHead}
+          >
+            <Ionicons name="moon" size={18} color="#C4B5FD" />
+            <View style={styles.flex}>
+              <View style={styles.titleRow}>
+                <AppText style={styles.plusTitle}>After Hours</AppText>
+                <View style={[styles.badge, afterHoursOpen && styles.badgeLive]}>
+                  <AppText style={styles.badgeText}>{afterHoursOpen ? 'OPEN NOW' : 'OPENS 9 PM'}</AppText>
+                </View>
+              </View>
+              <AppText style={styles.plusBody}>Show people still open to plans after 10 PM.</AppText>
+            </View>
+            {!plus ? <PlusLock onPress={locked} /> : null}
+          </LinearGradient>
+
+          {afterHoursOpen ? (
+            <View style={styles.plusInner}>
+              <AppText style={styles.subLabel}>Still free</AppText>
+              <View style={styles.chips}>
+                {OUT_LATE_OPTIONS.map((o) => (
+                  <OptionChip
+                    key={o.value}
+                    label={o.label}
+                    selected={plus && filters.outLate === o.value}
+                    onPress={plusOnly(() =>
+                      filters.patch({ outLate: filters.outLate === o.value ? null : o.value }),
+                    )}
+                  />
+                ))}
+              </View>
+              <AppText style={styles.subLabel}>Only people who are</AppText>
+              <View style={styles.chips}>
+                <OptionChip
+                  label="Available now"
+                  selected={plus && filters.afterHoursNow}
+                  onPress={plusOnly(() => filters.patch({ afterHoursNow: !filters.afterHoursNow }))}
+                />
+                <OptionChip
+                  label="Open to late-night plans"
+                  selected={plus && filters.lateNightOpen}
+                  onPress={plusOnly(() => filters.patch({ lateNightOpen: !filters.lateNightOpen }))}
+                />
+              </View>
+            </View>
+          ) : (
+            <View style={styles.plusInner}>
+              <AppText style={styles.nightTeaser}>
+                Comes alive at 9 PM — find people free past 10, 11, or midnight, available right now, or
+                open to late-night plans.
+              </AppText>
+            </View>
+          )}
+        </View>
+
+        <View style={[styles.plusCard, !plus && styles.plusCardLocked]}>
+          <LinearGradient
+            colors={['rgba(234,88,12,0.28)', 'rgba(251,191,36,0.06)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.plusHead}
+          >
+            <Ionicons name="flash" size={18} color="#FDBA74" />
+            <View style={styles.flex}>
+              <AppText style={styles.plusTitle}>Spontaneous</AppText>
+              <AppText style={styles.plusBody}>People ready to make something happen right now.</AppText>
+            </View>
+            {!plus ? <PlusLock onPress={locked} /> : null}
+          </LinearGradient>
+          <View style={styles.plusInner}>
+            <View style={styles.chips}>
+              {SPONTANEOUS_OPTIONS.map((o) => (
+                <OptionChip
+                  key={o.value}
+                  label={o.label}
+                  selected={plus && filters.spontaneous.includes(o.value)}
+                  onPress={plusOnly(() => filters.toggleIn('spontaneous', o.value))}
+                />
+              ))}
+            </View>
+          </View>
         </View>
 
         <View style={[styles.plusCard, !plus && styles.plusCardLocked]}>
@@ -385,13 +503,7 @@ export default function FiltersScreen() {
                 {plus ? 'Included with your DateToday+' : 'Find exactly your type with DateToday+'}
               </AppText>
             </View>
-            {!plus ? (
-              <Pressable onPress={locked} style={styles.unlockPill}>
-                <LinearGradient colors={[...gradients.brand]} style={styles.unlockGrad}>
-                  <AppText style={styles.unlockText}>Unlock</AppText>
-                </LinearGradient>
-              </Pressable>
-            ) : null}
+            {!plus ? <PlusLock onPress={locked} /> : null}
           </LinearGradient>
 
           <View style={styles.plusInner}>
@@ -571,6 +683,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
   plusCardLocked: { borderStyle: 'dashed' },
+  nightCard: { borderColor: 'rgba(196,181,253,0.45)' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  badge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  badgeLive: { backgroundColor: 'rgba(167,139,250,0.35)' },
+  badgeText: { color: '#E9D5FF', fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
+  nightTeaser: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
   plusHead: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 },
   plusTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
   plusBody: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },

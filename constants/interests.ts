@@ -33,6 +33,26 @@ export const INTEREST_GROUPS: { title: string; items: string[] }[] = [
 
 export const ALL_INTERESTS = INTEREST_GROUPS.flatMap((g) => g.items);
 
+/** Free filter set; filtering on the rest of ALL_INTERESTS is DateToday+. */
+export const BROAD_INTERESTS = [
+  'Active',
+  'Homebody',
+  'Hiking',
+  'Cooking',
+  'Reading',
+  'Gym',
+  'Travel',
+  'Movies',
+  'Gaming',
+  'Live music',
+  'Coffee',
+  'Dogs',
+] as const;
+
+export function isBroadInterest(name: string): boolean {
+  return (BROAD_INTERESTS as readonly string[]).includes(name);
+}
+
 /** Older profiles picked from a shorter list; map them onto the current names. */
 const LEGACY: Record<string, string> = { Fitness: 'Gym', Film: 'Movies' };
 

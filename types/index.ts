@@ -1,3 +1,5 @@
+import type { AfterHoursTag } from '@/constants/afterHours';
+
 export type AccountStatus = 'active' | 'suspended' | 'banned' | 'deleted';
 export type UserRole = 'user' | 'moderator' | 'admin';
 export type VerificationStatus =
@@ -184,6 +186,7 @@ export interface LiveSession {
   /** Local hour (18–21) when free later tonight; null = live now. */
   laterTonightHour?: number | null;
   availabilityMode?: 'live' | 'later';
+  afterHours?: AfterHoursTag[];
 }
 
 export interface DiscoveryVideoPrompt {
@@ -214,8 +217,10 @@ export interface DiscoveryCard {
   /** Signature first, then About You — curated prompts only */
   videoPrompts: DiscoveryVideoPrompt[];
   foodCuisines?: FoodCuisine[];
-  /** live = Pinged now; later = said they'll be free later tonight */
-  availabilityMode?: 'live' | 'later';
+  /** live = Pinged now; later = free later tonight; nearby = in range but not live (matchable, not "free"). */
+  availabilityMode?: 'live' | 'later' | 'nearby';
+  /** Nearby (not live) people only. */
+  lastActiveAt?: string | null;
   laterTonightHour?: number | null;
   heightCm?: number | null;
   drinking?: string | null;
@@ -223,6 +228,17 @@ export interface DiscoveryCard {
   interests?: string[];
   kids?: string | null;
   exercise?: string | null;
+  startedAt?: string | null;
+  afterHours?: AfterHoursTag[];
+  /** Compatibility quiz level they've finished; 0 = not taken. */
+  quizLevel?: number;
+  occupation?: string | null;
+  school?: string | null;
+  /** Server-owned signals (userStats) behind status tags. */
+  joinedAt?: string | null;
+  lastPlanAt?: string | null;
+  replies?: number;
+  fastReplies?: number;
 }
 
 export interface Ping {

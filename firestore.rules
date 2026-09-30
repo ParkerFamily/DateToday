@@ -9,9 +9,8 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
-    // Clients may set verification fields. Production should prefer Cloud Function
-    // confirmPersonaVerification (Admin write) once the project is on Blaze.
-    // Until then, the app only writes verified after a live Persona API poll.
+    // Only confirmPersonaVerification (Admin SDK) can set 'verified'. Clients may record
+    // in-progress states, or leave an existing server-set 'verified' untouched.
     function verificationNotForged() {
       return !('verificationStatus' in request.resource.data)
         || request.resource.data.verificationStatus in [
@@ -19,8 +18,18 @@ service cloud.firestore {
           'pending',
           'failed',
           'manual_review',
-          'verified',
-        ];
+        ]
+        || (
+          resource != null
+          && resource.data.get('verificationStatus', '') == 'verified'
+          && request.resource.data.verificationStatus == 'verified'
+        );
+    }
+
+    // Denormalized cards (live / nearby) may only claim 'verified' if the account is.
+    function verifiedMatchesAccount(userId) {
+      return request.resource.data.get('verificationStatus', '') != 'verified'
+        || get(/databases/$(database)/documents/users/$(userId)).data.get('verificationStatus', '') == 'verified';
     }
 
     // Prevent self-granting paid plan / role fields if present on the doc.
@@ -149,8 +158,22 @@ service cloud.firestore {
     // Approximate live beacons for Ping discovery (rounded lat/lng only).
     match /liveSessions/{userId} {
       allow read: if signedIn();
-      allow create, update: if isOwner(userId);
+      allow create, update: if isOwner(userId) && verifiedMatchesAccount(userId);
       allow delete: if isOwner(userId);
+    }
+
+    // Non-live "nearby" presence (rounded lat/lng + public card fields) so the feed isn't empty.
+    match /nearbyProfiles/{userId} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(userId) && request.resource.data.userId == userId
+        && verifiedMatchesAccount(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // Reply speed / recent plans / join date behind Discover status tags. Cloud Functions only.
+    match /userStats/{userId} {
+      allow read: if signedIn();
+      allow write: if false;
     }
 
     // Hearts. Written only by the sendInterest Cloud Function (mutual check + push).

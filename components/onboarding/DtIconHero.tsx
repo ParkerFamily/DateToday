@@ -22,6 +22,7 @@ import Animated, {
   cancelAnimation,
 } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
+import { useIsFocused } from 'expo-router';
 import { colors } from '@/constants/theme';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -46,6 +47,8 @@ interface DtIconHeroProps {
   onPressOut?: () => void;
   style?: StyleProp<ViewStyle>;
   disabled?: boolean;
+  /** No looping glow — for screens that need the UI thread (camera). */
+  still?: boolean;
 }
 
 /**
@@ -64,6 +67,7 @@ export function DtIconHero({
   onPressOut,
   style,
   disabled,
+  still = false,
 }: DtIconHeroProps) {
   const soft = atmosphere === 'soft';
   const neon = useSharedValue(0.55);
@@ -74,7 +78,17 @@ export function DtIconHero({
   const hold = useSharedValue(holdProgress);
   const liveMix = useSharedValue(live ? 1 : 0);
 
+  // Stacked screens stay mounted; a dozen looping logos underneath starves the UI thread on Android.
+  const focused = useIsFocused();
+  const animate = focused && !still;
+
   useEffect(() => {
+    if (!animate) {
+      cancelAnimation(bloom);
+      cancelAnimation(flicker);
+      flicker.value = 1;
+      return;
+    }
     // Warm-up like a bar neon flipping on
     neon.value = withSequence(
       withTiming(0.15, { duration: 80 }),
@@ -111,7 +125,7 @@ export function DtIconHero({
       cancelAnimation(bloom);
       cancelAnimation(flicker);
     };
-  }, [bloom, flicker, neon]);
+  }, [animate, bloom, flicker, neon]);
 
   useEffect(() => {
     if (mode === 'pulse') {
@@ -134,7 +148,7 @@ export function DtIconHero({
 
   useEffect(() => {
     liveMix.value = withTiming(live ? 1 : 0, { duration: 420 });
-    if (live) {
+    if (live && animate) {
       // Live: steadier, hotter glow (green mix) — like OPEN locked on
       flicker.value = withRepeat(
         withSequence(
@@ -146,7 +160,7 @@ export function DtIconHero({
         false,
       );
     }
-  }, [live, liveMix, flicker]);
+  }, [live, animate, liveMix, flicker]);
 
   const iconStyle = useAnimatedStyle(() => {
     const scaleBreath = interpolate(bloom.value, [0, 1], [1, 1.03]);

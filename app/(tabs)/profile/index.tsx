@@ -1,13 +1,15 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { VerificationTag } from '@/components/ui/VerificationTag';
+import { QuizPromoCard } from '@/components/profile/QuizPromoCard';
+import { vibeLabel } from '@/constants/copy';
 import {
   BlockLabel,
   FineTuneCard,
@@ -17,6 +19,7 @@ import {
 } from '@/components/ui/LiveChrome';
 import { colors, spacing } from '@/constants/theme';
 import { isPlusActive } from '@/lib/entitlements';
+import { syncVerificationStatus } from '@/features/verification/persistVerification';
 import { useSessionStore } from '@/store/session';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import type { ProfileCompletionRequirements } from '@/types';
@@ -32,6 +35,13 @@ const CHECKLIST: { key: ChecklistKey; label: string; href: string }[] = [
   { key: 'location', label: 'Enable location', href: '/settings/location' },
 ];
 
+const VERIFY_COPY: Record<string, { label: string; sub: string }> = {
+  unverified: { label: 'Verify your ID', sub: 'Get the verified badge · takes 2 min' },
+  failed: { label: 'Retry ID verification', sub: 'Last try didn’t go through' },
+  pending: { label: 'Verification in review', sub: 'We’ll let you know soon' },
+  manual_review: { label: 'Verification in review', sub: 'We’ll let you know soon' },
+};
+
 export default function ProfileTabScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -39,6 +49,12 @@ export default function ProfileTabScreen() {
   const entitlements = useSessionStore((s) => s.entitlements);
   const { percent, requirements, readyForLive } = useProfileCompletion();
   const plus = isPlusActive(entitlements);
+
+  useFocusEffect(
+    useCallback(() => {
+      void syncVerificationStatus().catch(() => undefined);
+    }, []),
+  );
 
   const openSteps = useMemo(
     () => CHECKLIST.filter((step) => !requirements[step.key]),
@@ -48,6 +64,8 @@ export default function ProfileTabScreen() {
   const verified = profile?.verificationStatus === 'verified';
   const verificationStatus = profile?.verificationStatus ?? 'unverified';
   const name = profile?.displayName ?? 'Your profile';
+  const verifyCopy = VERIFY_COPY[verificationStatus] ?? VERIFY_COPY.unverified;
+  const showSteps = !readyForLive && openSteps.length > 0;
 
   return (
     <Screen padded={false} edges={['top', 'left', 'right']}>
@@ -121,10 +139,53 @@ export default function ProfileTabScreen() {
           </AppText>
         </View>
 
-        {!readyForLive && openSteps.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={profile?.bio?.trim() ? 'Edit bio' : 'Add a bio'}
+          onPress={() => router.push({ pathname: '/settings/edit-profile', params: { open: 'bio' } })}
+          style={({ pressed }) => [styles.bioCard, pressed && { opacity: 0.85 }]}
+        >
+          <View style={styles.strengthTop}>
+            <AppText style={styles.strengthTitle}>About me</AppText>
+            <AppText style={styles.bioEdit}>{profile?.bio?.trim() ? 'Edit' : 'Add'} ›</AppText>
+          </View>
+          {vibeLabel(profile?.datingIntention) ? (
+            <AppText style={styles.bioVibe}>{vibeLabel(profile?.datingIntention)}</AppText>
+          ) : null}
+          <AppText
+            style={profile?.bio?.trim() ? styles.bioText : styles.bioEmpty}
+            numberOfLines={4}
+          >
+            {profile?.bio?.trim() || 'Write a line or two about you — people read this before they tap ♥.'}
+          </AppText>
+        </Pressable>
+
+        <QuizPromoCard />
+
+        {showSteps || !verified ? (
           <View style={styles.finish}>
             <BlockLabel>Finish profile</BlockLabel>
-            {openSteps.slice(0, 4).map((step) => (
+            {!verified ? (
+              <Pressable
+                style={styles.checkRow}
+                onPress={() => router.push('/settings/verification')}
+                accessibilityRole="button"
+              >
+                <View style={styles.verifyIcon}>
+                  <Ionicons
+                    name={verificationStatus === 'pending' || verificationStatus === 'manual_review' ? 'time-outline' : 'shield-checkmark'}
+                    size={14}
+                    color={colors.brandBright}
+                  />
+                </View>
+                <View style={styles.verifyCopy}>
+                  <AppText style={[styles.checkLabel, styles.verifyLabel]}>{verifyCopy.label}</AppText>
+                  <AppText style={styles.verifySub}>{verifyCopy.sub}</AppText>
+                </View>
+                <AppText style={styles.chevron}>›</AppText>
+              </Pressable>
+            ) : null}
+            {(showSteps ? openSteps : []).slice(0, 4).map((step) => (
               <Pressable
                 key={step.key}
                 style={styles.checkRow}
@@ -136,9 +197,11 @@ export default function ProfileTabScreen() {
               </Pressable>
             ))}
             <Button
-              label="CONTINUE PROFILE"
+              label={showSteps ? 'CONTINUE PROFILE' : 'VERIFY NOW'}
               onPress={() =>
-                router.push((openSteps[0]?.href ?? '/settings/edit-profile') as never)
+                router.push(
+                  ((showSteps ? openSteps[0]?.href : null) ?? '/settings/verification') as never,
+                )
               }
               style={{ marginTop: spacing.sm }}
             />
@@ -307,6 +370,18 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 13,
   },
+  bioCard: {
+    gap: 8,
+    padding: spacing.md,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.elevated,
+  },
+  bioEdit: { color: colors.brandBright, fontWeight: '800', fontSize: 14 },
+  bioVibe: { color: colors.brandBright, fontSize: 13, fontWeight: '700' },
+  bioText: { color: colors.text, fontSize: 15, lineHeight: 21 },
+  bioEmpty: { color: colors.textSecondary, fontSize: 14, lineHeight: 20 },
   finish: {
     gap: 4,
   },
@@ -324,6 +399,25 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     borderWidth: 1.5,
     borderColor: colors.textSecondary,
+  },
+  verifyIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(168,85,247,0.16)',
+  },
+  verifyCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  verifyLabel: {
+    flex: 0,
+  },
+  verifySub: {
+    color: colors.textSecondary,
+    fontSize: 12,
   },
   checkLabel: {
     flex: 1,

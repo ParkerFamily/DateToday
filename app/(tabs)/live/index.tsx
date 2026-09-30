@@ -2,6 +2,7 @@ import { DiscoverFeed } from '@/components/discover/DiscoverFeed';
 import { friendlyError } from '@/lib/errors';
 import { syncLiveSessionPatch } from '@/features/live/restoreLiveSession';
 import { LiveStatusBar } from '@/components/live/LiveStatusBar';
+import { QuizPromoCard } from '@/components/profile/QuizPromoCard';
 import { DtIconHero } from '@/components/onboarding/DtIconHero';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
@@ -11,6 +12,7 @@ import { availabilityPresets, copy } from '@/constants/copy';
 import { flowCopy, formatLaterHour } from '@/constants/flow';
 import { colors, gradients, spacing } from '@/constants/theme';
 import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
+import { AFTER_HOURS_TAGS, type AfterHoursTag } from '@/constants/afterHours';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import {
     clearTonightBoost,
@@ -32,6 +34,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
+    AppState,
     Modal,
     Pressable,
     ScrollView,
@@ -39,6 +42,7 @@ import {
     View,
 } from 'react-native';
 import Animated, {
+    cancelAnimation,
     Easing,
     FadeIn,
     FadeInDown,
@@ -130,7 +134,10 @@ export default function LiveHomeScreen() {
   const [radius, setRadius] = useState<RadiusMiles>(10);
   /** null = live now; 18–21 = free later tonight */
   const [laterTonightHour, setLaterTonightHour] = useState<number | null>(null);
+  const [afterHoursTags, setAfterHoursTags] = useState<AfterHoursTag[]>([]);
   const [holdProgress, setHoldProgress] = useState(0);
+  const holdFill = useSharedValue(0);
+  const holdFillStyle = useAnimatedStyle(() => ({ width: `${holdFill.value * 100}%` }));
   const holdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const holdDone = useRef(false);
   const lastHaptic = useRef(0);
@@ -156,11 +163,29 @@ export default function LiveHomeScreen() {
     ? formatUntil(liveSession?.availableUntil ?? liveSession!.expiresAt)
     : formatFreeUntilLabel(availability[0] ?? '7_10');
   const radiusLabel = live ? (liveSession?.radiusMiles ?? radius) : radius;
+  const showLateNight = now.getHours() >= 20 || now.getHours() < 5 || availability[0] === 'after_10';
 
+  // The countdown lives in LiveStatusBar; this screen only needs a coarse clock plus a wake-up at expiry.
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
+    const tick = () => setNow(new Date());
+    const id = setInterval(tick, 30_000);
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') tick();
+    });
+    return () => {
+      clearInterval(id);
+      sub.remove();
+    };
   }, []);
+
+  const expiresAt = liveSession?.expiresAt;
+  useEffect(() => {
+    if (!expiresAt) return;
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    if (ms <= 0) return;
+    const id = setTimeout(() => setNow(new Date()), Math.min(ms + 250, 2_147_000_000));
+    return () => clearTimeout(id);
+  }, [expiresAt]);
 
   useEffect(() => {
     if (!live) void clearTonightBoost();
@@ -201,6 +226,8 @@ export default function LiveHomeScreen() {
       clearInterval(holdRef.current);
       holdRef.current = null;
     }
+    cancelAnimation(holdFill);
+    holdFill.value = 0;
     setHoldProgress(0);
     holdDone.current = false;
   };
@@ -249,6 +276,7 @@ export default function LiveHomeScreen() {
           availabilityLabel: label,
           availableUntil: expiresAt.toISOString(),
           laterTonightHour,
+          afterHours: showLateNight ? afterHoursTags : [],
         });
         setLiveSession({ ...session, isBoosted: false, boostedAt: null });
         setPingResults(0, 0);
@@ -320,12 +348,13 @@ export default function LiveHomeScreen() {
     clearHold();
     const started = Date.now();
     lastHaptic.current = 0;
+    holdFill.value = withTiming(1, { duration: HOLD_MS, easing: Easing.linear });
     holdRef.current = setInterval(() => {
       const p = Math.min(1, (Date.now() - started) / HOLD_MS);
-      setHoldProgress(p);
       const tick = Math.floor(p * 10);
       if (tick > lastHaptic.current && tick < 10) {
         lastHaptic.current = tick;
+        setHoldProgress(tick / 10);
         void Haptics.selectionAsync();
       }
       if (p >= 1 && !holdDone.current) {
@@ -333,10 +362,11 @@ export default function LiveHomeScreen() {
         if (holdRef.current) clearInterval(holdRef.current);
         holdRef.current = null;
         setHoldProgress(0);
+        holdFill.value = 0;
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         void activateLive();
       }
-    }, 16);
+    }, 40);
   };
 
   const onStop = () => {
@@ -387,7 +417,10 @@ export default function LiveHomeScreen() {
           datePlanned={datePlannedTonight}
           isBoosted={Boolean(liveSession.isBoosted)}
           loading={loading || leaving}
-          onEdit={() => setSheet('edit')}
+          onEdit={() => {
+            setAfterHoursTags(liveSession.afterHours ?? []);
+            setSheet('edit');
+          }}
           onOffline={() => onStopRef.current()}
           onBoost={() => router.push('/paywall/boost')}
         />
@@ -403,6 +436,11 @@ export default function LiveHomeScreen() {
       }
       return [...prev, value];
     });
+  };
+
+  const toggleAfterHours = (value: AfterHoursTag) => {
+    void Haptics.selectionAsync();
+    setAfterHoursTags((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
   };
 
   const toggleFood = (value: FoodCuisine) => {
@@ -595,6 +633,33 @@ export default function LiveHomeScreen() {
               </ScrollView>
             </View>
 
+            {showLateNight ? (
+              <View style={styles.section}>
+                <View style={styles.sectionHead}>
+                  <AppText style={styles.sectionLabel}>🌙 LATE NIGHT?</AppText>
+                  <AppText style={styles.sectionHint}>Optional · shows in After Hours.</AppText>
+                </View>
+                <View style={styles.lateWrap}>
+                  {AFTER_HOURS_TAGS.map((t) => {
+                    const on = afterHoursTags.includes(t.value);
+                    return (
+                      <Pressable
+                        key={t.value}
+                        onPress={() => toggleAfterHours(t.value)}
+                        style={[styles.laterPill, on && styles.latePillOn]}
+                      >
+                        <AppText style={[styles.laterPillText, on && styles.laterPillTextOn]}>
+                          {t.label}
+                        </AppText>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            <QuizPromoCard hideWhenTaken />
+
             <Pressable style={styles.plusCard} onPress={() => router.push('/paywall')}>
               <Ionicons name="sparkles" size={22} color={colors.brandBright} />
               <View style={styles.plusCopy}>
@@ -626,12 +691,7 @@ export default function LiveHomeScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.goLiveGrad}
                 >
-                  {holdProgress > 0.02 ? (
-                    <View
-                      pointerEvents="none"
-                      style={[styles.goLiveFill, { width: `${Math.round(holdProgress * 100)}%` }]}
-                    />
-                  ) : null}
+                  <Animated.View pointerEvents="none" style={[styles.goLiveFill, holdFillStyle]} />
                   <AppText style={styles.goLiveLabel}>
                     {loading
                       ? 'Going live…'
@@ -642,7 +702,7 @@ export default function LiveHomeScreen() {
                 </LinearGradient>
               </Pressable>
               <AppText style={styles.goLiveHint}>
-                Go live to see who’s free near you — they’ll show up right here.
+                Go live to appear higher and let people know you're actually free tonight.
               </AppText>
             </View>
           </>
@@ -758,6 +818,17 @@ export default function LiveHomeScreen() {
                     />
                   </>
                 ) : null}
+                <AppText variant="title" style={styles.sheetTitle}>
+                  Late night
+                </AppText>
+                <AppText variant="secondary" style={styles.sheetHint}>
+                  Optional · helps people browsing After Hours find you.
+                </AppText>
+                <OptionGrid
+                  options={AFTER_HOURS_TAGS}
+                  values={afterHoursTags}
+                  onToggle={(value) => toggleAfterHours(value as AfterHoursTag)}
+                />
                 <Button
                   label="Save"
                   onPress={() => {
@@ -770,6 +841,7 @@ export default function LiveHomeScreen() {
                         availabilityLabel: label,
                         availableUntil: expiresAt.toISOString(),
                         expiresAt: expiresAt.toISOString(),
+                        afterHours: afterHoursTags,
                       };
                       setLiveSession({ ...liveSession, ...patch });
                       void syncLiveSessionPatch(patch);
@@ -935,6 +1007,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.45,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 0 },
+  },
+  lateWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  latePillOn: {
+    borderColor: '#A78BFA',
+    backgroundColor: 'rgba(76,29,149,0.45)',
   },
   laterPillText: {
     color: colors.textSecondary,

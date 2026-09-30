@@ -239,11 +239,7 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
     locationEnabled: draft.locationEnabled,
     notificationsEnabled: draft.notificationsEnabled,
 
-    // Keep server-confirmed verified; otherwise persist draft (pending/unverified/failed).
-    verificationStatus:
-      draft.verificationStatus === 'verified'
-        ? 'verified'
-        : draft.verificationStatus || 'unverified',
+    // verificationStatus is owned by confirmPersonaVerification; a stale draft must never overwrite it.
     personaInquiryId: draft.personaInquiryId,
 
     onboardingComplete: true,
@@ -278,7 +274,6 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
       aboutVideoUrl: payload.aboutVideoUrl,
       tonightPromptText: payload.tonightPromptText,
       tonightVideoUrl: payload.tonightVideoUrl,
-      verificationStatus: payload.verificationStatus,
       // Preferences stay on private users/{uid} — not public profiles.
       updatedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
@@ -301,7 +296,7 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
     neighborhoodLabel: null,
     zodiac: null,
     interests: payload.interests,
-    verificationStatus: payload.verificationStatus as Profile['verificationStatus'],
+    verificationStatus: draft.verificationStatus || 'unverified',
     mainPhotoUrl: payload.mainPhotoUrl,
     photoUrls: payload.mainPhotoUrl ? [payload.mainPhotoUrl] : [],
     aboutPromptId: draft.aboutPromptId,

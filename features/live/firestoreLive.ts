@@ -1,6 +1,11 @@
 import {
   collection,
+  deleteDoc,
   doc,
+  documentId,
+  limit as limitTo,
+  orderBy,
+  Timestamp as FsTimestamp,
   getDoc,
   getDocs,
   onSnapshot,
@@ -10,6 +15,7 @@ import {
   where,
   type Timestamp,
 } from 'firebase/firestore';
+import { cleanAfterHoursTags, type AfterHoursTag } from '@/constants/afterHours';
 import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
 import { calculateAge } from '@/utils/time';
 import type {
@@ -57,6 +63,7 @@ export type PublishLiveInput = {
   /** Local hour 18–21 when free later; null = live now. */
   laterTonightHour?: number | null;
   isBoosted?: boolean;
+  afterHours?: AfterHoursTag[];
 };
 
 function videoPromptsFromUser(d: Record<string, unknown>): DiscoveryCard['videoPrompts'] {
@@ -84,6 +91,75 @@ function videoPromptsFromUser(d: Record<string, unknown>): DiscoveryCard['videoP
   return out;
 }
 
+/** Public card fields copied from private users/{uid} onto live + nearby docs. */
+function publicCardFields(u: Record<string, unknown>) {
+  let age = 21;
+  try {
+    if (typeof u.dateOfBirth === 'string' && u.dateOfBirth) {
+      age = calculateAge(u.dateOfBirth);
+    }
+  } catch {
+    /* keep default */
+  }
+  return {
+    quizLevel: Number((u.quiz as { level?: unknown } | undefined)?.level) || 0,
+    displayName: String(u.displayName ?? 'Member'),
+    age,
+    neighborhoodLabel: (u.neighborhoodLabel as string | null) ?? null,
+    mainPhotoUrl: (u.mainPhotoUrl as string | null) ?? null,
+    verificationStatus: (u.verificationStatus as string) ?? 'unverified',
+    datingIntention: (u.datingIntention as string | null) ?? null,
+    bio: (u.bio as string | null) ?? null,
+    heightCm: typeof u.heightCm === 'number' ? u.heightCm : null,
+    drinking: (u.drinking as string | null) ?? null,
+    smoking: (u.smoking as string | null) ?? null,
+    interests: Array.isArray(u.interests) ? (u.interests as string[]).slice(0, 10) : [],
+    kids: (u.kids as string | null) ?? null,
+    exercise: (u.exercise as string | null) ?? null,
+    occupation: (u.occupation as string | null) ?? null,
+    school: (u.school as string | null) ?? null,
+    // Needed so both people's "show me" preferences can be honored in the feed.
+    gender: (u.gender as string | null) ?? null,
+    interestedIn: (u.interestedIn as string | null) ?? 'everyone',
+    aboutVideoUrl: (u.aboutVideoUrl as string | null) ?? null,
+    tonightVideoUrl: (u.tonightVideoUrl as string | null) ?? null,
+    aboutPromptId: (u.aboutPromptId as string | null) ?? null,
+    aboutPromptText: (u.aboutPromptText as string | null) ?? null,
+    tonightPromptId: (u.tonightPromptId as string | null) ?? null,
+    tonightPromptText: (u.tonightPromptText as string | null) ?? null,
+  };
+}
+
+/**
+ * Non-live presence so the feed isn't empty when few people are live: approximate location +
+ * last active time. Only written for people who allow discovery and already granted location.
+ */
+export async function publishNearbyPresence(coords: { latitude: number; longitude: number }): Promise<void> {
+  const uid = getFirebaseAuth().currentUser?.uid;
+  if (!uid) return;
+  const userSnap = await getDoc(doc(getDb(), 'users', uid));
+  const u = (userSnap.data() ?? {}) as Record<string, unknown>;
+  if (!u.mainPhotoUrl || !u.displayName) return;
+  await setDoc(
+    doc(getDb(), 'nearbyProfiles', uid),
+    {
+      userId: uid,
+      latitude: approxCoord(coords.latitude),
+      longitude: approxCoord(coords.longitude),
+      lastActiveAt: serverTimestamp(),
+      ...publicCardFields(u),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+export async function removeNearbyPresence(): Promise<void> {
+  const uid = getFirebaseAuth().currentUser?.uid;
+  if (!uid) return;
+  await deleteDoc(doc(getDb(), 'nearbyProfiles', uid)).catch(() => undefined);
+}
+
 /**
  * Publish / refresh the signed-in user's live beacon in Firestore.
  * Denormalizes public profile fields so Ping can read without private users/{uid}.
@@ -99,19 +175,11 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
   const lat = approxCoord(input.latitude);
   const lng = approxCoord(input.longitude);
 
-  let age = 21;
-  try {
-    if (typeof u.dateOfBirth === 'string' && u.dateOfBirth) {
-      age = calculateAge(u.dateOfBirth);
-    }
-  } catch {
-    /* keep default */
-  }
-
   const laterHour =
     input.laterTonightHour != null && input.laterTonightHour >= 18
       ? input.laterTonightHour
       : null;
+  const afterHours = cleanAfterHoursTags(input.afterHours);
 
   const payload = {
     userId: uid,
@@ -131,34 +199,14 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     availabilityMode: laterHour != null ? 'later' : 'live',
     isBoosted: Boolean(input.isBoosted),
     boostedAt: input.isBoosted ? nowIso : null,
-    displayName: String(u.displayName ?? 'Member'),
-    age,
-    neighborhoodLabel: (u.neighborhoodLabel as string | null) ?? null,
-    mainPhotoUrl: (u.mainPhotoUrl as string | null) ?? null,
-    verificationStatus: (u.verificationStatus as string) ?? 'unverified',
-    datingIntention: (u.datingIntention as string | null) ?? null,
-    bio: (u.bio as string | null) ?? null,
-    // Advanced Filters (height / lifestyle).
-    heightCm: typeof u.heightCm === 'number' ? u.heightCm : null,
-    drinking: (u.drinking as string | null) ?? null,
-    smoking: (u.smoking as string | null) ?? null,
-    interests: Array.isArray(u.interests) ? (u.interests as string[]).slice(0, 10) : [],
-    kids: (u.kids as string | null) ?? null,
-    exercise: (u.exercise as string | null) ?? null,
-    // Needed so both people's "show me" preferences can be honored in the feed.
-    gender: (u.gender as string | null) ?? null,
-    interestedIn: (u.interestedIn as string | null) ?? 'everyone',
-    aboutVideoUrl: (u.aboutVideoUrl as string | null) ?? null,
-    tonightVideoUrl: (u.tonightVideoUrl as string | null) ?? null,
-    aboutPromptId: (u.aboutPromptId as string | null) ?? null,
-    aboutPromptText: (u.aboutPromptText as string | null) ?? null,
-    tonightPromptId: (u.tonightPromptId as string | null) ?? null,
-    tonightPromptText: (u.tonightPromptText as string | null) ?? null,
+    afterHours,
+    ...publicCardFields(u),
     updatedAt: serverTimestamp(),
   };
 
   await setDoc(doc(getDb(), 'liveSessions', uid), payload, { merge: true });
   analytics.track('go_live_completed');
+  void publishNearbyPresence({ latitude: input.latitude, longitude: input.longitude }).catch(() => undefined);
 
   return {
     id: uid,
@@ -177,6 +225,7 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     availabilityMode: laterHour != null ? 'later' : 'live',
     isBoosted: Boolean(input.isBoosted),
     boostedAt: input.isBoosted ? nowIso : null,
+    afterHours,
   };
 }
 
@@ -207,6 +256,7 @@ export type LiveSessionPatch = Partial<
     | 'expiresAt'
     | 'isBoosted'
     | 'boostedAt'
+    | 'afterHours'
   >
 >;
 
@@ -225,9 +275,17 @@ export async function updateMyLiveSession(patch: LiveSessionPatch): Promise<void
 export async function refreshLiveProfileFields(fields: Record<string, unknown>): Promise<void> {
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return;
-  const snap = await getDoc(doc(getDb(), 'liveSessions', uid));
-  if (!snap.exists() || snap.data()?.status !== 'active') return;
-  await setDoc(doc(getDb(), 'liveSessions', uid), { ...fields, updatedAt: serverTimestamp() }, { merge: true });
+  const [live, nearby] = await Promise.all([
+    getDoc(doc(getDb(), 'liveSessions', uid)),
+    getDoc(doc(getDb(), 'nearbyProfiles', uid)),
+  ]);
+  const patch = { ...fields, updatedAt: serverTimestamp() };
+  await Promise.all([
+    live.exists() && live.data()?.status === 'active'
+      ? setDoc(doc(getDb(), 'liveSessions', uid), patch, { merge: true })
+      : null,
+    nearby.exists() ? setDoc(doc(getDb(), 'nearbyProfiles', uid), patch, { merge: true }) : null,
+  ]);
 }
 
 /** The signed-in user's session if it's still active — restores "live" after the OS killed the app. */
@@ -255,6 +313,7 @@ export async function fetchMyActiveLiveSession(uid: string): Promise<LiveSession
     availabilityMode: laterHour != null ? 'later' : 'live',
     isBoosted: Boolean(d.isBoosted),
     boostedAt: (d.boostedAt as string | null) ?? null,
+    afterHours: cleanAfterHoursTags(d.afterHours),
   };
 }
 
@@ -294,21 +353,30 @@ export function subscribeActiveLiveSessions(onChange: () => void) {
 }
 
 /**
- * Active beacons near the viewer. Client filters by mutual radius + haversine.
- * Low early density — keep the query simple (status == active).
+ * Active beacons near the viewer, then non-live nearby people. Client filters by mutual radius +
+ * haversine. Viewers who aren't live browse from their nearby presence with `browseRadiusMiles`.
  */
-export async function fetchFirestoreDiscoveryFeed(limit = 40): Promise<DiscoveryCard[]> {
+export async function fetchFirestoreDiscoveryFeed(
+  limit = 40,
+  browseRadiusMiles = 10,
+): Promise<DiscoveryCard[]> {
   const auth = getFirebaseAuth();
   const me = auth.currentUser?.uid;
   if (!me) return [];
 
   const mySnap = await getDoc(doc(getDb(), 'liveSessions', me));
-  const mine = mySnap.data();
-  if (!mine || mine.status !== 'active') return [];
+  let mine = mySnap.data();
+  let myRadius: number;
+  if (mine && mine.status === 'active') {
+    myRadius = Number(mine.radiusMiles ?? 10);
+  } else {
+    mine = (await getDoc(doc(getDb(), 'nearbyProfiles', me))).data();
+    if (!mine) return [];
+    myRadius = browseRadiusMiles;
+  }
 
   const myLat = Number(mine.latitude);
   const myLng = Number(mine.longitude);
-  const myRadius = Number(mine.radiusMiles ?? 10) as RadiusMiles;
   if (!Number.isFinite(myLat) || !Number.isFinite(myLng)) return [];
 
   const q = query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'));
@@ -337,21 +405,11 @@ export async function fetchFirestoreDiscoveryFeed(limit = 40): Promise<Discovery
 
     const laterHour =
       typeof d.laterTonightHour === 'number' ? d.laterTonightHour : null;
-    const mode =
-      d.availabilityMode === 'later' || (laterHour != null && laterHour > new Date().getHours())
-        ? 'later'
-        : 'live';
+    // "Free after 8" becomes live once 8 PM arrives.
+    const mode = laterHour != null && laterHour > new Date().getHours() ? 'later' : 'live';
 
     cards.push({
-      userId: String(d.userId ?? docSnap.id),
-      displayName: String(d.displayName ?? 'Member'),
-      age: Number(d.age ?? 21),
-      neighborhoodLabel: (d.neighborhoodLabel as string | null) ?? null,
-      distanceMiles: Math.round(dist * 10) / 10,
-      verificationStatus: (d.verificationStatus as VerificationStatus) ?? 'unverified',
-      datingIntention: (d.datingIntention as DiscoveryCard['datingIntention']) ?? null,
-      bio: (d.bio as string | null) ?? null,
-      mainPhotoUrl: (d.mainPhotoUrl as string | null) ?? null,
+      ...cardBase(docSnap.id, d, dist),
       liveSessionId: docSnap.id,
       liveUntil: expiresAt,
       availabilityLabel: (d.availabilityLabel as string | null) ?? null,
@@ -359,19 +417,130 @@ export async function fetchFirestoreDiscoveryFeed(limit = 40): Promise<Discovery
       foodCuisines: (d.foodCuisines as FoodCuisine[]) ?? [],
       isBoosted: Boolean(d.isBoosted),
       rankScore: d.isBoosted ? 10 : 1,
-      videoPrompts: videoPromptsFromUser(d),
       availabilityMode: mode,
       laterTonightHour: laterHour,
-      heightCm: typeof d.heightCm === 'number' ? d.heightCm : null,
-      drinking: (d.drinking as string | null) ?? null,
-      smoking: (d.smoking as string | null) ?? null,
-      interests: Array.isArray(d.interests) ? (d.interests as string[]) : [],
-      kids: (d.kids as string | null) ?? null,
-      exercise: (d.exercise as string | null) ?? null,
+      startedAt: d.startedAt ? tsToIso(d.startedAt) : null,
+      afterHours: cleanAfterHoursTags(d.afterHours),
     });
 
     if (cards.length >= limit) break;
   }
 
+  const liveIds = new Set(cards.map((c) => c.userId));
+  const nearby = await fetchNearbyCards(me, mine, myRadius, liveIds, limit).catch(() => []);
+  cards.push(...nearby);
+
+  const stats = await fetchUserStats(cards.map((c) => c.userId)).catch(() => new Map());
+  for (const c of cards) {
+    const s = stats.get(c.userId);
+    if (!s) continue;
+    c.joinedAt = s.joinedAt;
+    c.lastPlanAt = s.lastPlanAt;
+    c.replies = s.replies;
+    c.fastReplies = s.fastReplies;
+  }
+
   return cards;
+}
+
+/** Profile fields shared by live and nearby cards. */
+function cardBase(id: string, d: Record<string, unknown>, dist: number) {
+  return {
+    userId: String(d.userId ?? id),
+    displayName: String(d.displayName ?? 'Member'),
+    age: Number(d.age ?? 21),
+    neighborhoodLabel: (d.neighborhoodLabel as string | null) ?? null,
+    distanceMiles: Math.round(dist * 10) / 10,
+    verificationStatus: (d.verificationStatus as VerificationStatus) ?? 'unverified',
+    datingIntention: (d.datingIntention as DiscoveryCard['datingIntention']) ?? null,
+    bio: (d.bio as string | null) ?? null,
+    mainPhotoUrl: (d.mainPhotoUrl as string | null) ?? null,
+    videoPrompts: videoPromptsFromUser(d),
+    heightCm: typeof d.heightCm === 'number' ? d.heightCm : null,
+    drinking: (d.drinking as string | null) ?? null,
+    smoking: (d.smoking as string | null) ?? null,
+    interests: Array.isArray(d.interests) ? (d.interests as string[]) : [],
+    kids: (d.kids as string | null) ?? null,
+    exercise: (d.exercise as string | null) ?? null,
+    quizLevel: Number(d.quizLevel) || 0,
+    occupation: (d.occupation as string | null) ?? null,
+    school: (d.school as string | null) ?? null,
+  };
+}
+
+export const NEARBY_ACTIVE_DAYS = 14;
+
+/** People in range who aren't live — matchable, but never presented as free tonight. */
+async function fetchNearbyCards(
+  me: string,
+  mine: Record<string, unknown>,
+  myRadius: number,
+  skip: Set<string>,
+  limit: number,
+): Promise<DiscoveryCard[]> {
+  const myLat = Number(mine.latitude);
+  const myLng = Number(mine.longitude);
+  const since = FsTimestamp.fromMillis(Date.now() - NEARBY_ACTIVE_DAYS * 24 * 60 * 60 * 1000);
+  const snap = await getDocs(
+    query(
+      collection(getDb(), 'nearbyProfiles'),
+      where('lastActiveAt', '>=', since),
+      orderBy('lastActiveAt', 'desc'),
+      limitTo(200),
+    ),
+  );
+  const out: DiscoveryCard[] = [];
+  for (const docSnap of snap.docs) {
+    if (docSnap.id === me || skip.has(docSnap.id)) continue;
+    const d = docSnap.data() as Record<string, unknown>;
+    const lat = Number(d.latitude);
+    const lng = Number(d.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const dist = milesBetween({ latitude: myLat, longitude: myLng }, { latitude: lat, longitude: lng });
+    if (dist > myRadius) continue;
+    if (!wantsToSee(mine, d) || !wantsToSee(d, mine)) continue;
+    out.push({
+      ...cardBase(docSnap.id, d, dist),
+      liveSessionId: '',
+      liveUntil: '',
+      availabilityLabel: null,
+      activities: [],
+      foodCuisines: [],
+      isBoosted: false,
+      rankScore: 0,
+      availabilityMode: 'nearby',
+      laterTonightHour: null,
+      lastActiveAt: d.lastActiveAt ? tsToIso(d.lastActiveAt) : null,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+type UserStats = Pick<DiscoveryCard, 'joinedAt' | 'lastPlanAt' | 'replies' | 'fastReplies'>;
+
+function optionalIso(value: unknown): string | null {
+  return value ? tsToIso(value) : null;
+}
+
+/** Server-written signals (reply speed, recent plans, join date) — `in` queries cap at 30 ids. */
+async function fetchUserStats(uids: string[]): Promise<Map<string, UserStats>> {
+  const out = new Map<string, UserStats>();
+  for (let i = 0; i < uids.length; i += 30) {
+    const chunk = uids.slice(i, i + 30);
+    if (!chunk.length) continue;
+    const snap = await getDocs(
+      query(collection(getDb(), 'userStats'), where(documentId(), 'in', chunk)),
+    );
+    for (const d of snap.docs) {
+      const s = d.data() as Record<string, unknown>;
+      out.set(d.id, {
+        joinedAt: optionalIso(s.joinedAt),
+        lastPlanAt: optionalIso(s.lastPlanAt),
+        replies: Number(s.replies) || 0,
+        fastReplies: Number(s.fastReplies) || 0,
+      });
+    }
+  }
+  return out;
 }

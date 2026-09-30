@@ -100,6 +100,15 @@ export const datingVibes = [
 /** @deprecated use datingVibes */
 export const datingIntentions = datingVibes;
 
+/** Display label for a stored intention value (e.g. `food_company` → "Good food & good company"). */
+export function vibeLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = datingVibes.find((v) => v.value === value);
+  if (match) return match.label;
+  const spaced = String(value).replace(/_/g, ' ').trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : null;
+}
+
 export const interestOptions = [
   { value: 'men', label: 'Men' },
   { value: 'women', label: 'Women' },

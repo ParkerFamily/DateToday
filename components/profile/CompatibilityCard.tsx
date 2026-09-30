@@ -7,7 +7,7 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { fetchCompatibility, levelName, type Compatibility } from '@/features/compatibility/quiz';
 import { useSessionStore } from '@/store/session';
 
-function percentColor(p: number) {
+export function percentColor(p: number) {
   if (p >= 80) return colors.live;
   if (p >= 60) return colors.brandBright;
   return colors.warning;

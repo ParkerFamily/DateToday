@@ -145,6 +145,8 @@ export async function requestServerAccountDeletion(
     usePrivacyControls.getState().reset();
     analytics.track('account_deleted', { mode: 'server' });
     // Sign out locally; Auth user should already be deleted server-side.
+    const { markSignedOut } = await import('@/features/auth/api');
+    await markSignedOut();
     await getFirebaseAuth().signOut().catch(() => undefined);
     return { ok: true, mode: 'server' };
   } catch {

@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { Screen } from '@/components/ui/Screen';
@@ -20,7 +20,7 @@ import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { OptionChip } from '@/components/ui/OptionChip';
 import { VerificationTag } from '@/components/ui/VerificationTag';
-import { datingVibes, interestOptions } from '@/constants/copy';
+import { datingVibes, interestOptions, vibeLabel } from '@/constants/copy';
 import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
 import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
@@ -106,11 +106,6 @@ const HEIGHT_OPTIONS = (() => {
   }
   return rows;
 })();
-
-function vibeLabel(value: DatingIntention | null | undefined) {
-  if (!value) return null;
-  return datingVibes.find((v) => v.value === value)?.label ?? value;
-}
 
 function EditorRow({
   label,
@@ -279,6 +274,16 @@ export default function EditProfileScreen() {
     setDraftText(initial);
     setSheet(id);
   };
+
+  const { open } = useLocalSearchParams<{ open?: string }>();
+  const openedFromParam = useRef(false);
+  useEffect(() => {
+    if (open !== 'bio' || openedFromParam.current) return;
+    openedFromParam.current = true;
+    const t = setTimeout(() => openTextSheet('bio', bio), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const commitTextSheet = () => {
     const value = draftText.trim();
@@ -457,6 +462,8 @@ export default function EditProfileScreen() {
           interests: next.interests ?? [],
           kids: next.kids,
           exercise: next.exercise,
+          occupation: next.occupation ?? null,
+          school: next.school ?? null,
           datingIntention: vibe,
         }).catch(() => undefined);
       }

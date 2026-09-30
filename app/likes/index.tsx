@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, radii, spacing } from '@/constants/theme';
 import { canSeeAllReceivedPings } from '@/lib/entitlements';
+import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { fetchPublicCard, type PublicCard } from '@/features/matches/api';
 import { usePendingLikes } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
@@ -43,8 +44,11 @@ export default function LikesScreen() {
   }, [pending, cards]);
 
   const all = pending.filter((r) => cards[r.fromUid] !== null);
-  const visible = unlocked ? all : all.slice(0, FREE_PREVIEW);
-  const lockedCount = Math.max(0, all.length - visible.length);
+  // Free sees the oldest like until they match with them, so new likes can't rotate who's revealed.
+  const freeShown = useMemo(() => new Set(all.slice(-FREE_PREVIEW).map((r) => r.fromUid)), [all]);
+  const visible = unlocked ? all : all.filter((r) => freeShown.has(r.fromUid));
+  const locked = unlocked ? [] : all.filter((r) => !freeShown.has(r.fromUid));
+  const lockedCount = locked.length;
 
   return (
     <Screen padded={false}>
@@ -95,12 +99,40 @@ export default function LikesScreen() {
           })
         )}
 
-        {!unlocked && lockedCount > 0 ? (
-          <View style={styles.lockCard}>
-            <AppText style={styles.lockTitle}>+{lockedCount} more like you</AppText>
-            <AppText style={styles.lockBody}>See everyone who liked you with DateToday+.</AppText>
-            <Button label="Get DateToday+" onPress={() => router.push('/paywall')} />
-          </View>
+        {lockedCount > 0 ? (
+          <>
+            {locked.slice(0, 6).map((r) => {
+              const card = cards[r.fromUid];
+              return (
+                <Pressable
+                  key={r.fromUid}
+                  style={styles.row}
+                  onPress={() => openUpgrade(router, 'likes')}
+                  accessibilityLabel="Hidden like — unlock with DateToday+"
+                >
+                  {card?.mainPhotoUrl ? (
+                    <Image source={{ uri: card.mainPhotoUrl }} style={styles.avatar} blurRadius={40} />
+                  ) : (
+                    <View style={[styles.avatar, styles.avatarPh]} />
+                  )}
+                  <View style={styles.meta}>
+                    <AppText style={styles.name}>Someone nearby</AppText>
+                    <AppText variant="secondary">Liked you · unlock to see who</AppText>
+                  </View>
+                  <AppText style={styles.lockIcon}>🔒</AppText>
+                </Pressable>
+              );
+            })}
+            <View style={styles.lockCard}>
+              <AppText style={styles.lockTitle}>
+                +{lockedCount} more {lockedCount === 1 ? 'person likes' : 'people like'} you
+              </AppText>
+              <AppText style={styles.lockBody}>
+                Free shows 1 like at a time. See everyone who liked you with DateToday+.
+              </AppText>
+              <Button label="Get DateToday+" onPress={() => openUpgrade(router, 'likes')} />
+            </View>
+          </>
         ) : null}
       </ScrollView>
     </Screen>
@@ -164,6 +196,9 @@ const styles = StyleSheet.create({
   chev: {
     color: colors.textSecondary,
     fontSize: 22,
+  },
+  lockIcon: {
+    fontSize: 18,
   },
   lockCard: {
     marginTop: spacing.lg,
