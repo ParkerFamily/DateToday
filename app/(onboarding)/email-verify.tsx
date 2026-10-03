@@ -15,6 +15,7 @@ import {
 import { getFirebaseAuth } from '@/lib/firebase/client';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { colors, spacing } from '@/constants/theme';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const GENDER_HREF = '/(onboarding)/gender' as Href;
 
@@ -96,7 +97,7 @@ export default function EmailVerifyScreen() {
       <View style={styles.form}>
         {verified ? (
           <View style={styles.verifiedBanner}>
-            <Ionicons name="checkmark-circle" size={22} color={colors.live} />
+            <Ionicons name="checkmark-circle" size={rs(22)} color={colors.live} />
             <AppText style={styles.verifiedText}>Email verified ✓</AppText>
           </View>
         ) : null}
@@ -149,7 +150,7 @@ export default function EmailVerifyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   form: { gap: 14 },
   inlineCta: { gap: 10, marginTop: 4 },
   note: {

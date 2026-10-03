@@ -8,7 +8,7 @@ import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { OptionGrid } from '@/components/ui/OptionChip';
 import { Screen } from '@/components/ui/Screen';
-import { availabilityPresets, copy } from '@/constants/copy';
+import { copy } from '@/constants/copy';
 import { flowCopy, formatLaterHour } from '@/constants/flow';
 import { colors, gradients, spacing } from '@/constants/theme';
 import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
@@ -25,7 +25,8 @@ import { useDiscoverFilters } from '@/store/discoverFilters';
 import { endLiveSession, startLiveSession } from '@/services/api';
 import { useSessionStore } from '@/store/session';
 import type { RadiusMiles, TonightActivity } from '@/types';
-import { clampLiveExpiration, isLiveSessionActive } from '@/utils/time';
+import { isLiveSessionActive } from '@/utils/time';
+import { freeUntilOptions, needsReconfirm, pickFreeUntil } from '@/features/live/freeUntil';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -54,6 +55,7 @@ import Animated, {
     withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const HOLD_MS = 1200;
 const LATER_HOURS = [18, 19, 20, 21] as const;
@@ -69,40 +71,14 @@ const PLAN_OPTIONS: {
   { value: 'activity', label: 'Activity', icon: 'walk-outline' },
 ];
 
-function buildExpiration(preset: string): { expiresAt: Date; label: string } {
-  const now = new Date();
-  if (preset === 'now') {
-    const expires = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    return { expiresAt: clampLiveExpiration(expires, now), label: 'Now · 3h' };
-  }
-  if (preset === '4_7') {
-    const expires = new Date(now);
-    expires.setHours(19, 0, 0, 0);
-    if (expires <= now) expires.setTime(now.getTime() + 3 * 60 * 60 * 1000);
-    return { expiresAt: clampLiveExpiration(expires, now), label: '4 PM – 7 PM' };
-  }
-  if (preset === '7_10') {
-    const expires = new Date(now);
-    expires.setHours(22, 0, 0, 0);
-    if (expires <= now) expires.setTime(now.getTime() + 4 * 60 * 60 * 1000);
-    return { expiresAt: clampLiveExpiration(expires, now), label: '7 PM – 10 PM' };
-  }
-  if (preset === 'after_10') {
-    const expires = new Date(now);
-    expires.setHours(25, 0, 0, 0);
-    return { expiresAt: clampLiveExpiration(expires, now), label: 'After 10 PM' };
-  }
-  const expires = new Date(now.getTime() + 4 * 60 * 60 * 1000);
-  return { expiresAt: clampLiveExpiration(expires, now), label: 'Flexible' };
+/** Recomputed at tap time so a screen left open doesn't publish a stale end time. */
+function buildExpiration(value: string, laterHour: number | null): { expiresAt: Date; label: string } {
+  const pick = pickFreeUntil(freeUntilOptions(new Date(), laterHour), value);
+  return { expiresAt: pick.expiresAt, label: `Until ${pick.label}` };
 }
 
 function formatUntil(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
-function formatFreeUntilLabel(preset: string): string {
-  const { expiresAt } = buildExpiration(preset);
-  return formatUntil(expiresAt.toISOString());
 }
 
 function formatActivities(activities: string[]): string {
@@ -130,7 +106,7 @@ export default function LiveHomeScreen() {
   const [loading, setLoading] = useState(false);
   const [activities, setActivities] = useState<string[]>(['dinner']);
   const [foodCuisines, setFoodCuisines] = useState<FoodCuisine[]>(['italian']);
-  const [availability, setAvailability] = useState<string[]>(['7_10']);
+  const [freeUntil, setFreeUntil] = useState<string>('23');
   const [radius, setRadius] = useState<RadiusMiles>(10);
   /** null = live now; 18–21 = free later tonight */
   const [laterTonightHour, setLaterTonightHour] = useState<number | null>(null);
@@ -159,11 +135,10 @@ export default function LiveHomeScreen() {
 
   const activeFoods = live ? (liveSession?.foodCuisines ?? foodCuisines) : foodCuisines;
   const foodBit = wantsDinner ? formatFoodSummary(activeFoods) : '';
-  const untilLabel = live
-    ? formatUntil(liveSession?.availableUntil ?? liveSession!.expiresAt)
-    : formatFreeUntilLabel(availability[0] ?? '7_10');
+  const untilOptions = useMemo(() => freeUntilOptions(now, laterTonightHour), [now, laterTonightHour]);
+  const untilPick = pickFreeUntil(untilOptions, freeUntil);
   const radiusLabel = live ? (liveSession?.radiusMiles ?? radius) : radius;
-  const showLateNight = now.getHours() >= 20 || now.getHours() < 5 || availability[0] === 'after_10';
+  const showLateNight = now.getHours() >= 20 || now.getHours() < 5 || untilPick.value === 'late';
 
   // The countdown lives in LiveStatusBar; this screen only needs a coarse clock plus a wake-up at expiry.
   useEffect(() => {
@@ -249,8 +224,7 @@ export default function LiveHomeScreen() {
     }
     try {
       setLoading(true);
-      const preset = availability[0] ?? 'flexible';
-      const { expiresAt, label } = buildExpiration(preset);
+      const { expiresAt, label } = buildExpiration(untilPick.value, laterTonightHour);
 
       let latitude = 33.7838;
       let longitude = -84.383;
@@ -369,34 +343,63 @@ export default function LiveHomeScreen() {
     }, 40);
   };
 
+  const goOffline = async () => {
+    setLeaving(true);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const started = Date.now();
+    try {
+      if (isBackendConfigured() || env.supabaseUrl) await endLiveSession(liveSession?.id);
+      await clearTonightBoost();
+      // Let the fade-down finish even when the network is instant.
+      const wait = 380 - (Date.now() - started);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      setLiveSession(null);
+      setPingResults(0, 0);
+      setOfflineToast(true);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      setLeaving(false);
+      Alert.alert('Could not go offline', friendlyError(error, 'Try again'));
+    }
+  };
+
   const onStop = () => {
     Alert.alert(copy.stopConfirmTitle, copy.stopConfirmBody, [
       { text: copy.stayLive, style: 'cancel' },
+      { text: copy.goOffline, style: 'destructive', onPress: () => void goOffline() },
+    ]);
+  };
+
+  const goOfflineRef = useRef(goOffline);
+  goOfflineRef.current = goOffline;
+  const askingStillFree = useRef(false);
+  const dueForReconfirm = live && liveSession ? needsReconfirm(liveSession, now) : false;
+  useEffect(() => {
+    if (!dueForReconfirm || askingStillFree.current) return;
+    askingStillFree.current = true;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert('Still free tonight?', 'Out Tonight only shows people who are actually free right now.', [
       {
-        text: copy.goOffline,
+        text: 'Not anymore',
         style: 'destructive',
-        onPress: async () => {
-          setLeaving(true);
-          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          const started = Date.now();
-          try {
-            if (isBackendConfigured() || env.supabaseUrl) await endLiveSession(liveSession?.id);
-            await clearTonightBoost();
-            // Let the fade-down finish even when the network is instant.
-            const wait = 380 - (Date.now() - started);
-            if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-            setLiveSession(null);
-            setPingResults(0, 0);
-            setOfflineToast(true);
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          } catch (error) {
-            setLeaving(false);
-            Alert.alert('Could not go offline', friendlyError(error, 'Try again'));
-          }
+        onPress: () => {
+          askingStillFree.current = false;
+          void goOfflineRef.current();
+        },
+      },
+      {
+        text: 'Yep, keep me live',
+        onPress: () => {
+          askingStillFree.current = false;
+          const current = useSessionStore.getState().liveSession;
+          if (!current) return;
+          const confirmedAt = new Date().toISOString();
+          setLiveSession({ ...current, confirmedAt });
+          void syncLiveSessionPatch({ confirmedAt });
         },
       },
     ]);
-  };
+  }, [dueForReconfirm, setLiveSession]);
 
   // Parent re-renders every second for the timer; keep the header element stable so the feed doesn't.
   const onStopRef = useRef(onStop);
@@ -545,7 +548,7 @@ export default function LiveHomeScreen() {
                     >
                       <Ionicons
                         name={opt.icon}
-                        size={22}
+                        size={rs(22)}
                         color={on ? colors.brandBright : colors.text}
                       />
                       <AppText style={[styles.planCardLabel, on && styles.planCardLabelOn]}>
@@ -557,20 +560,14 @@ export default function LiveHomeScreen() {
               </View>
 
               <View style={styles.settingList}>
-                <Pressable style={styles.settingRow} onPress={() => setSheet('time')}>
-                  <Ionicons name="time-outline" size={18} color={colors.brandBright} />
-                  <AppText style={styles.settingKey}>Available until</AppText>
-                  <AppText style={styles.settingVal}>{untilLabel}</AppText>
-                  <AppText style={styles.settingChevron}>›</AppText>
-                </Pressable>
                 <Pressable style={styles.settingRow} onPress={() => setSheet('radius')}>
-                  <Ionicons name="location-outline" size={18} color={colors.brandBright} />
+                  <Ionicons name="location-outline" size={rs(18)} color={colors.brandBright} />
                   <AppText style={styles.settingKey}>Distance</AppText>
                   <AppText style={styles.settingVal}>Within {radiusLabel} miles</AppText>
                   <AppText style={styles.settingChevron}>›</AppText>
                 </Pressable>
                 <Pressable style={styles.settingRow} onPress={() => router.push('/filters')}>
-                  <Ionicons name="options" size={18} color={colors.brandBright} />
+                  <Ionicons name="options" size={rs(18)} color={colors.brandBright} />
                   <AppText style={styles.settingKey}>Filters</AppText>
                   <AppText style={[styles.settingVal, filterCount > 0 && styles.settingValOn]}>
                     {filterCount > 0 ? `${filterCount} on` : 'Who you’ll see'}
@@ -579,7 +576,7 @@ export default function LiveHomeScreen() {
                 </Pressable>
                 {wantsDinner ? (
                   <Pressable style={styles.settingRow} onPress={() => setSheet('food')}>
-                    <Ionicons name="options-outline" size={18} color={colors.brandBright} />
+                    <Ionicons name="options-outline" size={rs(18)} color={colors.brandBright} />
                     <AppText style={styles.settingKey}>Dinner preference</AppText>
                     <AppText style={styles.settingVal}>
                       {formatFoodSummary(foodCuisines)} · Change
@@ -633,6 +630,33 @@ export default function LiveHomeScreen() {
               </ScrollView>
             </View>
 
+            <View style={styles.section}>
+              <View style={styles.sectionHead}>
+                <AppText style={styles.sectionLabel}>⏱ I'M FREE UNTIL</AppText>
+                <AppText style={styles.sectionHint}>You go offline on your own after this.</AppText>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.laterRow}
+              >
+                {untilOptions.map((opt) => {
+                  const on = untilPick.value === opt.value;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => setFreeUntil(opt.value)}
+                      style={[styles.laterPill, on && styles.laterPillOn]}
+                    >
+                      <AppText style={[styles.laterPillText, on && styles.laterPillTextOn]}>
+                        {opt.label}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
             {showLateNight ? (
               <View style={styles.section}>
                 <View style={styles.sectionHead}>
@@ -661,7 +685,7 @@ export default function LiveHomeScreen() {
             <QuizPromoCard hideWhenTaken />
 
             <Pressable style={styles.plusCard} onPress={() => router.push('/paywall')}>
-              <Ionicons name="sparkles" size={22} color={colors.brandBright} />
+              <Ionicons name="sparkles" size={rs(22)} color={colors.brandBright} />
               <View style={styles.plusCopy}>
                 <View style={styles.plusTitleRow}>
                   <AppText style={styles.plusTitle}>More matches. More conversation.</AppText>
@@ -749,12 +773,12 @@ export default function LiveHomeScreen() {
 
             {sheet === 'time' || sheet === 'edit' ? (
               <>
-                <AppText variant="title">Available until</AppText>
+                <AppText variant="title">I'm free until</AppText>
                 <OptionGrid
-                  options={availabilityPresets.filter((p) => p.value !== 'custom')}
-                  values={availability}
+                  options={untilOptions.map((o) => ({ value: o.value, label: o.label }))}
+                  values={[untilPick.value]}
                   multi={false}
-                  onToggle={(value) => setAvailability([value])}
+                  onToggle={(value) => setFreeUntil(value)}
                 />
               </>
             ) : null}
@@ -833,7 +857,10 @@ export default function LiveHomeScreen() {
                   label="Save"
                   onPress={() => {
                     if (liveSession) {
-                      const { expiresAt, label } = buildExpiration(availability[0] ?? 'flexible');
+                      const { expiresAt, label } = buildExpiration(
+                        untilPick.value,
+                        liveSession.laterTonightHour ?? null,
+                      );
                       const patch = {
                         activities: activities as TonightActivity[],
                         foodCuisines: wantsDinner ? foodCuisines : [],
@@ -860,7 +887,7 @@ export default function LiveHomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   scroll: { flex: 1 },
   scrollContent: {
     flexGrow: 1,

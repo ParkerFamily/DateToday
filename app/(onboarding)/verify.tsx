@@ -27,6 +27,7 @@ import type { VerificationStatus } from '@/types';
 import { firstName, useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import { colors, spacing } from '@/constants/theme';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 /**
  * Persona identity verification — optional.
@@ -171,7 +172,7 @@ export default function VerifyScreen() {
                 hitSlop={6}
               >
                 <View style={[styles.box, biometricConsent && styles.boxOn]}>
-                  {biometricConsent ? <Ionicons name="checkmark" size={20} color="#fff" /> : null}
+                  {biometricConsent ? <Ionicons name="checkmark" size={rs(20)} color="#fff" /> : null}
                 </View>
                 <View style={styles.consentCopy}>
                   <AppText style={styles.consentTitle}>
@@ -259,7 +260,7 @@ export default function VerifyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   body: {
     gap: spacing.md,
   },

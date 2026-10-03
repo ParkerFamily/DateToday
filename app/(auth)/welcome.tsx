@@ -18,6 +18,7 @@ import { continueAfterSocialAuth } from '@/features/auth/postAuth';
 import { CONSENT_COPY } from '@/constants/legal';
 import type { Profile } from '@/types';
 import { useContentLayout } from '@/lib/layout';
+import { ScaledSheet, UI_SCALE } from '@/lib/scale';
 
 const DEV_USER_ID = 'local-dev-user';
 
@@ -72,8 +73,9 @@ export default function WelcomeScreen() {
   const { contentWidth, layoutHeight } = useContentLayout();
   const showDevLogin = __DEV__;
 
+  // Phone-sized; BrandHeartLight scales it up on tablets.
   const iconSize = useMemo(() => {
-    const base = Math.min(contentWidth, layoutHeight) * 0.42;
+    const base = (Math.min(contentWidth, layoutHeight) / UI_SCALE) * 0.42;
     return Math.round(Math.max(170, Math.min(200, base)));
   }, [contentWidth, layoutHeight]);
 
@@ -105,14 +107,13 @@ export default function WelcomeScreen() {
 
   return (
     <Screen padded={false} edges={['top', 'bottom', 'left', 'right']}>
+      <LinearGradient
+        colors={['rgba(124,58,237,0.16)', 'rgba(9,9,11,0)', 'rgba(9,9,11,0)']}
+        locations={[0, 0.4, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
       <View style={styles.root}>
-        <LinearGradient
-          colors={['rgba(124,58,237,0.16)', 'rgba(9,9,11,0)', 'rgba(9,9,11,0)']}
-          locations={[0, 0.4, 1]}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-
         <View style={styles.top}>
           <BrandMark width={176} />
           <Text style={styles.tagline}>Dating for right now.</Text>
@@ -179,10 +180,9 @@ export default function WelcomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
   },
   top: {

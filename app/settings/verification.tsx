@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
@@ -15,6 +15,7 @@ import {
 import { loadUserProfile } from '@/features/profile/saveOnboarding';
 import { isBackendConfigured } from '@/lib/env';
 import { friendlyError } from '@/lib/errors';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function VerificationSettingsScreen() {
   const router = useRouter();
@@ -122,7 +123,7 @@ export default function VerificationSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

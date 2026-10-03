@@ -39,12 +39,39 @@ export function isRecentlyActive(card: DiscoveryCard, now: Date = new Date()): b
   return now.getTime() - ms(card.lastActiveAt) <= RECENTLY_ACTIVE_MS;
 }
 
+function sameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+/**
+ * Soft activity for people who aren't live. Never implies they want to go out:
+ * "Online" (green dot) only means the app was open recently.
+ */
+export function activityStatus(
+  card: Pick<DiscoveryCard, 'lastActiveAt' | 'joinedAt'>,
+  now: Date = new Date(),
+): { label: string; online: boolean } {
+  const last = ms(card.lastActiveAt);
+  if (Number.isFinite(last)) {
+    if (now.getTime() - last <= ACTIVE_NOW_MS) return { label: 'Online', online: true };
+    const lastDate = new Date(last);
+    if (sameDay(lastDate, now)) return { label: 'Active today', online: false };
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (sameDay(lastDate, yesterday)) return { label: 'Active yesterday', online: false };
+  }
+  if (now.getTime() - ms(card.joinedAt) <= NEW_HERE_MS) return { label: 'New here', online: false };
+  if (Number.isFinite(last)) return { label: 'Recently active', online: false };
+  return { label: 'Nearby', online: false };
+}
+
+/** "Live tonight" is reserved for people who explicitly went live — never derived from app activity. */
 export function availabilityText(card: DiscoveryCard, now: Date = new Date()): string {
-  if (card.availabilityMode === 'nearby') return isRecentlyActive(card, now) ? 'Recently active' : 'Nearby';
+  if (card.availabilityMode === 'nearby') return activityStatus(card, now).label;
   if (isLaterTonight(card) && card.laterTonightHour != null) {
     return `Free at ${hourLabel(card.laterTonightHour)}`;
   }
-  return 'Live now';
+  return 'Live tonight';
 }
 
 export function repliesFast(card: Pick<DiscoveryCard, 'replies' | 'fastReplies'>): boolean {
@@ -52,30 +79,29 @@ export function repliesFast(card: Pick<DiscoveryCard, 'replies' | 'fastReplies'>
   return replies >= FAST_REPLY_MIN_SAMPLE && (card.fastReplies ?? 0) / replies >= FAST_REPLY_MIN_RATIO;
 }
 
-/** Real-time "what are they available for right now" labels, most decision-useful first. */
-export function cardStatusTags(card: DiscoveryCard, now: Date = new Date(), max = 4): StatusTag[] {
+/**
+ * Secondary signals under the card's status line. Availability itself (Live tonight / Free at /
+ * Active today) is the status line, so it isn't repeated here.
+ */
+export function cardStatusTags(card: DiscoveryCard, now: Date = new Date(), max = 3): StatusTag[] {
   const nowMs = now.getTime();
   const tier = feedTier(card);
   const tags: StatusTag[] = [];
 
-  if (tier === 2) {
-    if (isRecentlyActive(card, now)) tags.push({ key: 'recent', label: 'Recently active', tone: 'neutral' });
-    tags.push({ key: 'nearby', label: 'Nearby', tone: 'brand' });
-  } else {
-    tags.push({ key: 'availability', label: availabilityText(card, now), tone: 'live' });
-    if (tier === 0 && nowMs - ms(card.startedAt) <= ACTIVE_NOW_MS) {
-      tags.push({ key: 'active', label: 'Active now', tone: 'live' });
-    }
-    if (card.distanceMiles <= CLOSE_BY_MILES) tags.push({ key: 'nearby', label: 'Nearby', tone: 'brand' });
+  if (tier !== 2) {
+    if (card.distanceMiles <= CLOSE_BY_MILES) tags.push({ key: 'nearby', label: 'Close by', tone: 'brand' });
     if (tier === 0 && ms(card.liveUntil) - nowMs >= FREE_TONIGHT_MS) {
-      tags.push({ key: 'tonight', label: 'Free tonight', tone: 'brand' });
+      tags.push({ key: 'tonight', label: 'Free all night', tone: 'brand' });
     }
   }
   if (repliesFast(card)) tags.push({ key: 'replies', label: 'Usually replies fast', tone: 'neutral' });
   if (nowMs - ms(card.lastPlanAt) <= RECENT_PLAN_MS) {
     tags.push({ key: 'plans', label: 'Made plans recently', tone: 'neutral' });
   }
-  if (nowMs - ms(card.joinedAt) <= NEW_HERE_MS) tags.push({ key: 'new', label: 'New here', tone: 'neutral' });
+  const newHere = nowMs - ms(card.joinedAt) <= NEW_HERE_MS;
+  if (newHere && !(tier === 2 && activityStatus(card, now).label === 'New here')) {
+    tags.push({ key: 'new', label: 'New here', tone: 'neutral' });
+  }
 
   return tags.slice(0, max);
 }

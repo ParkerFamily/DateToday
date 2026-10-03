@@ -1,7 +1,8 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { colors, radii, spacing } from '@/constants/theme';
 import { AppText } from '@/components/ui/AppText';
+import { ScaledSheet } from '@/lib/scale';
 
 interface OptionChipProps {
   label: string;
@@ -50,7 +51,7 @@ export function OptionGrid({ options, values, onToggle, multi = true }: OptionGr
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

@@ -36,6 +36,7 @@ import {
   PETS_OPTIONS,
   normalizeInterests,
 } from '@/constants/interests';
+import { ScaledSheet } from '@/lib/scale';
 
 type Gender = 'woman' | 'man' | 'nonbinary';
 type SheetId =
@@ -948,7 +949,7 @@ export default function EditProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',

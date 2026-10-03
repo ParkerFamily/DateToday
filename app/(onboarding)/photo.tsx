@@ -8,7 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Image, Pressable, View } from 'react-native';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 export default function PhotoScreen() {
   const router = useRouter();
@@ -60,7 +61,7 @@ export default function PhotoScreen() {
           <Image source={{ uri: mainPhotoUri }} style={styles.image} />
         ) : (
           <View style={styles.empty}>
-            <Ionicons name="image-outline" size={32} color={colors.brandBright} />
+            <Ionicons name="image-outline" size={rs(32)} color={colors.brandBright} />
             <AppText style={styles.emptyLabel}>Choose your best one</AppText>
           </View>
         )}
@@ -69,7 +70,7 @@ export default function PhotoScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   frame: {
     flex: 1,
     borderRadius: radii.surface,

@@ -45,6 +45,7 @@ import {
 import { useTheirChatState } from '@/features/matches/useTheirChatState';
 import { TypingDots } from '@/components/chat/TypingDots';
 import { dismissNotificationsForMatch, setActiveChat } from '@/features/notifications/push';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 type ListItem =
   | { kind: 'message'; message: MatchMessage }
@@ -576,7 +577,7 @@ export default function ChatScreen() {
             onPress={goBack}
             style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
           >
-            <Ionicons name="chevron-back" size={26} color={colors.text} />
+            <Ionicons name="chevron-back" size={rs(26)} color={colors.text} />
           </Pressable>
 
           <Pressable style={styles.headerWho} onPress={openProfile} accessibilityRole="button">
@@ -584,7 +585,7 @@ export default function ChatScreen() {
               <Image source={{ uri: them.mainPhotoUrl }} style={styles.headerAvatar} />
             ) : (
               <View style={[styles.headerAvatar, styles.headerAvatarEmpty]}>
-                <Ionicons name="person" size={18} color={colors.textSecondary} />
+                <Ionicons name="person" size={rs(18)} color={colors.textSecondary} />
               </View>
             )}
             <View style={styles.headerText}>
@@ -603,7 +604,7 @@ export default function ChatScreen() {
             onPress={openChatMenu}
             style={({ pressed }) => [styles.menuBtn, pressed && styles.pressed]}
           >
-            <Ionicons name="ellipsis-horizontal" size={22} color={colors.text} />
+            <Ionicons name="ellipsis-horizontal" size={rs(22)} color={colors.text} />
           </Pressable>
 
           <Pressable
@@ -667,14 +668,14 @@ export default function ChatScreen() {
               pressed && { opacity: 0.85 },
             ]}
           >
-            <Ionicons name="sparkles" size={20} color={colors.brandBright} />
+            <Ionicons name="sparkles" size={rs(20)} color={colors.brandBright} />
             <View style={styles.flex}>
               <AppText style={styles.lockedTitle}>Message {theirName} with DateToday+</AppText>
               <AppText style={styles.lockedBody}>
                 Free includes chatting with 1 person a day — you’ve already started today’s.
               </AppText>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.brandBright} />
+            <Ionicons name="chevron-forward" size={rs(18)} color={colors.brandBright} />
           </Pressable>
         ) : (
           <Composer
@@ -689,7 +690,7 @@ export default function ChatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   flex: { flex: 1 },
   header: {
     flexDirection: 'row',

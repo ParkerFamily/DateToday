@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -9,6 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors } from '@/constants/theme';
 import { AppText } from '@/components/ui/AppText';
+import { ScaledSheet } from '@/lib/scale';
 
 interface LiveBadgeProps {
   label?: string;
@@ -42,7 +43,7 @@ export function LiveBadge({ label = 'LIVE', compact = false }: LiveBadgeProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     flexDirection: 'row',
     alignItems: 'center',

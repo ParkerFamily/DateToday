@@ -13,6 +13,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 interface LiveStatusBarProps {
   expiresAt: string;
@@ -74,7 +75,7 @@ export function LiveStatusBar({
           hitSlop={6}
           style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
         >
-          <Ionicons name="options-outline" size={18} color={colors.text} />
+          <Ionicons name="options-outline" size={rs(18)} color={colors.text} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -102,7 +103,7 @@ export function LiveStatusBar({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     paddingHorizontal: spacing.lg,
     paddingBottom: 10,

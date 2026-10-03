@@ -9,7 +9,8 @@ import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import { useRouter, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, View } from 'react-native';
+import { ScaledSheet } from '@/lib/scale';
 
 const EMAIL_VERIFY_HREF = '/(onboarding)/email-verify' as Href;
 const GENDER_HREF = '/(onboarding)/gender' as Href;
@@ -116,6 +117,6 @@ export default function AccountScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   form: { gap: 14 },
 });

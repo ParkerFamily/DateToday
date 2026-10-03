@@ -28,6 +28,7 @@ import type {
   VerificationStatus,
 } from '@/types';
 import { analytics } from '@/lib/analytics';
+import { isStaleLive } from '@/features/live/freeUntil';
 
 /** ~0.7 mi precision — enough for distance, not a street pin. */
 function approxCoord(n: number): number {
@@ -185,6 +186,7 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     userId: uid,
     status: 'active',
     startedAt: nowIso,
+    confirmedAt: nowIso,
     expiresAt: input.expiresAt,
     endedAt: null,
     radiusMiles: input.radiusMiles,
@@ -226,6 +228,7 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     isBoosted: Boolean(input.isBoosted),
     boostedAt: input.isBoosted ? nowIso : null,
     afterHours,
+    confirmedAt: nowIso,
   };
 }
 
@@ -257,6 +260,7 @@ export type LiveSessionPatch = Partial<
     | 'isBoosted'
     | 'boostedAt'
     | 'afterHours'
+    | 'confirmedAt'
   >
 >;
 
@@ -314,6 +318,7 @@ export async function fetchMyActiveLiveSession(uid: string): Promise<LiveSession
     isBoosted: Boolean(d.isBoosted),
     boostedAt: (d.boostedAt as string | null) ?? null,
     afterHours: cleanAfterHoursTags(d.afterHours),
+    confirmedAt: (d.confirmedAt as string | null) ?? null,
   };
 }
 
@@ -389,6 +394,9 @@ export async function fetchFirestoreDiscoveryFeed(
     const d = docSnap.data() as Record<string, unknown>;
     const expiresAt = tsToIso(d.expiresAt);
     if (new Date(expiresAt).getTime() <= now) continue;
+    const startedAt = d.startedAt ? tsToIso(d.startedAt) : null;
+    // Never answered "Still free tonight?" — shown as a regular nearby profile instead.
+    if (isStaleLive({ startedAt, confirmedAt: (d.confirmedAt as string | null) ?? null })) continue;
 
     const lat = Number(d.latitude);
     const lng = Number(d.longitude);
@@ -419,7 +427,7 @@ export async function fetchFirestoreDiscoveryFeed(
       rankScore: d.isBoosted ? 10 : 1,
       availabilityMode: mode,
       laterTonightHour: laterHour,
-      startedAt: d.startedAt ? tsToIso(d.startedAt) : null,
+      startedAt,
       afterHours: cleanAfterHoursTags(d.afterHours),
     });
 

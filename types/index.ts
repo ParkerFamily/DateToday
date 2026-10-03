@@ -187,6 +187,8 @@ export interface LiveSession {
   laterTonightHour?: number | null;
   availabilityMode?: 'live' | 'later';
   afterHours?: AfterHoursTag[];
+  /** Last "Still free tonight? → Yep" (ISO). Missing = startedAt. */
+  confirmedAt?: string | null;
 }
 
 export interface DiscoveryVideoPrompt {

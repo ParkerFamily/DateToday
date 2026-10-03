@@ -1,8 +1,9 @@
 import React from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { colors, spacing } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 interface EmptyStateProps {
   icon: React.ReactNode;
@@ -43,7 +44,7 @@ export function EmptyState({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     flexGrow: 1,
     alignItems: 'center',

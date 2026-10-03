@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
 import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
 import { colors } from '@/constants/theme';
 import { firstName, useOnboardingDraft } from '@/store/onboardingDraft';
 import { syncOnboardingFromFirebaseAuth } from '@/features/auth/social';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function NameScreen() {
   const router = useRouter();
@@ -115,7 +116,7 @@ export default function NameScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   label: {
     marginTop: 24,
     color: colors.textSecondary,

@@ -7,6 +7,7 @@ import { AppText } from '@/components/ui/AppText';
 import { SettingsGroup, SettingsHeader, SettingsRow } from '@/components/settings/SettingsUI';
 import { colors, spacing } from '@/constants/theme';
 import { usePrivacyControls } from '@/store/privacyControls';
+import { ScaledSheet } from '@/lib/scale';
 
 function ToggleRow({
   label,
@@ -116,7 +117,7 @@ export default function PrivacyControlsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

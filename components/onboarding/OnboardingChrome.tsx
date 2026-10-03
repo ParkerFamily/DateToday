@@ -4,7 +4,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +15,7 @@ import { colors, spacing } from '@/constants/theme';
 import { exitToWelcome } from '@/features/auth/api';
 import { useSessionStore } from '@/store/session';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 export function readyLabel(progress: number): string {
   if (progress >= 100) return 'READY ⚡';
@@ -114,7 +114,7 @@ export function OnboardingChrome({
               onPress={handleBack}
               style={({ pressed }) => [styles.backBtn, pressed && styles.backPressed]}
             >
-              <Ionicons name="chevron-back" size={24} color={colors.text} />
+              <Ionicons name="chevron-back" size={rs(24)} color={colors.text} />
             </Pressable>
           ) : (
             <View style={styles.backSpacer} />
@@ -157,7 +157,7 @@ export function OnboardingChrome({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   flex: { flex: 1 },
   root: {
     flex: 1,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, AppState, Linking, ScrollView, StyleSheet } from 'react-native';
+import { Alert, AppState, Linking, ScrollView } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
@@ -23,6 +23,7 @@ import {
 } from '@/features/notifications/preferences';
 import { friendlyError } from '@/lib/errors';
 import { useSessionStore } from '@/store/session';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function NotificationSettingsScreen() {
   const uid = useSessionStore((s) => s.userId);
@@ -118,7 +119,7 @@ export default function NotificationSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

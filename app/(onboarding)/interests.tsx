@@ -1,11 +1,12 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
 import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
 import { InterestCount, InterestPicker } from '@/components/profile/InterestPicker';
 import { Button } from '@/components/ui/Button';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function InterestsScreen() {
   const router = useRouter();
@@ -34,7 +35,7 @@ export default function InterestsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   scroll: { flex: 1 },
   list: { paddingBottom: 8 },
   footer: { gap: 8 },

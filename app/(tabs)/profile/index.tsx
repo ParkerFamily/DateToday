@@ -23,6 +23,7 @@ import { syncVerificationStatus } from '@/features/verification/persistVerificat
 import { useSessionStore } from '@/store/session';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import type { ProfileCompletionRequirements } from '@/types';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 type ChecklistKey = keyof ProfileCompletionRequirements;
 
@@ -101,7 +102,7 @@ export default function ProfileTabScreen() {
             onPress={() => router.push('/settings/media')}
             accessibilityLabel="Edit photo"
           >
-            <Ionicons name="camera" size={16} color={colors.text} />
+            <Ionicons name="camera" size={rs(16)} color={colors.text} />
             <AppText style={styles.editBtnText}>Edit</AppText>
           </Pressable>
 
@@ -111,7 +112,7 @@ export default function ProfileTabScreen() {
             </AppText>
             <VerificationTag status={verificationStatus} />
             <View style={styles.hoodRow}>
-              <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
+              <Ionicons name="location-outline" size={rs(14)} color={colors.textSecondary} />
               <AppText style={styles.hood}>
                 {profile?.neighborhoodLabel ?? 'Add your neighborhood'}
               </AppText>
@@ -174,7 +175,7 @@ export default function ProfileTabScreen() {
                 <View style={styles.verifyIcon}>
                   <Ionicons
                     name={verificationStatus === 'pending' || verificationStatus === 'manual_review' ? 'time-outline' : 'shield-checkmark'}
-                    size={14}
+                    size={rs(14)}
                     color={colors.brandBright}
                   />
                 </View>
@@ -271,7 +272,7 @@ export default function ProfileTabScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     gap: spacing.md,
     paddingTop: spacing.sm,

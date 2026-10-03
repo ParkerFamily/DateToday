@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { friendlyError } from '@/lib/errors';
@@ -12,6 +12,7 @@ import { useSessionStore } from '@/store/session';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { persistAgeConfirmation } from '@/features/profile/persistAge';
 import { isAtLeast18 } from '@/utils/time';
+import { ScaledSheet } from '@/lib/scale';
 
 /** Dedicated age / 18+ confirmation — not the onboarding wheel flow. */
 export default function AgeSettingsScreen() {
@@ -63,7 +64,7 @@ export default function AgeSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

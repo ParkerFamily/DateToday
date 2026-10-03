@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { AppText } from '@/components/ui/AppText';
@@ -8,6 +8,7 @@ import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/Onbo
 import { colors, radii } from '@/constants/theme';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import type { InterestOption } from '@/types';
+import { ScaledSheet } from '@/lib/scale';
 
 const OPTIONS: { value: InterestOption; label: string }[] = [
   { value: 'women', label: 'WOMEN' },
@@ -54,7 +55,7 @@ export default function InterestedInScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   list: { gap: 14 },
   opt: {
     minHeight: 84,

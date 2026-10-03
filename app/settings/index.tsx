@@ -4,7 +4,6 @@ import {
   Alert,
   Linking,
   ScrollView,
-  StyleSheet,
   View,
 } from 'react-native';
 import Constants from 'expo-constants';
@@ -22,6 +21,7 @@ import { useSessionStore } from '@/store/session';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { signOut } from '@/features/auth/api';
 import { isBackendConfigured } from '@/lib/env';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -215,7 +215,7 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

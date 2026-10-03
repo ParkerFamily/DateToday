@@ -9,7 +9,8 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, View } from 'react-native';
+import { ScaledSheet } from '@/lib/scale';
 
 const PRESETS: RadiusMiles[] = [5, 10, 15, 25, 50];
 
@@ -77,7 +78,7 @@ export default function DistanceScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   presets: {
     flexDirection: 'row',
     flexWrap: 'wrap',

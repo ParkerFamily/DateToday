@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { AppText } from '@/components/ui/AppText';
 import { colors, radii, spacing } from '@/constants/theme';
 import { fetchCompatibility, levelName, type Compatibility } from '@/features/compatibility/quiz';
 import { useSessionStore } from '@/store/session';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 export function percentColor(p: number) {
   if (p >= 80) return colors.live;
@@ -48,7 +49,7 @@ export function CompatibilityCard({ otherUid }: { otherUid: string }) {
     if (result.missing === 'them') {
       return (
         <View style={[styles.card, styles.row]}>
-          <Ionicons name="help-circle-outline" size={18} color={colors.textSecondary} />
+          <Ionicons name="help-circle-outline" size={rs(18)} color={colors.textSecondary} />
           <AppText variant="secondary" style={styles.flex}>
             They haven’t taken the compatibility quiz yet.
           </AppText>
@@ -57,7 +58,7 @@ export function CompatibilityCard({ otherUid }: { otherUid: string }) {
     }
     return (
       <Pressable onPress={openQuiz} style={({ pressed }) => [styles.card, styles.cta, pressed && styles.pressed]}>
-        <Ionicons name="sparkles" size={22} color={colors.brandBright} />
+        <Ionicons name="sparkles" size={rs(22)} color={colors.brandBright} />
         <View style={styles.flex}>
           <AppText style={styles.title}>See your match %</AppText>
           <AppText variant="secondary" style={styles.small}>
@@ -93,7 +94,7 @@ export function CompatibilityCard({ otherUid }: { otherUid: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   card: {
     marginTop: spacing.sm,
     padding: spacing.md,

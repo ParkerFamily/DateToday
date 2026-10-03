@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { AppText } from '@/components/ui/AppText';
@@ -7,6 +7,7 @@ import { percentColor } from '@/components/profile/CompatibilityCard';
 import { colors, radii } from '@/constants/theme';
 import { cachedCompatibility } from '@/features/compatibility/quiz';
 import { useSessionStore } from '@/store/session';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 /** Match % on a feed card, or a nudge to take the quiz when they already have. */
 export function MatchPill({ otherUid, theirLevel }: { otherUid: string; theirLevel: number }) {
@@ -34,7 +35,7 @@ export function MatchPill({ otherUid, theirLevel }: { otherUid: string; theirLev
         hitSlop={6}
         style={[styles.pill, styles.nudge]}
       >
-        <Ionicons name="heart-circle" size={14} color="#F9A8D4" />
+        <Ionicons name="heart-circle" size={rs(14)} color="#F9A8D4" />
         <AppText style={styles.nudgeText}>See your match %</AppText>
       </Pressable>
     );
@@ -48,13 +49,13 @@ export function MatchPill({ otherUid, theirLevel }: { otherUid: string; theirLev
       hitSlop={6}
       style={[styles.pill, { borderColor: tint }]}
     >
-      <Ionicons name="heart-circle" size={14} color={tint} />
+      <Ionicons name="heart-circle" size={rs(14)} color={tint} />
       <AppText style={[styles.text, { color: tint }]}>{percent}% match</AppText>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   pill: {
     alignSelf: 'flex-start',
     flexDirection: 'row',

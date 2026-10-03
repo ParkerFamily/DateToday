@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { friendlyError } from '@/lib/errors';
@@ -12,6 +12,7 @@ import { spacing } from '@/constants/theme';
 import type { ReportReason } from '@/types';
 import { reportUser } from '@/features/safety/api';
 import { BLOCK_EXPLAINER, leaveAfterBlock } from '@/features/safety/blockFlow';
+import { ScaledSheet } from '@/lib/scale';
 
 const REASONS: { value: ReportReason; label: string }[] = [
   { value: 'harassment', label: 'Harassment' },
@@ -161,7 +162,7 @@ export default function ReportScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     gap: spacing.md,
     paddingHorizontal: spacing.lg,

@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { AppText } from '@/components/ui/AppText';
@@ -9,6 +9,7 @@ import { datingVibes } from '@/constants/copy';
 import { colors, radii } from '@/constants/theme';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import type { DatingIntention } from '@/types';
+import { ScaledSheet } from '@/lib/scale';
 
 const MAX_VIBES = 2;
 
@@ -94,7 +95,7 @@ export default function IntentionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   scroll: { flex: 1 },
   list: {
     gap: 8,

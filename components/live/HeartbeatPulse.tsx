@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -10,6 +10,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { colors } from '@/constants/theme';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 interface HeartbeatPulseProps {
   active: boolean;
@@ -58,7 +59,8 @@ function PulseRing({ delay, size, active }: { delay: number; size: number; activ
 }
 
 /** Expanding heartbeat / radius pulse around the live d:t control. */
-export function HeartbeatPulse({ active, size = 220 }: HeartbeatPulseProps) {
+export function HeartbeatPulse({ active, size: sizeProp = 220 }: HeartbeatPulseProps) {
+  const size = rs(sizeProp);
   return (
     <View style={[styles.wrap, { width: size, height: size }]} pointerEvents="none">
       <PulseRing delay={0} size={size} active={active} />
@@ -68,7 +70,7 @@ export function HeartbeatPulse({ active, size = 220 }: HeartbeatPulseProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     position: 'absolute',
     alignItems: 'center',

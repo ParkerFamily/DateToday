@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { PurchasesPackage } from 'react-native-purchases';
 import { Screen } from '@/components/ui/Screen';
@@ -11,6 +11,7 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { loadBoostPackage, purchaseTonightBoost } from '@/lib/purchases';
 import { useSessionStore } from '@/store/session';
 import { isLiveSessionActive } from '@/utils/time';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function TonightBoostScreen() {
   const router = useRouter();
@@ -109,7 +110,7 @@ export default function TonightBoostScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     flex: 1,
     gap: spacing.md,

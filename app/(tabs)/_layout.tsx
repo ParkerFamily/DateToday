@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Platform, StyleSheet, Text, View, type ColorValue } from 'react-native';
+import { Platform, Text, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +19,7 @@ import { useTonightNudgeOptIn } from '@/features/notifications/nudgeOptIn';
 import { useMatchesSubscription, useUnreadMatchCount } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
 import { isLiveSessionActive } from '@/utils/time';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 function LiveTabIcon({
   color,
@@ -55,7 +56,7 @@ function LiveTabIcon({
     <Animated.View style={anim}>
       <Ionicons
         name={live ? 'radio-button-on' : focused ? 'flash' : 'flash-outline'}
-        size={size}
+        size={rs(size)}
         color={live ? colors.live : color}
       />
     </Animated.View>
@@ -75,7 +76,7 @@ function MatchesTabIcon({
 
   return (
     <View>
-      <Ionicons name={focused ? 'chatbubbles' : 'chatbubbles-outline'} size={size} color={color} />
+      <Ionicons name={focused ? 'chatbubbles' : 'chatbubbles-outline'} size={rs(size)} color={color} />
       {unread > 0 ? (
         <View style={styles.countBadge}>
           <Text style={styles.countText}>{unread > 99 ? '99+' : unread}</Text>
@@ -95,7 +96,7 @@ export default function TabsLayout() {
   const liveSession = useSessionStore((s) => s.liveSession);
   const live = liveSession ? isLiveSessionActive(liveSession, new Date()) : false;
   const tabPadBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 8);
-  const tabBarHeight = 52 + tabPadBottom;
+  const tabBarHeight = rs(52) + tabPadBottom;
 
   return (
     <Tabs
@@ -105,13 +106,14 @@ export default function TabsLayout() {
           backgroundColor: colors.elevated,
           borderTopColor: colors.border,
           height: tabBarHeight,
-          paddingTop: 8,
+          paddingTop: rs(8),
           paddingBottom: tabPadBottom,
         },
         tabBarActiveTintColor: colors.brandBright,
         tabBarInactiveTintColor: colors.textSecondary,
+        tabBarLabelPosition: 'below-icon',
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: rs(11),
           fontWeight: '600',
           letterSpacing: 0.3,
         },
@@ -138,7 +140,7 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
+            <Ionicons name="person-outline" size={rs(size)} color={color} />
           ),
         }}
       />
@@ -147,7 +149,7 @@ export default function TabsLayout() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   countBadge: {
     position: 'absolute',
     top: -4,

@@ -24,6 +24,7 @@ import { sharedFoodHeadline } from '@/utils/tonightCompatibility';
 import type { FoodCuisine, TonightActivity } from '@/types';
 import { useSessionStore } from '@/store/session';
 import { canStartPlan } from '@/features/live/planGate';
+import { ScaledSheet } from '@/lib/scale';
 
 function CollideRing({
   side,
@@ -231,7 +232,7 @@ export default function MutualMatchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   fill: {
     flex: 1,
     paddingHorizontal: spacing.lg,

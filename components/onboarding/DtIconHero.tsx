@@ -2,7 +2,6 @@ import React, { useEffect } from 'react';
 import {
   Image,
   Pressable,
-  StyleSheet,
   View,
   type StyleProp,
   type ViewStyle,
@@ -24,6 +23,7 @@ import Animated, {
 import Svg, { Circle } from 'react-native-svg';
 import { useIsFocused } from 'expo-router';
 import { colors } from '@/constants/theme';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedImage = Animated.createAnimatedComponent(Image);
@@ -56,7 +56,7 @@ interface DtIconHeroProps {
  * warm-up flicker, soft bloom, occasional tube stutter.
  */
 export function DtIconHero({
-  size = 148,
+  size: sizeProp = 148,
   mode = 'breathe',
   progress = 0,
   holdProgress = 0,
@@ -69,6 +69,7 @@ export function DtIconHero({
   disabled,
   still = false,
 }: DtIconHeroProps) {
+  const size = rs(sizeProp);
   const soft = atmosphere === 'soft';
   const neon = useSharedValue(0.55);
   const bloom = useSharedValue(0);
@@ -337,7 +338,7 @@ export function DtIconHero({
   return content;
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     alignItems: 'center',
     justifyContent: 'center',

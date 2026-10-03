@@ -9,7 +9,8 @@ import { persistPromptVideoSlot } from '@/features/profile/persistMedia';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, View } from 'react-native';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 /**
  * FaceTime-style in-app recording for required profile prompts.
@@ -109,7 +110,7 @@ export default function VideoRecordScreen() {
       <View style={styles.wrap}>
         {slot === 'tonight' && aboutVideoUri ? (
           <View style={styles.savedRow}>
-            <Ionicons name="checkmark-circle" size={18} color={colors.live} />
+            <Ionicons name="checkmark-circle" size={rs(18)} color={colors.live} />
             <AppText style={styles.savedText}>About You video saved</AppText>
           </View>
         ) : null}
@@ -133,7 +134,7 @@ export default function VideoRecordScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     flex: 1,
     gap: 10,

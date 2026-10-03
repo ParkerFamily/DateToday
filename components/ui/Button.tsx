@@ -2,7 +2,6 @@ import React from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  StyleSheet,
   Text,
   type PressableProps,
   type StyleProp,
@@ -11,6 +10,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { colors, gradients, radii, typography } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'live';
 
@@ -102,7 +102,7 @@ export function Button({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   base: {
     minHeight: 54,
     borderRadius: radii.pill,

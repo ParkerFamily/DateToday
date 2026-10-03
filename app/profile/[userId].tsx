@@ -4,7 +4,6 @@ import {
   Image,
   Pressable,
   ScrollView,
-  StyleSheet,
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -39,6 +38,7 @@ import { calculateAge } from '@/utils/time';
 import type { Profile } from '@/types';
 import { useContentLayout } from '@/lib/layout';
 import { CompatibilityCard } from '@/components/profile/CompatibilityCard';
+import { ScaledSheet } from '@/lib/scale';
 
 function photosFromProfile(p: Profile | null | undefined): string[] {
   if (!p) return [];
@@ -443,7 +443,7 @@ export default function PublicProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingBottom: spacing.xxl,
   },

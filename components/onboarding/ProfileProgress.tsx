@@ -1,8 +1,9 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { colors, spacing } from '@/constants/theme';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { ScaledSheet } from '@/lib/scale';
 
 export function ProfileProgress() {
   const percent = useOnboardingDraft((s) => s.profilePercent());
@@ -32,7 +33,7 @@ export function BuildQuestion({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     flexDirection: 'row',
     alignItems: 'center',

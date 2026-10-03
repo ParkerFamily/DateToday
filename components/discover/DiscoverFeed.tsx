@@ -3,7 +3,6 @@ import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { CloseButton, dismissToLive } from '@/components/ui/CloseButton';
-import { LiveBadge } from '@/components/ui/LiveBadge';
 import {
     BlockLabel,
     LiveAtmosphere,
@@ -18,7 +17,6 @@ import { DEMO_VIDEO_PROMPTS, demoCity, demoVideoPromptsFor } from '@/constants/d
 import {
     flowCopy,
     formatLaterHour,
-    formatPingMatchLine,
 } from '@/constants/flow';
 import { colors, radii, spacing } from '@/constants/theme';
 import { foodLabel } from '@/constants/tonightVibe';
@@ -28,6 +26,7 @@ import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { canMatchToday } from '@/lib/usage/dailyLimits';
 import { applyDiscoverFilters } from '@/features/discover/applyFilters';
 import {
+  activityStatus,
   availabilityText,
   cardStatusTags,
   feedTier,
@@ -51,7 +50,7 @@ import { useDiscoverFilters } from '@/store/discoverFilters';
 import { useMatchesStore } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
 import type { DiscoveryCard, FoodCuisine, TonightActivity } from '@/types';
-import { formatDistanceMiles, formatLiveUntil, isLiveSessionActive } from '@/utils/time';
+import { formatDistanceMiles, isLiveSessionActive } from '@/utils/time';
 import { tonightCompatibility } from '@/utils/tonightCompatibility';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -67,6 +66,7 @@ import {
     View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const ACTIVITY_EMOJI: Record<string, string> = {
   drinks: '🍸',
@@ -99,6 +99,10 @@ const DEMO_CARDS: DiscoveryCard[] = DEMO_VIDEO_PROMPTS.map((p, i) => ({
   rankScore: i === 0 ? 10 : 1,
   videoPrompts: demoVideoPromptsFor(p),
 }));
+
+function formatClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
 
 function activityLabel(a: string): string {
   const emoji = ACTIVITY_EMOJI[a] ?? '';
@@ -293,6 +297,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const tonightFeeling = (card?.activities ?? []).map(activityLabel).join(' · ');
   const statusTags = card ? cardStatusTags(card) : [];
   const tier = card ? feedTier(card) : 0;
+  const tonight = tier !== 2;
+  const activity = card && !tonight ? activityStatus(card) : null;
   const traits = card ? keyTraits(card) : [];
 
   const markHandled = (userId: string) => {
@@ -631,7 +637,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     );
   }
 
-  const heroH = Math.min(layoutHeight * 0.68, 620);
+  const heroH = Math.min(layoutHeight * 0.68, rs(620));
   const bottomPad = showClose ? 120 + insets.bottom : 100 + insets.bottom;
 
   return (
@@ -640,14 +646,20 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         {liveHeader}
         <View style={[styles.pingHeader, { paddingTop: topPad + 8 }]}>
           <View style={styles.pingHeaderLeft}>
-            <AppText style={styles.pingHeaderEyebrow}>
-              {tier === 2 ? 'MORE PEOPLE NEARBY' : "WHO'S OUT TONIGHT"}
+            <AppText style={[styles.pingHeaderEyebrow, !tonight && styles.pingHeaderEyebrowNearby]}>
+              {tonight ? '⚡ OUT TONIGHT' : 'NEARBY'}
             </AppText>
             <AppText style={styles.pingHeaderTitle}>
-              {tonightCount > 0 ? formatPingMatchLine(tonightCount) : 'No one’s live near you yet'}
+              {tonight
+                ? `${tonightCount} ${tonightCount === 1 ? 'person' : 'people'} looking for plans now`
+                : 'More people you might like'}
             </AppText>
             <AppText style={styles.pingHeaderMeta} numberOfLines={1}>
-              {nearbyCount > 0 ? `${pingSummary} · ${nearbyCount} more nearby` : pingSummary}
+              {tonight
+                ? nearbyCount > 0
+                  ? `${pingSummary} · ${nearbyCount} more nearby`
+                  : pingSummary
+                : 'They haven’t gone live tonight, but you can still match'}
             </AppText>
           </View>
           <View style={styles.pingHeaderActions}>
@@ -656,7 +668,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               style={styles.filterBtn}
               accessibilityLabel="Who liked you"
             >
-              <Ionicons name="heart-outline" size={18} color={colors.brandBright} />
+              <Ionicons name="heart-outline" size={rs(18)} color={colors.brandBright} />
             </Pressable>
           </View>
         </View>
@@ -690,20 +702,28 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               </View>
             )}
             <LinearGradient
-              colors={['transparent', 'rgba(5,5,6,0.15)', 'rgba(5,5,6,0.96)']}
+              colors={
+                tonight
+                  ? ['rgba(124,58,237,0.28)', 'rgba(20,8,36,0.1)', 'rgba(16,6,30,0.97)']
+                  : ['transparent', 'rgba(5,5,6,0.15)', 'rgba(5,5,6,0.96)']
+              }
               style={styles.fade}
             />
+            {tonight ? <View style={styles.tonightFrame} pointerEvents="none" /> : null}
             <View style={[styles.topBar, { top: 12 }]}>
               {showClose ? (
                 <CloseButton onPress={() => dismissToLive(router)} />
               ) : (
                 <View style={styles.topSpacer} />
               )}
-              {tier === 0 ? (
-                <LiveBadge label={formatLiveUntil(card.liveUntil)} />
-              ) : tier === 1 ? (
-                <View style={styles.laterBadge}>
-                  <AppText style={styles.laterBadgeText}>{availabilityText(card).toUpperCase()}</AppText>
+              {tonight ? (
+                <View style={styles.tonightBadge}>
+                  {tier === 0 ? (
+                    <Ionicons name="flash" size={rs(13)} color="#fff" />
+                  ) : (
+                    <View style={styles.laterDot} />
+                  )}
+                  <AppText style={styles.tonightBadgeText}>{availabilityText(card).toUpperCase()}</AppText>
                 </View>
               ) : null}
             </View>
@@ -725,20 +745,38 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 <VerificationTag status={card.verificationStatus} compact />
                 <MatchPill otherUid={card.userId} theirLevel={card.quizLevel ?? 0} />
               </View>
-              <AppText style={styles.place}>
-                {tier === 0
-                  ? `${formatDistanceMiles(card.distanceMiles)} · Free until ${new Date(
-                      card.liveUntil,
-                    ).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-                  : tier === 1
-                    ? `${formatDistanceMiles(card.distanceMiles)} · ${availabilityText(card)}`
-                    : `${formatDistanceMiles(card.distanceMiles)} away`}
-              </AppText>
-              {tier === 2 ? (
-                <AppText style={styles.notLiveNote}>
-                  Not live right now — you can still match and chat
-                </AppText>
-              ) : null}
+              {tonight ? (
+                <View style={styles.statusLine}>
+                  {tier === 0 ? (
+                    <Ionicons name="flash" size={rs(14)} color={colors.brandBright} />
+                  ) : (
+                    <View style={styles.laterDot} />
+                  )}
+                  <AppText style={styles.statusLineStrong}>{availabilityText(card).toUpperCase()}</AppText>
+                  <AppText style={styles.place} numberOfLines={1}>
+                    {[
+                      ...card.activities.slice(0, 2).map(activityLabel),
+                      formatDistanceMiles(card.distanceMiles),
+                      tier === 0 ? `until ${formatClock(card.liveUntil)}` : null,
+                    ]
+                      .filter(Boolean)
+                      .map((bit) => ` · ${bit}`)
+                      .join('')}
+                  </AppText>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.statusLine}>
+                    {activity?.online ? <View style={styles.onlineDot} /> : null}
+                    <AppText style={styles.place}>
+                      {activity?.label} · {formatDistanceMiles(card.distanceMiles)}
+                    </AppText>
+                  </View>
+                  <AppText style={styles.notLiveNote}>
+                    Not live tonight · you can still match and chat
+                  </AppText>
+                </>
+              )}
               <View style={styles.activities}>
                 {statusTags.map((t) => (
                   <View
@@ -779,7 +817,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               ) : null}
               {commonInterests.length ? (
                 <View style={styles.sharedRow}>
-                  <Ionicons name="heart" size={12} color={colors.brandBright} />
+                  <Ionicons name="heart" size={rs(12)} color={colors.brandBright} />
                   <AppText style={styles.sharedText} numberOfLines={1}>
                     {commonInterests.length} in common · {commonInterests.slice(0, 3).join(', ')}
                     {commonInterests.length > 3 ? '…' : ''}
@@ -792,7 +830,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           {card.bio?.trim() ? (
             <View style={styles.block}>
               <View style={styles.promptHead}>
-                <Ionicons name="person-circle-outline" size={14} color={colors.brandBright} />
+                <Ionicons name="person-circle-outline" size={rs(14)} color={colors.brandBright} />
                 <AppText style={styles.promptHeadText}>ABOUT {card.displayName.toUpperCase()}</AppText>
               </View>
               <AppText style={styles.bioText} numberOfLines={5}>
@@ -804,7 +842,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           {signature ? (
           <View style={styles.block}>
             <View style={styles.promptHead}>
-              <Ionicons name="videocam" size={14} color={colors.live} />
+              <Ionicons name="videocam" size={rs(14)} color={colors.live} />
               <AppText style={[styles.promptHeadText, styles.promptHeadTonight]}>
                 🎥 {signature ? promptDisplayLabel(signature.kind) : 'TONIGHT'}
               </AppText>
@@ -823,7 +861,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 />
               ) : null}
               <View style={styles.playBtn}>
-                <Ionicons name="play" size={28} color={colors.text} />
+                <Ionicons name="play" size={rs(28)} color={colors.text} />
               </View>
             </View>
           </View>
@@ -838,7 +876,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           {about ? (
           <View style={styles.block}>
             <View style={styles.promptHead}>
-              <Ionicons name="videocam" size={14} color={colors.brandBright} />
+              <Ionicons name="videocam" size={rs(14)} color={colors.brandBright} />
               <AppText style={styles.promptHeadText}>
                 🎥 {about ? promptDisplayLabel(about.kind) : 'ABOUT YOU'}
               </AppText>
@@ -857,7 +895,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 />
               ) : null}
               <View style={styles.playBtn}>
-                <Ionicons name="play" size={28} color={colors.text} />
+                <Ionicons name="play" size={rs(28)} color={colors.text} />
               </View>
             </View>
           </View>
@@ -885,7 +923,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             disabled={interestFlash}
             style={({ pressed }) => [styles.passBtn, pressed && styles.pressed]}
           >
-            <Ionicons name="close" size={32} color={colors.text} />
+            <Ionicons name="close" size={rs(32)} color={colors.text} />
           </Pressable>
           <Pressable
             accessibilityLabel="Interested"
@@ -893,7 +931,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             onPress={() => void onInterested()}
             style={({ pressed }) => [styles.likeBtn, pressed && styles.pressed]}
           >
-            <Ionicons name="heart" size={30} color={colors.text} />
+            <Ionicons name="heart" size={rs(30)} color={colors.text} />
           </Pressable>
         </View>
 
@@ -908,7 +946,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   stage: {
     flex: 1,
     backgroundColor: '#050506',
@@ -940,6 +978,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1.2,
   },
+  pingHeaderEyebrowNearby: { color: colors.textSecondary },
   pingHeaderTitle: {
     color: colors.text,
     fontSize: 20,
@@ -1078,6 +1117,7 @@ const styles = StyleSheet.create({
   place: {
     color: 'rgba(250,250,250,0.85)',
     fontSize: 15,
+    flexShrink: 1,
   },
   freeUntil: {
     color: colors.live,
@@ -1140,15 +1180,36 @@ const styles = StyleSheet.create({
   goLiveText: { flex: 1, color: colors.white, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   goLiveCta: { color: '#22E58B', fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
   notLiveNote: { color: 'rgba(250,250,250,0.62)', fontSize: 13, fontWeight: '600' },
-  laterBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radii.pill,
-    backgroundColor: 'rgba(5,5,6,0.6)',
-    borderWidth: 1,
-    borderColor: 'rgba(250,204,21,0.55)',
+  tonightFrame: {
+    ...StyleSheet.absoluteFill,
+    borderWidth: 2,
+    borderColor: 'rgba(168,85,247,0.85)',
   },
-  laterBadgeText: { color: '#FDE68A', fontSize: 11, fontWeight: '800', letterSpacing: 0.6 },
+  tonightBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+    backgroundColor: colors.brandBright,
+    shadowColor: colors.brandBright,
+    shadowOpacity: 0.8,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  tonightBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
+  laterDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#C084FC',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  statusLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  statusLineStrong: { color: '#E9D5FF', fontSize: 14, fontWeight: '800', letterSpacing: 0.6 },
+  onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
   block: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.lg,

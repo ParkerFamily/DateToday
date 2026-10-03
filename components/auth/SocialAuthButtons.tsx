@@ -22,6 +22,7 @@ import {
 import { env } from '@/lib/env';
 import { friendlyError } from '@/lib/errors';
 import { colors, radii } from '@/constants/theme';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 type Props = {
   onSuccess: (result: {
@@ -245,7 +246,7 @@ function SocialAuthChrome({
             <ActivityIndicator color="#000" />
           ) : (
             <>
-              <Ionicons name="logo-apple" size={20} color="#000" />
+              <Ionicons name="logo-apple" size={rs(20)} color="#000" />
               <Text style={styles.appleLabel}>Continue with Apple</Text>
             </>
           )}
@@ -261,7 +262,7 @@ function SocialAuthChrome({
           <ActivityIndicator color={colors.text} />
         ) : (
           <>
-            <Ionicons name="logo-google" size={18} color={colors.text} />
+            <Ionicons name="logo-google" size={rs(18)} color={colors.text} />
             <Text style={styles.googleLabel}>Continue with Google</Text>
           </>
         )}
@@ -281,7 +282,7 @@ export function SocialAuthButtons(props: Props) {
   return <SocialAuthWithGoogleSession {...props} />;
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     gap: 12,
   },

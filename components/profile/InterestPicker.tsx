@@ -1,9 +1,10 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { AppText } from '@/components/ui/AppText';
 import { INTEREST_GROUPS, MAX_INTERESTS } from '@/constants/interests';
 import { colors, radii } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 interface InterestPickerProps {
   value: string[];
@@ -59,7 +60,7 @@ export function InterestCount({ count }: { count: number }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   root: { gap: 18 },
   group: { gap: 8 },
   groupTitle: {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, TextInput, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { AppText } from '@/components/ui/AppText';
@@ -16,6 +16,7 @@ import {
   type Place,
   type PlanCategory,
 } from '@/features/places/search';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 type Mode = 'near' | 'search' | 'manual';
 
@@ -35,7 +36,7 @@ export function SelectedPlaceCard({ place, onChange }: { place: Place; onChange:
   return (
     <View style={styles.selected}>
       <View style={styles.selectedIcon}>
-        <Ionicons name="location" size={20} color="#fff" />
+        <Ionicons name="location" size={rs(20)} color="#fff" />
       </View>
       <View style={styles.flex}>
         <AppText style={styles.selectedName} numberOfLines={1}>
@@ -186,7 +187,7 @@ export function PlacePicker({
 
       {mode === 'search' ? (
         <View style={styles.inputRow}>
-          <Ionicons name="search" size={18} color={colors.textSecondary} />
+          <Ionicons name="search" size={rs(18)} color={colors.textSecondary} />
           <TextInput
             value={query}
             onChangeText={setQuery}
@@ -202,7 +203,7 @@ export function PlacePicker({
 
       {mode === 'manual' ? (
         <View style={styles.inputRow}>
-          <Ionicons name="create-outline" size={18} color={colors.textSecondary} />
+          <Ionicons name="create-outline" size={rs(18)} color={colors.textSecondary} />
           <TextInput
             value={manual}
             onChangeText={setManual}
@@ -221,7 +222,7 @@ export function PlacePicker({
 
       {mode === 'near' && (hot.length || hotLoading) ? (
         <View style={styles.hotHeader}>
-          <Ionicons name="flame" size={15} color="#FF7A45" />
+          <Ionicons name="flame" size={rs(15)} color="#FF7A45" />
           <AppText style={styles.hotTitle}>HOT RIGHT NOW</AppText>
           <AppText style={styles.hotSub}>· top rated near you</AppText>
         </View>
@@ -319,13 +320,13 @@ function ModeButton({
 }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.mode, on && styles.modeOn, pressed && styles.pressed]}>
-      <Ionicons name={icon} size={16} color={on ? '#fff' : colors.brandBright} />
+      <Ionicons name={icon} size={rs(16)} color={on ? '#fff' : colors.brandBright} />
       <AppText style={[styles.modeText, on && styles.modeTextOn]}>{label}</AppText>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: { gap: 10 },
   flex: { flex: 1, minWidth: 0, gap: 2 },
   modes: { flexDirection: 'row', gap: 8 },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
@@ -8,11 +8,10 @@ import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, radii, spacing } from '@/constants/theme';
 import { canSeeAllReceivedPings } from '@/lib/entitlements';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { fetchPublicCard, type PublicCard } from '@/features/matches/api';
+import { FREE_LIKES_PREVIEW as FREE_PREVIEW, splitLikes, usePublicCards } from '@/features/matches/likes';
 import { usePendingLikes } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
-
-const FREE_PREVIEW = 1;
+import { ScaledSheet } from '@/lib/scale';
 
 /**
  * People who tapped Interested on you. Heart them back from their profile to match.
@@ -24,30 +23,11 @@ export default function LikesScreen() {
   const unlocked = canSeeAllReceivedPings(entitlements);
   const received = usePendingLikes();
   const pending = useMemo(() => received ?? [], [received]);
-  const [cards, setCards] = useState<Record<string, PublicCard | null>>({});
-
-  useEffect(() => {
-    const missing = pending.map((r) => r.fromUid).filter((id) => !(id in cards));
-    if (!missing.length) return;
-    let alive = true;
-    void Promise.all(missing.map(async (id) => [id, await fetchPublicCard(id)] as const)).then((pairs) => {
-      if (!alive) return;
-      setCards((prev) => {
-        const next = { ...prev };
-        for (const [id, card] of pairs) next[id] = card;
-        return next;
-      });
-    });
-    return () => {
-      alive = false;
-    };
-  }, [pending, cards]);
+  const uids = useMemo(() => pending.map((r) => r.fromUid), [pending]);
+  const cards = usePublicCards(uids);
 
   const all = pending.filter((r) => cards[r.fromUid] !== null);
-  // Free sees the oldest like until they match with them, so new likes can't rotate who's revealed.
-  const freeShown = useMemo(() => new Set(all.slice(-FREE_PREVIEW).map((r) => r.fromUid)), [all]);
-  const visible = unlocked ? all : all.filter((r) => freeShown.has(r.fromUid));
-  const locked = unlocked ? [] : all.filter((r) => !freeShown.has(r.fromUid));
+  const { visible, locked } = splitLikes(all, unlocked);
   const lockedCount = locked.length;
 
   return (
@@ -139,7 +119,7 @@ export default function LikesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

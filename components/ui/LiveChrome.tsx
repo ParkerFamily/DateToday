@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View, type ViewProps } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppText } from '@/components/ui/AppText';
 import { colors, spacing } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 /** Exact Live-tab offline wash — use on Profile / Dates / Ping so chrome matches. */
 export function LiveAtmosphere({ live = false }: { live?: boolean }) {
@@ -132,7 +133,7 @@ export const livePad = {
   paddingHorizontal: spacing.lg,
 } as const;
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   blockLabel: {
     color: colors.textSecondary,
     fontSize: 12,

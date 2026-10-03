@@ -9,6 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { memo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const SUGGESTIONS = ['Age', 'Verified', 'Tonight’s plan', 'Intent ✦', 'Height ✦'];
 
@@ -39,7 +40,7 @@ export const FilterBar = memo(function FilterBar() {
             end={{ x: 1, y: 1 }}
             style={styles.mainGrad}
           >
-            <Ionicons name="options" size={16} color={colors.white} />
+            <Ionicons name="options" size={rs(16)} color={colors.white} />
             <AppText style={styles.mainText}>Filters</AppText>
             {labels.length ? (
               <View style={styles.badge}>
@@ -59,7 +60,7 @@ export const FilterBar = memo(function FilterBar() {
               pressed && styles.pressed,
             ]}
           >
-            {labels.length ? null : <Ionicons name="add" size={13} color={colors.textSecondary} />}
+            {labels.length ? null : <Ionicons name="add" size={rs(13)} color={colors.textSecondary} />}
             <AppText style={[styles.chipText, labels.length ? styles.chipTextOn : null]}>
               {label}
             </AppText>
@@ -70,7 +71,7 @@ export const FilterBar = memo(function FilterBar() {
   );
 });
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     backgroundColor: '#050506',
     borderBottomWidth: StyleSheet.hairlineWidth,

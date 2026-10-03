@@ -39,6 +39,48 @@ export async function scheduleLiveEndingReminder(uid: string, expiresAtMs: numbe
   }
 }
 
+const STILL_FREE_ID = 'live-still-free';
+let stillFreeFor: number | null = null;
+
+/** "Still free tonight?" nudge a few hours into a live session; unanswered sessions leave Out Tonight. */
+export async function scheduleStillFreeReminder(fireAtMs: number) {
+  if (Platform.OS === 'web') return;
+  if (stillFreeFor === fireAtMs) return;
+  await cancelStillFreeReminder();
+  if (fireAtMs <= Date.now() + 60_000) return;
+  try {
+    const perm = await Notifications.getPermissionsAsync();
+    if (!perm.granted) return;
+    await ensureAndroidChannels();
+    await Notifications.scheduleNotificationAsync({
+      identifier: STILL_FREE_ID,
+      content: {
+        title: 'Still free tonight?',
+        body: 'Tap to stay live. If you don’t, you’ll drop out of Out Tonight soon.',
+        sound: 'default',
+        data: { type: 'reminder', url: '/live' },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: new Date(fireAtMs),
+        channelId: 'dates',
+      },
+    });
+    stillFreeFor = fireAtMs;
+  } catch {
+    stillFreeFor = null;
+  }
+}
+
+export async function cancelStillFreeReminder() {
+  stillFreeFor = null;
+  try {
+    await Notifications.cancelScheduledNotificationAsync(STILL_FREE_ID);
+  } catch {
+    /* nothing scheduled */
+  }
+}
+
 export async function cancelLiveEndingReminder() {
   scheduledFor = null;
   try {

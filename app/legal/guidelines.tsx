@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   LegalNote,
@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { LEGAL_VERSIONS } from '@/constants/legal';
 import { spacing } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function CommunityGuidelinesScreen() {
   const router = useRouter();
@@ -97,7 +98,7 @@ export default function CommunityGuidelinesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   actions: {
     gap: spacing.sm,
     marginBottom: spacing.md,

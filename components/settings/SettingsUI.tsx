@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { colors, radii, spacing } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 export function SettingsHeader({
   title,
@@ -177,7 +178,7 @@ export function LegalNote({ children }: { children: string }) {
   return <AppText style={styles.note}>{children}</AppText>;
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',

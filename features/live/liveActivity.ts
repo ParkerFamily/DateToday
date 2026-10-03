@@ -3,7 +3,13 @@ import { AppState, Platform } from 'react-native';
 import type { LiveActivity, LiveActivityFactory } from 'expo-widgets';
 import type { LiveSessionActivityProps } from '@/features/live/LiveSessionActivity';
 import { clearLiveStatusNotification, showLiveStatusNotification } from '@/features/notifications/push';
-import { cancelLiveEndingReminder, scheduleLiveEndingReminder } from '@/features/notifications/reminders';
+import {
+  cancelLiveEndingReminder,
+  cancelStillFreeReminder,
+  scheduleLiveEndingReminder,
+  scheduleStillFreeReminder,
+} from '@/features/notifications/reminders';
+import { lastConfirmedMs, RECONFIRM_AFTER_MS } from '@/features/live/freeUntil';
 import { useLiveSessionRestored } from '@/features/live/restoreLiveSession';
 import { useMatchesStore, usePendingLikes, useUnreadMatchCount } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
@@ -42,7 +48,7 @@ function instances(f: Factory): Instance[] {
 
 export async function endLiveActivity() {
   lastKey = '';
-  await cancelLiveEndingReminder();
+  await Promise.all([cancelLiveEndingReminder(), cancelStillFreeReminder()]);
   if (Platform.OS === 'android') {
     await clearLiveStatusNotification();
     return;
@@ -164,4 +170,14 @@ export function useLiveActivitySync() {
     if (uid && endsAtMs) void scheduleLiveEndingReminder(uid, endsAtMs);
     else if (knownOffline) void cancelLiveEndingReminder();
   }, [uid, endsAtMs, knownOffline]);
+
+  const askAtMs =
+    active && liveSession ? lastConfirmedMs(liveSession) + RECONFIRM_AFTER_MS : NaN;
+  useEffect(() => {
+    if (endsAtMs && Number.isFinite(askAtMs) && askAtMs < endsAtMs - 20 * 60 * 1000) {
+      void scheduleStillFreeReminder(askAtMs);
+    } else if (knownOffline || endsAtMs) {
+      void cancelStillFreeReminder();
+    }
+  }, [askAtMs, endsAtMs, knownOffline]);
 }

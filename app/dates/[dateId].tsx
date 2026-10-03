@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
@@ -7,6 +7,7 @@ import { AppText, BrandMark } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { copy } from '@/constants/copy';
 import { colors, radii, spacing } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function DateDetailScreen() {
   const router = useRouter();
@@ -69,7 +70,7 @@ export default function DateDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   fill: {
     flex: 1,
     paddingHorizontal: spacing.lg,

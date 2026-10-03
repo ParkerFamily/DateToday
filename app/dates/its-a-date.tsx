@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { flowCopy } from '@/constants/flow';
 import { colors, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
+import { ScaledSheet } from '@/lib/scale';
 
 /**
  * Celebration after a plan is accepted.
@@ -96,7 +97,7 @@ export default function ItsADateScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   fill: {
     flex: 1,
     paddingHorizontal: spacing.lg,

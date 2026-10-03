@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Screen } from '@/components/ui/Screen';
@@ -15,6 +15,7 @@ import {
 } from '@/features/profile/saveOnboarding';
 import { isBackendConfigured } from '@/lib/env';
 import { friendlyError } from '@/lib/errors';
+import { ScaledSheet } from '@/lib/scale';
 
 const HOLD_MS = 1000;
 
@@ -208,7 +209,7 @@ export default function YoureInScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   root: {
     flex: 1,
     backgroundColor: colors.background,

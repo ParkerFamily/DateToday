@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { friendlyError } from '@/lib/errors';
@@ -9,6 +9,7 @@ import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, radii, spacing } from '@/constants/theme';
 import { listBlockedUsers, unblockUser, type BlockedUser } from '@/features/safety/api';
 import { useBlocksStore } from '@/store/blocks';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function BlockedUsersScreen() {
   const localBlocks = useBlocksStore((s) => s.byId);
@@ -125,7 +126,7 @@ export default function BlockedUsersScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

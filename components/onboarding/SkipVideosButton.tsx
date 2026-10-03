@@ -1,8 +1,9 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import { colors } from '@/constants/theme';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { ScaledSheet } from '@/lib/scale';
 
 /**
  * Skip video prompts for now — enter later from Profile / Photos & videos.
@@ -30,7 +31,7 @@ export function SkipVideosButton() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   btn: {
     alignSelf: 'center',
     paddingVertical: 10,

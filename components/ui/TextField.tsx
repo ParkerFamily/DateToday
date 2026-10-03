@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   Pressable,
-  StyleSheet,
   TextInput,
   View,
   type TextInputProps,
@@ -9,6 +8,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { AppText } from '@/components/ui/AppText';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 interface TextFieldProps extends TextInputProps {
   label?: string;
@@ -62,7 +62,7 @@ export function TextField({
           >
             <Ionicons
               name={visible ? 'eye-off-outline' : 'eye-outline'}
-              size={22}
+              size={rs(22)}
               color={colors.textSecondary}
             />
           </Pressable>
@@ -73,7 +73,7 @@ export function TextField({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     gap: spacing.sm,
   },

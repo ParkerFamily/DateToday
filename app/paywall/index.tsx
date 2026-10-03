@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -32,6 +31,7 @@ import {
   type PlusPlanOffer,
 } from '@/lib/purchases';
 import { useSessionStore } from '@/store/session';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 export default function PaywallScreen() {
   const router = useRouter();
@@ -225,7 +225,7 @@ export default function PaywallScreen() {
                     </View>
                     <View style={[styles.check, on && styles.checkOn]}>
                       {on ? (
-                        <Ionicons name="checkmark" size={16} color={colors.white} />
+                        <Ionicons name="checkmark" size={rs(16)} color={colors.white} />
                       ) : null}
                     </View>
                   </View>
@@ -273,7 +273,7 @@ export default function PaywallScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     gap: spacing.md,
     paddingHorizontal: spacing.lg,

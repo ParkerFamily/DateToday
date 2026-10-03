@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/ui/Screen';
@@ -16,6 +16,7 @@ import {
   saveQuiz,
   type QuizAnswers,
 } from '@/features/compatibility/quiz';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 type Mode = { kind: 'menu' } | { kind: 'questions'; level: number; index: number } | { kind: 'done'; level: number };
 
@@ -100,7 +101,7 @@ export default function CompatibilityQuizScreen() {
                 ]}
               >
                 <AppText style={[styles.optionText, picked === i && styles.optionTextOn]}>{label}</AppText>
-                {picked === i ? <Ionicons name="checkmark-circle" size={20} color={colors.brandBright} /> : null}
+                {picked === i ? <Ionicons name="checkmark-circle" size={rs(20)} color={colors.brandBright} /> : null}
               </Pressable>
             ))}
           </View>
@@ -115,7 +116,7 @@ export default function CompatibilityQuizScreen() {
     return (
       <Screen padded={false}>
         <View style={[styles.content, styles.doneWrap]}>
-          <Ionicons name="sparkles" size={44} color={colors.brandBright} />
+          <Ionicons name="sparkles" size={rs(44)} color={colors.brandBright} />
           <AppText variant="hero" style={styles.center}>
             {QUIZ_LEVELS[mode.level - 1].name} done
           </AppText>
@@ -188,7 +189,7 @@ export default function CompatibilityQuizScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     flexGrow: 1,
     paddingHorizontal: spacing.lg,

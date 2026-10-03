@@ -8,7 +8,8 @@ import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 /**
  * Show us your vibe — pick 1 curated ABOUT YOU prompt.
@@ -47,7 +48,7 @@ export default function VideoPickScreen() {
       }
     >
       <View style={styles.sectionHead}>
-        <Ionicons name="videocam" size={14} color={colors.brandBright} />
+        <Ionicons name="videocam" size={rs(14)} color={colors.brandBright} />
         <AppText style={styles.sectionLabel}>ABOUT YOU</AppText>
       </View>
       <ScrollView
@@ -65,7 +66,7 @@ export default function VideoPickScreen() {
             >
               <AppText style={[styles.rowText, on && styles.rowTextOn]}>“{p.text}”</AppText>
               {on ? (
-                <Ionicons name="checkmark-circle" size={22} color={colors.brandBright} />
+                <Ionicons name="checkmark-circle" size={rs(22)} color={colors.brandBright} />
               ) : (
                 <View style={styles.radio} />
               )}
@@ -77,7 +78,7 @@ export default function VideoPickScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',

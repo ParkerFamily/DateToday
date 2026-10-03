@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet } from 'react-native';
+
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import {
@@ -12,6 +12,7 @@ import {
 import { AppText } from '@/components/ui/AppText';
 import { SUPPORT } from '@/constants/legal';
 import { colors, spacing } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function AboutScreen() {
   const router = useRouter();
@@ -55,7 +56,7 @@ export default function AboutScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   version: {
     marginTop: spacing.md,
     color: colors.textSecondary,

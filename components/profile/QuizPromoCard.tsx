@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import { AppText } from '@/components/ui/AppText';
 import { colors, radii } from '@/constants/theme';
 import { levelName, MAX_QUIZ_LEVEL } from '@/features/compatibility/quiz';
 import { useSessionStore } from '@/store/session';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 function copyFor(level: number) {
   if (level <= 0) {
@@ -50,7 +51,7 @@ export function QuizPromoCard({ hideWhenTaken = false }: { hideWhenTaken?: boole
         style={styles.card}
       >
         <View style={styles.icon}>
-          <Ionicons name="heart-circle" size={26} color="#F9A8D4" />
+          <Ionicons name="heart-circle" size={rs(26)} color="#F9A8D4" />
         </View>
         <View style={styles.copy}>
           <AppText style={styles.title}>{title}</AppText>
@@ -71,7 +72,7 @@ export function QuizPromoCard({ hideWhenTaken = false }: { hideWhenTaken?: boole
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wrap: {
     borderRadius: radii.card,
     overflow: 'hidden',

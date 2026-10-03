@@ -1,8 +1,9 @@
 import React from 'react';
-import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { colors } from '@/constants/theme';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 /** Safe dismiss for modals / stacked screens — always lands somewhere usable. */
 export function dismissToLive(router: ReturnType<typeof useRouter>) {
@@ -53,12 +54,12 @@ export function CloseButton({
         style,
       ]}
     >
-      <Ionicons name="close" size={floating ? 22 : 24} color={colors.text} />
+      <Ionicons name="close" size={rs(floating ? 22 : 24)} color={colors.text} />
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   floating: {
     width: 40,
     height: 40,

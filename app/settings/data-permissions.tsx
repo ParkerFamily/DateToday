@@ -1,10 +1,11 @@
 import React from 'react';
-import { Linking, ScrollView, StyleSheet } from 'react-native';
+import { Linking, ScrollView } from 'react-native';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { LegalP, SettingsGroup, SettingsHeader, SettingsRow } from '@/components/settings/SettingsUI';
 import { spacing } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 const PERMISSIONS = [
   {
@@ -61,7 +62,7 @@ export default function DataPermissionsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

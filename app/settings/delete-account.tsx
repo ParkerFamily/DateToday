@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -27,6 +26,7 @@ import {
 import { isBackendConfigured } from '@/lib/env';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function DeleteAccountScreen() {
   const router = useRouter();
@@ -186,7 +186,7 @@ export default function DeleteAccountScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

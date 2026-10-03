@@ -10,6 +10,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import * as FileSystem from 'expo-file-system/legacy';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 type Phase = 'permission' | 'ready' | 'countdown' | 'recording' | 'review';
 
@@ -279,7 +280,7 @@ export function PromptRecorder({
     return (
       <View style={styles.stage}>
         <View style={styles.perm}>
-          <Ionicons name="videocam-outline" size={36} color={colors.brandBright} />
+          <Ionicons name="videocam-outline" size={rs(36)} color={colors.brandBright} />
           <AppText style={styles.permTitle}>Camera + mic needed</AppText>
           <AppText style={styles.permBody}>
             Video prompts are recorded live in DateToday — no uploads, no old clips.
@@ -327,7 +328,7 @@ export function PromptRecorder({
         />
       ) : (
         <View style={[styles.fill, styles.camFallback]}>
-          <Ionicons name="videocam" size={40} color={colors.brandBright} />
+          <Ionicons name="videocam" size={rs(40)} color={colors.brandBright} />
         </View>
       )}
       <LinearScrim />
@@ -373,7 +374,7 @@ export function PromptRecorder({
               onPress={() => void startCountdown()}
               style={({ pressed }) => [styles.recBtn, pressed && styles.pressed]}
             >
-              <Ionicons name="radio-button-on" size={36} color={colors.danger} />
+              <Ionicons name="radio-button-on" size={rs(36)} color={colors.danger} />
             </Pressable>
             <AppText style={styles.cue}>
               {VIDEO_DURATION.minSeconds}–{VIDEO_DURATION.maxSeconds} sec · Hold the vibe
@@ -399,7 +400,7 @@ function LinearScrim() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   stage: {
     flex: 1,
     borderRadius: 22,

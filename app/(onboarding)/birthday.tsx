@@ -12,13 +12,13 @@ import { calculateAge, isAtLeast18 } from '@/utils/time';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Alert,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
-    ScrollView,
-    StyleSheet,
-    View,
+  Alert,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  View,
 } from 'react-native';
+import { ScaledSheet } from '@/lib/scale';
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const ITEM_H = 44;
@@ -165,7 +165,7 @@ export default function BirthdayScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   wheels: { flexDirection: 'row', gap: 8, height: ITEM_H * 5 },
   wheel: { flex: 1, overflow: 'hidden' },
   highlight: {

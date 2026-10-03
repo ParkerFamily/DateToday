@@ -39,6 +39,7 @@ import { useHiddenUserMap } from '@/store/blocks';
 import { AGE_BOUNDS, useDiscoverFilters } from '@/store/discoverFilters';
 import { useSessionStore } from '@/store/session';
 import type { DatingIntention, DiscoveryCard, TonightActivity } from '@/types';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const VIBES: { value: TonightActivity; label: string }[] = [
   { value: 'drinks', label: 'Drinks' },
@@ -71,7 +72,7 @@ function Section({
   return (
     <View style={styles.section}>
       <View style={styles.sectionHead}>
-        <Ionicons name={icon} size={16} color={colors.brandBright} />
+        <Ionicons name={icon} size={rs(16)} color={colors.brandBright} />
         <AppText style={styles.sectionTitle}>{title}</AppText>
         {hint ? <AppText style={styles.sectionHint}>{hint}</AppText> : null}
       </View>
@@ -96,11 +97,11 @@ function Stepper({
       <AppText style={styles.stepperLabel}>{label}</AppText>
       <View style={styles.stepperControls}>
         <Pressable accessibilityLabel={`${label} lower`} onPress={onMinus} hitSlop={6} style={styles.stepBtn}>
-          <Ionicons name="remove" size={18} color={colors.text} />
+          <Ionicons name="remove" size={rs(18)} color={colors.text} />
         </Pressable>
         <AppText style={styles.stepperValue}>{display}</AppText>
         <Pressable accessibilityLabel={`${label} higher`} onPress={onPlus} hitSlop={6} style={styles.stepBtn}>
-          <Ionicons name="add" size={18} color={colors.text} />
+          <Ionicons name="add" size={rs(18)} color={colors.text} />
         </Pressable>
       </View>
     </View>
@@ -409,7 +410,7 @@ export default function FiltersScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.plusHead}
           >
-            <Ionicons name="moon" size={18} color="#C4B5FD" />
+            <Ionicons name="moon" size={rs(18)} color="#C4B5FD" />
             <View style={styles.flex}>
               <View style={styles.titleRow}>
                 <AppText style={styles.plusTitle}>After Hours</AppText>
@@ -468,7 +469,7 @@ export default function FiltersScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.plusHead}
           >
-            <Ionicons name="flash" size={18} color="#FDBA74" />
+            <Ionicons name="flash" size={rs(18)} color="#FDBA74" />
             <View style={styles.flex}>
               <AppText style={styles.plusTitle}>Spontaneous</AppText>
               <AppText style={styles.plusBody}>People ready to make something happen right now.</AppText>
@@ -496,7 +497,7 @@ export default function FiltersScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.plusHead}
           >
-            <Ionicons name="sparkles" size={18} color={colors.brandBright} />
+            <Ionicons name="sparkles" size={rs(18)} color={colors.brandBright} />
             <View style={styles.flex}>
               <AppText style={styles.plusTitle}>Advanced Filters</AppText>
               <AppText style={styles.plusBody}>
@@ -615,7 +616,7 @@ export default function FiltersScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   flex: { flex: 1 },
   top: {
     flexDirection: 'row',

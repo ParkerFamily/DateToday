@@ -25,6 +25,7 @@ import Animated, {
 import Svg, { Defs, Path, RadialGradient, Stop } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedImage = Animated.createAnimatedComponent(Image);
@@ -96,7 +97,8 @@ interface BrandHeartLightProps {
   iconSize?: number;
 }
 
-export function BrandHeartLight({ iconSize = 188 }: BrandHeartLightProps) {
+export function BrandHeartLight({ iconSize: iconSizeProp = 188 }: BrandHeartLightProps) {
+  const iconSize = rs(iconSizeProp);
   const [reducedMotion, setReducedMotion] = useState(false);
 
   const phase = useSharedValue(0);
@@ -354,7 +356,7 @@ export function BrandHeartLight({ iconSize = 188 }: BrandHeartLightProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   root: {
     flex: 1,
     width: '100%',

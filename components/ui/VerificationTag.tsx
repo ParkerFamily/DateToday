@@ -1,9 +1,10 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppText } from '@/components/ui/AppText';
 import { colors } from '@/constants/theme';
 import type { VerificationStatus } from '@/types';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 type Props = {
   status: VerificationStatus | null | undefined;
@@ -22,7 +23,7 @@ export function VerificationTag({ status, compact = false }: Props) {
         style={[styles.base, styles.verified, compact && styles.compact]}
         accessibilityLabel="Verified account"
       >
-        <Ionicons name="checkmark-circle" size={compact ? 12 : 14} color={colors.live} />
+        <Ionicons name="checkmark-circle" size={rs(compact ? 12 : 14)} color={colors.live} />
         <AppText style={[styles.label, styles.verifiedLabel]}>VERIFIED</AppText>
       </View>
     );
@@ -34,7 +35,7 @@ export function VerificationTag({ status, compact = false }: Props) {
         style={[styles.base, styles.pending, compact && styles.compact]}
         accessibilityLabel="Verification pending"
       >
-        <Ionicons name="time-outline" size={compact ? 12 : 14} color={colors.warning} />
+        <Ionicons name="time-outline" size={rs(compact ? 12 : 14)} color={colors.warning} />
         <AppText style={[styles.label, styles.pendingLabel]}>
           {s === 'manual_review' ? 'IN REVIEW' : 'PENDING'}
         </AppText>
@@ -48,13 +49,13 @@ export function VerificationTag({ status, compact = false }: Props) {
       style={[styles.base, styles.unverified, compact && styles.compact]}
       accessibilityLabel="Not verified"
     >
-      <Ionicons name="alert-circle-outline" size={compact ? 12 : 14} color={colors.textSecondary} />
+      <Ionicons name="alert-circle-outline" size={rs(compact ? 12 : 14)} color={colors.textSecondary} />
       <AppText style={[styles.label, styles.unverifiedLabel]}>NOT VERIFIED</AppText>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   base: {
     flexDirection: 'row',
     alignItems: 'center',

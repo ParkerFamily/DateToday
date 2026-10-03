@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
+import { ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
@@ -8,6 +8,7 @@ import { spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { getFirebaseAuth } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function AccountInformationScreen() {
   const router = useRouter();
@@ -80,7 +81,7 @@ export default function AccountInformationScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

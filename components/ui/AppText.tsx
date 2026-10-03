@@ -8,8 +8,18 @@ import {
   type StyleProp,
 } from 'react-native';
 import { colors, typography } from '@/constants/theme';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const WORDMARK = require('../../assets/images/datetoday-wordmark-transparent.png');
+
+const type = ScaledSheet.create({
+  brand: typography.brand,
+  hero: typography.hero,
+  title: typography.title,
+  body: typography.body,
+  caption: typography.caption,
+  label: typography.label,
+});
 
 type Variant = 'brand' | 'hero' | 'title' | 'body' | 'caption' | 'label' | 'secondary';
 
@@ -28,16 +38,16 @@ export function AppText({
 }: AppTextProps) {
   const base: TextStyle =
     variant === 'brand'
-      ? typography.brand
+      ? type.brand
       : variant === 'hero'
-        ? typography.hero
+        ? type.hero
         : variant === 'title'
-          ? typography.title
+          ? type.title
           : variant === 'caption'
-            ? typography.caption
+            ? type.caption
             : variant === 'label'
-              ? typography.label
-              : typography.body;
+              ? type.label
+              : type.body;
 
   const resolvedColor =
     color ??
@@ -76,7 +86,7 @@ export function AppText({
  * Prefer `width` (px) for headers — target ~150–190 on Live.
  */
 export function BrandMark({ size = 34, width }: { size?: number; width?: number }) {
-  const w = width ?? Math.round(size * 1.55 * 2);
+  const w = rs(width ?? Math.round(size * 1.55 * 2));
   const h = Math.round(w / 2);
 
   return (

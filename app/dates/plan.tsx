@@ -38,6 +38,7 @@ import {
 } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const KINDS: { value: PlanCategory; emoji: string; label: string; blurb: string }[] = [
   { value: 'drinks', emoji: '🍸', label: 'Drinks', blurb: 'Casual & easy' },
@@ -60,7 +61,8 @@ function displayName(raw: string) {
   return first.charAt(0).toUpperCase() + first.slice(1);
 }
 
-function Avatar({ uri, size, style }: { uri?: string | null; size: number; style?: object }) {
+function Avatar({ uri, size: sizeProp, style }: { uri?: string | null; size: number; style?: object }) {
+  const size = rs(sizeProp);
   const box = { width: size, height: size, borderRadius: size / 2 };
   return uri ? (
     <Image source={{ uri }} style={[styles.avatar, box, style]} />
@@ -194,7 +196,7 @@ export default function PlanDateScreen() {
                 <Avatar uri={myPhoto} size={46} style={styles.avatarRing} />
                 <Avatar uri={theirPhoto} size={46} style={[styles.avatarRing, styles.avatarOverlap]} />
                 <View style={styles.pairHeart}>
-                  <Ionicons name="heart" size={11} color="#fff" />
+                  <Ionicons name="heart" size={rs(11)} color="#fff" />
                 </View>
               </View>
               <View style={styles.headerText}>
@@ -206,7 +208,7 @@ export default function PlanDateScreen() {
 
             {sharedFood ? (
               <View style={styles.sharedBanner}>
-                <Ionicons name="sparkles" size={14} color={colors.live} />
+                <Ionicons name="sparkles" size={rs(14)} color={colors.live} />
                 <AppText style={styles.sharedText}>You both said {foodLabel(sharedFood)}</AppText>
               </View>
             ) : null}
@@ -244,7 +246,7 @@ export default function PlanDateScreen() {
                       <AppText style={[styles.kindBlurb, on && styles.kindBlurbOn]}>{k.blurb}</AppText>
                       {on ? (
                         <View style={styles.check}>
-                          <Ionicons name="checkmark" size={13} color="#fff" />
+                          <Ionicons name="checkmark" size={rs(13)} color="#fff" />
                         </View>
                       ) : null}
                     </Pressable>
@@ -283,10 +285,10 @@ export default function PlanDateScreen() {
                     style={({ pressed }) => [styles.chooseRow, whereNudge && styles.chooseRowNudge, pressed && styles.pressed]}
                   >
                     <View style={styles.chooseIcon}>
-                      <Ionicons name="location-outline" size={18} color={colors.brandBright} />
+                      <Ionicons name="location-outline" size={rs(18)} color={colors.brandBright} />
                     </View>
                     <AppText style={styles.chooseText}>Search for a place</AppText>
-                    <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                    <Ionicons name="chevron-forward" size={rs(18)} color={colors.textSecondary} />
                   </Pressable>
                 )}
               </Animated.View>
@@ -379,7 +381,7 @@ export default function PlanDateScreen() {
                   style={styles.moreBtn}
                 >
                   <AppText style={styles.moreText}>{moreTimes ? 'Fewer times' : 'More times'}</AppText>
-                  <Ionicons name={moreTimes ? 'chevron-up' : 'chevron-down'} size={14} color={colors.brandBright} />
+                  <Ionicons name={moreTimes ? 'chevron-up' : 'chevron-down'} size={rs(14)} color={colors.brandBright} />
                 </Pressable>
               ) : null}
             </ScrollView>
@@ -425,7 +427,7 @@ export default function PlanDateScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   root: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(5,5,6,0.6)' },
   dim: { ...StyleSheet.absoluteFill },
   sheetAnchor: { width: '100%', height: '93%' },

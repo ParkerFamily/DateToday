@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { Screen } from '@/components/ui/Screen';
@@ -15,6 +15,7 @@ import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
 import type { DatingIntention, DatingPreferences, InterestOption, RadiusMiles } from '@/types';
+import { ScaledSheet } from '@/lib/scale';
 
 const DISTANCE: RadiusMiles[] = [5, 10, 25, 50];
 const MAX_VIBES = 2;
@@ -225,7 +226,7 @@ function Stepper({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

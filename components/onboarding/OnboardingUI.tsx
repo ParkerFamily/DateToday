@@ -1,10 +1,11 @@
 import React from 'react';
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { AppText } from '@/components/ui/AppText';
 import { colors, gradients, radii, spacing } from '@/constants/theme';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 interface PrimaryCtaProps {
   label: string;
@@ -47,7 +48,7 @@ export function PrimaryCta({
       >
         <AppText style={styles.ctaLabel}>{loading ? '…' : label}</AppText>
         {showArrow && !loading ? (
-          <Ionicons name="arrow-forward" size={18} color={colors.text} />
+          <Ionicons name="arrow-forward" size={rs(18)} color={colors.text} />
         ) : null}
       </LinearGradient>
     </Pressable>
@@ -101,7 +102,7 @@ export function OnboardingHeader({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   ctaWrap: {
     borderRadius: radii.pill,
     overflow: 'hidden',

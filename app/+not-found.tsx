@@ -1,10 +1,11 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText, BrandMark } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { colors, spacing } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function NotFoundScreen() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function NotFoundScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   center: {
     flex: 1,
     justifyContent: 'center',

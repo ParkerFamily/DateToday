@@ -1,5 +1,5 @@
 import React from 'react';
-import { Linking, ScrollView, StyleSheet } from 'react-native';
+import { Linking, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { LegalNote, LegalP, SettingsGroup, SettingsHeader, SettingsRow } from '@/components/settings/SettingsUI';
 import { spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
+import { ScaledSheet } from '@/lib/scale';
 
 export default function LocationSettingsScreen() {
   const router = useRouter();
@@ -46,7 +47,7 @@ export default function LocationSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

@@ -4,13 +4,13 @@ import {
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   View,
 } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui/AppText';
 import { colors, spacing } from '@/constants/theme';
+import { ScaledSheet } from '@/lib/scale';
 
 export type MediaViewerItem =
   | { type: 'photo'; uri: string; caption?: string | null }
@@ -168,7 +168,7 @@ export function PromptVideoTile({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   root: {
     flex: 1,
     backgroundColor: colors.black,

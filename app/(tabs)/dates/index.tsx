@@ -4,7 +4,8 @@ import { BlockLabel, LiveAtmosphere, livePad } from '@/components/ui/LiveChrome'
 import { Screen } from '@/components/ui/Screen';
 import { colors, radii, spacing } from '@/constants/theme';
 import { otherUserId, proposalSummary, type MatchDoc } from '@/features/matches/api';
-import { useMatchesStore, usePendingLikes, useVisibleMatches } from '@/store/matches';
+import { LikesStrip } from '@/components/matches/LikesStrip';
+import { useMatchesStore, useVisibleMatches } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -13,6 +14,7 @@ import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TypingDots } from '@/components/chat/TypingDots';
 import { useTheirChatState } from '@/features/matches/useTheirChatState';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 function timeAgo(date: Date | null): string {
   if (!date) return '';
@@ -26,7 +28,8 @@ function timeAgo(date: Date | null): string {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function Avatar({ uri, size }: { uri: string | null | undefined; size: number }) {
+function Avatar({ uri, size: sizeProp }: { uri: string | null | undefined; size: number }) {
+  const size = rs(sizeProp);
   const style = { width: size, height: size, borderRadius: size / 2 };
   return uri ? (
     <Image source={{ uri }} style={[styles.avatar, style]} />
@@ -85,7 +88,7 @@ function DateRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPres
           </AppText>
         )}
       </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+      <Ionicons name="chevron-forward" size={rs(18)} color={colors.textSecondary} />
     </Pressable>
   );
 }
@@ -141,8 +144,6 @@ export default function MatchesScreen() {
   const loaded = useMatchesStore((s) => s.loaded);
   const error = useMatchesStore((s) => s.error);
   const matches = useVisibleMatches();
-  const likesCount = usePendingLikes()?.length ?? 0;
-
   const openChat = (matchId: string) => router.push(`/chat/${matchId}`);
 
   const rows = useMemo<Row[]>(() => {
@@ -172,23 +173,7 @@ export default function MatchesScreen() {
         <AppText style={styles.header}>Matches</AppText>
         <AppText style={styles.subheader}>People who liked you back. Chat and plan a date.</AppText>
 
-        {likesCount > 0 ? (
-          <Pressable
-            onPress={() => router.push('/likes')}
-            style={({ pressed }) => [styles.likesRow, pressed && styles.pressed]}
-          >
-            <View style={styles.likesIcon}>
-              <Ionicons name="heart" size={18} color="#fff" />
-            </View>
-            <View style={styles.rowBody}>
-              <AppText style={styles.rowName}>
-                {likesCount} {likesCount === 1 ? 'person likes' : 'people like'} you
-              </AppText>
-              <AppText style={styles.dateLine}>Like them back to match</AppText>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-          </Pressable>
-        ) : null}
+        <LikesStrip />
 
         {!loaded ? (
           <View style={styles.center}>
@@ -201,7 +186,7 @@ export default function MatchesScreen() {
           >
             <View style={styles.panel}>
               <View style={styles.emptyCircle}>
-                <Ionicons name="heart-outline" size={28} color={colors.brandBright} />
+                <Ionicons name="heart-outline" size={rs(28)} color={colors.brandBright} />
               </View>
               <AppText style={styles.emptyTitle}>No matches yet</AppText>
               <AppText style={styles.emptyBody}>
@@ -252,7 +237,7 @@ export default function MatchesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   pad: { flex: 1 },
   header: {
     color: colors.text,
@@ -290,25 +275,6 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '800', textAlign: 'center' },
   emptyBody: { color: colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: 'center' },
-  likesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 12,
-    marginBottom: spacing.sm,
-    borderRadius: radii.card,
-    backgroundColor: 'rgba(168,85,247,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(168,85,247,0.45)',
-  },
-  likesIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.brandBright,
-  },
   avatar: { backgroundColor: colors.card },
   avatarEmpty: { alignItems: 'center', justifyContent: 'center' },
   newRow: { gap: 14, paddingVertical: 4, paddingRight: spacing.md },

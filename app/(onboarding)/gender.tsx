@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { AppText } from '@/components/ui/AppText';
@@ -7,6 +7,7 @@ import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
 import { OnboardingChrome, ONBOARD_PROGRESS } from '@/components/onboarding/OnboardingChrome';
 import { colors, radii } from '@/constants/theme';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { ScaledSheet } from '@/lib/scale';
 
 const OPTIONS = [
   { value: 'woman' as const, label: 'WOMAN' },
@@ -53,7 +54,7 @@ export default function GenderScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   list: { gap: 12 },
   opt: {
     minHeight: 68,

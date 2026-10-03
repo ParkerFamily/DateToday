@@ -12,7 +12,8 @@ import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import { useRouter, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, View } from 'react-native';
+import { ScaledSheet } from '@/lib/scale';
 
 const ACCOUNT_HREF = '/(onboarding)/account' as Href;
 const EMAIL_VERIFY_HREF = '/(onboarding)/email-verify' as Href;
@@ -164,7 +165,7 @@ function ConsentCheck({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = ScaledSheet.create({
   list: {
     gap: spacing.md,
     marginTop: spacing.md,

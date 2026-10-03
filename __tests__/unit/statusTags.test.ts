@@ -3,7 +3,13 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   default: { getItem: jest.fn(async () => null), setItem: jest.fn(async () => undefined) },
 }));
 
-import { cardStatusTags, keyTraits, repliesFast } from '@/features/discover/statusTags';
+import {
+  activityStatus,
+  availabilityText,
+  cardStatusTags,
+  keyTraits,
+  repliesFast,
+} from '@/features/discover/statusTags';
 import type { DiscoveryCard } from '@/types';
 
 const now = new Date(2026, 8, 26, 20, 0);
@@ -35,16 +41,34 @@ function card(over: Partial<DiscoveryCard> = {}): DiscoveryCard {
 
 const labels = (c: DiscoveryCard) => cardStatusTags(c, now).map((t) => t.label);
 
+describe('availabilityText', () => {
+  it('reserves tonight wording for people who went live', () => {
+    expect(availabilityText(card(), now)).toBe('Live tonight');
+    expect(availabilityText(card({ availabilityMode: 'later', laterTonightHour: 21 }), now)).toBe('Free at 9 PM');
+  });
+});
+
+describe('activityStatus', () => {
+  it('uses soft activity wording for people who are not live', () => {
+    expect(activityStatus({ lastActiveAt: minsAgo(5) }, now)).toEqual({ label: 'Online', online: true });
+    expect(activityStatus({ lastActiveAt: minsAgo(120) }, now)).toEqual({ label: 'Active today', online: false });
+    expect(activityStatus({ lastActiveAt: minsAgo(22 * 60) }, now).label).toBe('Active yesterday');
+    expect(activityStatus({ lastActiveAt: daysAgo(4), joinedAt: daysAgo(3) }, now).label).toBe('New here');
+    expect(activityStatus({ lastActiveAt: daysAgo(4), joinedAt: daysAgo(60) }, now).label).toBe('Recently active');
+    expect(activityStatus({}, now).label).toBe('Nearby');
+  });
+});
+
 describe('cardStatusTags', () => {
-  it('always leads with availability', () => {
-    expect(labels(card())).toEqual(['Live now']);
-    expect(labels(card({ availabilityMode: 'later', laterTonightHour: 21 }))).toEqual(['Free at 9 PM']);
+  it('does not repeat availability as a tag', () => {
+    expect(labels(card())).toEqual([]);
+    expect(labels(card({ availabilityMode: 'later', laterTonightHour: 21 }))).toEqual([]);
   });
 
   it('never presents non-live people as available', () => {
-    const base = { availabilityMode: 'nearby' as const, liveUntil: '', startedAt: null };
-    expect(labels(card({ ...base, lastActiveAt: minsAgo(40) }))).toEqual(['Recently active', 'Nearby']);
-    expect(labels(card({ ...base, lastActiveAt: daysAgo(2) }))).toEqual(['Nearby']);
+    const base = { availabilityMode: 'nearby' as const, liveUntil: '', startedAt: null, distanceMiles: 1 };
+    expect(labels(card({ ...base, lastActiveAt: minsAgo(40) }))).toEqual([]);
+    expect(labels(card({ ...base, lastActiveAt: daysAgo(4), joinedAt: daysAgo(2) }))).toEqual([]);
   });
 
   it('adds live signals from real data only', () => {
@@ -53,7 +77,7 @@ describe('cardStatusTags', () => {
       distanceMiles: 1.2,
       liveUntil: new Date(2026, 8, 26, 23, 30).toISOString(),
     });
-    expect(labels(c)).toEqual(['Live now', 'Active now', 'Nearby', 'Free tonight']);
+    expect(labels(c)).toEqual(['Close by', 'Free all night']);
   });
 
   it('needs a real sample before claiming fast replies', () => {
@@ -62,10 +86,10 @@ describe('cardStatusTags', () => {
     expect(repliesFast({ replies: 10, fastReplies: 4 })).toBe(false);
   });
 
-  it('shows recent plans and new members, capped at four tags', () => {
+  it('shows recent plans and new members, capped at three tags', () => {
     const c = card({ replies: 8, fastReplies: 8, lastPlanAt: daysAgo(3), joinedAt: daysAgo(2) });
-    expect(labels(c)).toEqual(['Live now', 'Usually replies fast', 'Made plans recently', 'New here']);
-    expect(labels(card({ lastPlanAt: daysAgo(30), joinedAt: daysAgo(40) }))).toEqual(['Live now']);
+    expect(labels(c)).toEqual(['Usually replies fast', 'Made plans recently', 'New here']);
+    expect(labels(card({ lastPlanAt: daysAgo(30), joinedAt: daysAgo(40) }))).toEqual([]);
   });
 });
 
