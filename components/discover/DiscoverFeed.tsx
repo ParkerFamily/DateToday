@@ -24,7 +24,7 @@ import { promptDisplayLabel } from '@/constants/videoPrompts';
 import { compareDiscoveryRank } from '@/lib/commerce/sessionCommerce';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { canMatchToday } from '@/lib/usage/dailyLimits';
-import { applyDiscoverFilters } from '@/features/discover/applyFilters';
+import { applyDiscoverFilters, matchedFilterLabels } from '@/features/discover/applyFilters';
 import {
   activityStatus,
   availabilityText,
@@ -67,6 +67,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
+import { energyLabel } from '@/constants/datingTraits';
 
 const ACTIVITY_EMOJI: Record<string, string> = {
   drinks: '🍸',
@@ -106,7 +107,7 @@ function formatClock(iso: string): string {
 
 function activityLabel(a: string): string {
   const emoji = ACTIVITY_EMOJI[a] ?? '';
-  const word = a.charAt(0).toUpperCase() + a.slice(1);
+  const word = a === 'surprise' ? 'Spontaneous' : a.charAt(0).toUpperCase() + a.slice(1);
   return emoji ? `${emoji} ${word}` : word;
 }
 
@@ -296,6 +297,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const about = prompts.find((p) => p.kind === 'about_you') ?? prompts[1];
   const tonightFeeling = (card?.activities ?? []).map(activityLabel).join(' · ');
   const statusTags = card ? cardStatusTags(card) : [];
+  const matched = card ? matchedFilterLabels(card, filters, { plus: plusFoods, myInterests }) : [];
   const tier = card ? feedTier(card) : 0;
   const tonight = tier !== 2;
   const activity = card && !tonight ? activityStatus(card) : null;
@@ -746,6 +748,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 <MatchPill otherUid={card.userId} theirLevel={card.quizLevel ?? 0} />
               </View>
               {tonight ? (
+                <>
                 <View style={styles.statusLine}>
                   {tier === 0 ? (
                     <Ionicons name="flash" size={rs(14)} color={colors.brandBright} />
@@ -764,6 +767,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                       .join('')}
                   </AppText>
                 </View>
+                {card.energy || card.planIdea ? (
+                  <AppText style={styles.planLine} numberOfLines={1}>
+                    {[energyLabel(card.energy), card.planIdea ? `📍 ${card.planIdea}` : null]
+                      .filter(Boolean)
+                      .join('  ·  ')}
+                  </AppText>
+                ) : null}
+                </>
               ) : (
                 <>
                   <View style={styles.statusLine}>
@@ -824,6 +835,26 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                   </AppText>
                 </View>
               ) : null}
+              {matched.length ? (
+                <View style={styles.matchedWrap}>
+                  <View style={styles.matchedHead}>
+                    <Ionicons name="checkmark-circle" size={rs(13)} color={colors.brandBright} />
+                    <AppText style={styles.matchedTitle}>MATCHES YOUR FILTERS</AppText>
+                  </View>
+                  <View style={styles.matchedChips}>
+                    {matched.slice(0, 6).map((m) => (
+                      <View key={m} style={styles.matchedChip}>
+                        <AppText style={styles.matchedText}>{m}</AppText>
+                      </View>
+                    ))}
+                    {matched.length > 6 ? (
+                      <View style={styles.matchedChip}>
+                        <AppText style={styles.matchedText}>+{matched.length - 6}</AppText>
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
             </View>
           </View>
 
@@ -831,7 +862,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             <View style={styles.block}>
               <View style={styles.promptHead}>
                 <Ionicons name="person-circle-outline" size={rs(14)} color={colors.brandBright} />
-                <AppText style={styles.promptHeadText}>ABOUT {card.displayName.toUpperCase()}</AppText>
+                <AppText style={styles.promptHeadText}>BIO</AppText>
               </View>
               <AppText style={styles.bioText} numberOfLines={5}>
                 {card.bio.trim()}
@@ -1088,6 +1119,19 @@ const styles = ScaledSheet.create({
     fontWeight: '700',
     flexShrink: 1,
   },
+  matchedWrap: { gap: 6 },
+  matchedHead: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  matchedTitle: { color: colors.brandBright, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
+  matchedChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  matchedChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(124,58,237,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(168,85,247,0.45)',
+  },
+  matchedText: { color: colors.text, fontSize: 12, fontWeight: '700' },
   heroMeta: {
     position: 'absolute',
     left: spacing.lg,
@@ -1209,6 +1253,7 @@ const styles = ScaledSheet.create({
   },
   statusLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statusLineStrong: { color: '#E9D5FF', fontSize: 14, fontWeight: '800', letterSpacing: 0.6 },
+  planLine: { color: colors.text, fontSize: 14, fontWeight: '600', marginTop: 2 },
   onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
   block: {
     paddingHorizontal: spacing.lg,

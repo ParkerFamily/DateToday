@@ -312,7 +312,7 @@ export default function PublicProfileScreen() {
 
           {profile.bio?.trim() ? (
             <View style={styles.aboutCard}>
-              <AppText variant="label">About</AppText>
+              <AppText variant="label">Bio</AppText>
               <AppText style={styles.aboutText}>{profile.bio.trim()}</AppText>
             </View>
           ) : isSelf ? (
@@ -321,7 +321,7 @@ export default function PublicProfileScreen() {
               onPress={() => router.push({ pathname: '/settings/edit-profile', params: { open: 'bio' } })}
               style={({ pressed }) => [styles.aboutCard, styles.aboutEmpty, pressed && { opacity: 0.85 }]}
             >
-              <AppText variant="label">About</AppText>
+              <AppText variant="label">Bio</AppText>
               <AppText variant="secondary">Add a short bio so people know who they’re meeting ›</AppText>
             </Pressable>
           ) : null}

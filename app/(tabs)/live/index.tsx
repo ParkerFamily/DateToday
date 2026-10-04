@@ -13,6 +13,7 @@ import { flowCopy, formatLaterHour } from '@/constants/flow';
 import { colors, gradients, spacing } from '@/constants/theme';
 import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
 import { AFTER_HOURS_TAGS, type AfterHoursTag } from '@/constants/afterHours';
+import { ENERGY_OPTIONS, energyLabel, PLAN_IDEA_MAX, TRAVEL_OPTIONS } from '@/constants/datingTraits';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import {
     clearTonightBoost,
@@ -24,7 +25,7 @@ import { activeFilterLabels } from '@/features/discover/applyFilters';
 import { useDiscoverFilters } from '@/store/discoverFilters';
 import { endLiveSession, startLiveSession } from '@/services/api';
 import { useSessionStore } from '@/store/session';
-import type { RadiusMiles, TonightActivity } from '@/types';
+import type { RadiusMiles, TonightActivity, TonightEnergy, TravelPref } from '@/types';
 import { isLiveSessionActive } from '@/utils/time';
 import { freeUntilOptions, needsReconfirm, pickFreeUntil } from '@/features/live/freeUntil';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,6 +41,7 @@ import {
     Pressable,
     ScrollView,
     StyleSheet,
+    TextInput,
     View,
 } from 'react-native';
 import Animated, {
@@ -69,6 +71,8 @@ const PLAN_OPTIONS: {
   { value: 'dinner', label: 'Dinner', icon: 'restaurant-outline' },
   { value: 'coffee', label: 'Coffee', icon: 'cafe-outline' },
   { value: 'activity', label: 'Activity', icon: 'walk-outline' },
+  { value: 'chill', label: 'Chill', icon: 'tv-outline' },
+  { value: 'surprise', label: 'Spontaneous', icon: 'shuffle-outline' },
 ];
 
 /** Recomputed at tap time so a screen left open doesn't publish a stale end time. */
@@ -84,7 +88,7 @@ function formatUntil(iso: string): string {
 function formatActivities(activities: string[]): string {
   if (!activities.length) return 'Open';
   return activities
-    .map((a) => a.charAt(0).toUpperCase() + a.slice(1).replace(/_/g, ' '))
+    .map((a) => PLAN_OPTIONS.find((o) => o.value === a)?.label ?? a.charAt(0).toUpperCase() + a.slice(1))
     .join(' + ');
 }
 
@@ -111,6 +115,9 @@ export default function LiveHomeScreen() {
   /** null = live now; 18–21 = free later tonight */
   const [laterTonightHour, setLaterTonightHour] = useState<number | null>(null);
   const [afterHoursTags, setAfterHoursTags] = useState<AfterHoursTag[]>([]);
+  const [energy, setEnergy] = useState<TonightEnergy | null>(null);
+  const [travel, setTravel] = useState<TravelPref | null>(null);
+  const [planIdea, setPlanIdea] = useState('');
   const [holdProgress, setHoldProgress] = useState(0);
   const holdFill = useSharedValue(0);
   const holdFillStyle = useAnimatedStyle(() => ({ width: `${holdFill.value * 100}%` }));
@@ -251,6 +258,9 @@ export default function LiveHomeScreen() {
           availableUntil: expiresAt.toISOString(),
           laterTonightHour,
           afterHours: showLateNight ? afterHoursTags : [],
+          energy,
+          travel,
+          planIdea: planIdea.trim() || null,
         });
         setLiveSession({ ...session, isBoosted: false, boostedAt: null });
         setPingResults(0, 0);
@@ -277,6 +287,9 @@ export default function LiveHomeScreen() {
           availabilityMode: (laterTonightHour != null ? 'later' : 'live') as 'live' | 'later',
           isBoosted: false,
           boostedAt: null,
+          energy,
+          travel,
+          planIdea: planIdea.trim() || null,
         };
         setLiveSession(localSession);
         setPingResults(0, 0);
@@ -406,6 +419,7 @@ export default function LiveHomeScreen() {
   onStopRef.current = onStop;
   const liveMeta = [
     formatActivities(liveSession?.activities ?? activities),
+    energyLabel(liveSession?.energy),
     foodBit || null,
     `within ${radiusLabel} mi`,
   ]
@@ -422,6 +436,9 @@ export default function LiveHomeScreen() {
           loading={loading || leaving}
           onEdit={() => {
             setAfterHoursTags(liveSession.afterHours ?? []);
+            setEnergy(liveSession.energy ?? null);
+            setTravel(liveSession.travel ?? null);
+            setPlanIdea(liveSession.planIdea ?? '');
             setSheet('edit');
           }}
           onOffline={() => onStopRef.current()}
@@ -439,6 +456,16 @@ export default function LiveHomeScreen() {
       }
       return [...prev, value];
     });
+  };
+
+  const pickEnergy = (value: TonightEnergy) => {
+    void Haptics.selectionAsync();
+    setEnergy((prev) => (prev === value ? null : value));
+  };
+
+  const pickTravel = (value: TravelPref) => {
+    void Haptics.selectionAsync();
+    setTravel((prev) => (prev === value ? null : value));
   };
 
   const toggleAfterHours = (value: AfterHoursTag) => {
@@ -584,6 +611,61 @@ export default function LiveHomeScreen() {
                     <AppText style={styles.settingChevron}>›</AppText>
                   </Pressable>
                 ) : null}
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <View style={styles.sectionHead}>
+                <AppText style={styles.sectionLabel}>✨ ENERGY</AppText>
+                <AppText style={styles.sectionHint}>What kind of night?</AppText>
+              </View>
+              <View style={styles.lateWrap}>
+                {ENERGY_OPTIONS.map((o) => {
+                  const on = energy === o.value;
+                  return (
+                    <Pressable
+                      key={o.value}
+                      onPress={() => pickEnergy(o.value)}
+                      style={[styles.laterPill, on && styles.laterPillOn]}
+                    >
+                      <AppText style={[styles.laterPillText, on && styles.laterPillTextOn]}>
+                        {o.emoji} {o.label}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <View style={styles.sectionHead}>
+                <AppText style={styles.sectionLabel}>📍 PLAN IN MIND?</AppText>
+                <AppText style={styles.sectionHint}>Optional · people say yes faster.</AppText>
+              </View>
+              <TextInput
+                value={planIdea}
+                onChangeText={setPlanIdea}
+                placeholder="Rooftop drinks at Ponce, tacos on Edgewood…"
+                placeholderTextColor={colors.textSecondary}
+                maxLength={PLAN_IDEA_MAX}
+                returnKeyType="done"
+                style={styles.planInput}
+              />
+              <View style={styles.lateWrap}>
+                {TRAVEL_OPTIONS.map((o) => {
+                  const on = travel === o.value;
+                  return (
+                    <Pressable
+                      key={o.value}
+                      onPress={() => pickTravel(o.value)}
+                      style={[styles.laterPill, on && styles.laterPillOn]}
+                    >
+                      <AppText style={[styles.laterPillText, on && styles.laterPillTextOn]}>
+                        {o.label}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
               </View>
             </View>
 
@@ -843,6 +925,33 @@ export default function LiveHomeScreen() {
                   </>
                 ) : null}
                 <AppText variant="title" style={styles.sheetTitle}>
+                  Energy
+                </AppText>
+                <OptionGrid
+                  options={ENERGY_OPTIONS.map((o) => ({ value: o.value, label: `${o.emoji} ${o.label}` }))}
+                  values={energy ? [energy] : []}
+                  multi={false}
+                  onToggle={(value) => pickEnergy(value as TonightEnergy)}
+                />
+                <AppText variant="title" style={styles.sheetTitle}>
+                  Plan in mind
+                </AppText>
+                <TextInput
+                  value={planIdea}
+                  onChangeText={setPlanIdea}
+                  placeholder="Optional · a spot or idea"
+                  placeholderTextColor={colors.textSecondary}
+                  maxLength={PLAN_IDEA_MAX}
+                  returnKeyType="done"
+                  style={styles.planInput}
+                />
+                <OptionGrid
+                  options={TRAVEL_OPTIONS}
+                  values={travel ? [travel] : []}
+                  multi={false}
+                  onToggle={(value) => pickTravel(value as TravelPref)}
+                />
+                <AppText variant="title" style={styles.sheetTitle}>
                   Late night
                 </AppText>
                 <AppText variant="secondary" style={styles.sheetHint}>
@@ -869,6 +978,9 @@ export default function LiveHomeScreen() {
                         availableUntil: expiresAt.toISOString(),
                         expiresAt: expiresAt.toISOString(),
                         afterHours: afterHoursTags,
+                        energy,
+                        travel,
+                        planIdea: planIdea.trim() || null,
                       };
                       setLiveSession({ ...liveSession, ...patch });
                       void syncLiveSessionPatch(patch);
@@ -948,11 +1060,13 @@ const styles = ScaledSheet.create({
   },
   planCards: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
   },
   planCard: {
-    flex: 1,
-    minHeight: 84,
+    flexBasis: '30%',
+    flexGrow: 1,
+    minHeight: 76,
     borderRadius: 16,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.12)',
@@ -1036,6 +1150,17 @@ const styles = ScaledSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   lateWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  planInput: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    color: colors.text,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+  },
   latePillOn: {
     borderColor: '#A78BFA',
     backgroundColor: 'rgba(76,29,149,0.45)',

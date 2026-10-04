@@ -16,28 +16,43 @@ export const OUT_LATE_OPTIONS: { value: OutLate; label: string; hour: number }[]
   { value: '24', label: 'Midnight+', hour: 24 },
 ];
 
-export type SpontaneousOption = 'just_live' | 'close_by' | 'free_a_while';
-
-export const SPONTANEOUS_OPTIONS: { value: SpontaneousOption; label: string }[] = [
-  { value: 'just_live', label: 'Just went live' },
-  { value: 'close_by', label: 'Close by · under 2 mi' },
-  { value: 'free_a_while', label: 'Free for a while' },
-];
-
 /** Free: how soon they can actually meet. */
-export type HowSoon = 'now' | 'hour' | 'later';
+export type HowSoon = 'now' | 'soon' | 'hour' | 'later';
 
 export const HOW_SOON_OPTIONS: { value: HowSoon; label: string }[] = [
-  { value: 'now', label: 'Right now' },
-  { value: 'hour', label: 'Within 1 hour' },
-  { value: 'later', label: 'Free later' },
+  { value: 'now', label: 'Now' },
+  { value: 'soon', label: '30 min' },
+  { value: 'hour', label: '1 hour' },
+  { value: 'later', label: 'Later tonight' },
 ];
 
+export const HOW_SOON_SOON_MS = 30 * 60 * 1000;
 export const HOW_SOON_HOUR_MS = 60 * 60 * 1000;
 
+/** Free: how much of the night they have once they're free. */
+export type FreeFor = 'hour' | 'few' | 'night';
+
+export const FREE_FOR_OPTIONS: { value: FreeFor; label: string }[] = [
+  { value: 'hour', label: '1 hour+' },
+  { value: 'few', label: 'A few hours' },
+  { value: 'night', label: 'Rest of the night' },
+];
+
+export const FREE_FOR_MS: Record<Exclude<FreeFor, 'night'>, number> = {
+  hour: 60 * 60 * 1000,
+  few: 3 * 60 * 60 * 1000,
+};
+
+/** Plus "Last-minute": went live this recently. */
 export const JUST_LIVE_MS = 45 * 60 * 1000;
+/** Plus "Ready now": live (not later) and confirmed availability this recently. */
+export const READY_NOW_MS = 30 * 60 * 1000;
+/** Plus "Close by" radii. */
+export const CLOSE_BY_OPTIONS = [1, 2, 5] as const;
+/** Card "Close by" tag. */
 export const CLOSE_BY_MILES = 2;
-export const FREE_A_WHILE_MS = 2 * 60 * 60 * 1000;
+/** Free "Recently active": nearby (not live) people seen this recently. */
+export const RECENTLY_ACTIVE_MS = 24 * 60 * 60 * 1000;
 
 export const AFTER_HOURS_START_HOUR = 21;
 const AFTER_HOURS_END_HOUR = 5;

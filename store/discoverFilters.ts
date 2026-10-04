@@ -5,23 +5,34 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
-import type { DatingIntention, TonightActivity } from '@/types';
+import type { DatingIntention, TonightActivity, TonightEnergy, TravelPref } from '@/types';
 import type { FoodCuisine } from '@/constants/tonightVibe';
 import { FREE_DEFAULT_RADIUS } from '@/constants/tonightVibe';
-import type { HowSoon, OutLate, SpontaneousOption } from '@/constants/afterHours';
+import type { FreeFor, HowSoon, OutLate } from '@/constants/afterHours';
+import type { TraitKey } from '@/constants/datingTraits';
 
 const STORAGE_KEY = 'datetoday.discoverFilters.v2';
 
 export const AGE_BOUNDS = { min: 18, max: 70 } as const;
 export const HEIGHT_BOUNDS_CM = { min: 147, max: 213 } as const;
 
-export interface DiscoverFilterValues {
+type TraitFilters = Record<TraitKey, string[]>;
+
+export interface DiscoverFilterValues extends TraitFilters {
   /** Free: up to 25 mi. Plus: up to 50. */
   maxDistanceMiles: number;
-  /** Free: people free until at least this hour (24h). */
-  freeUntilHour: number | null;
-  /** Free: overlap with tonight activities. */
+  /** Free: what they're down for tonight. */
   vibeFilter: TonightActivity[];
+  /** Free: tonight's energy they picked when going live. */
+  energy: TonightEnergy[];
+  /** Free: how long they're free once available. */
+  freeFor: FreeFor | null;
+  /** Free: only people with a spot or idea already in mind. */
+  planInMind: boolean;
+  /** Free: how they're getting there. */
+  travel: TravelPref[];
+  /** Free: live tonight, or nearby and seen in the last day. */
+  recentlyActive: boolean;
   /** Free: one cuisine; Plus: several. */
   foodFilter: FoodCuisine[];
   /** Free — trust / safety. */
@@ -48,7 +59,7 @@ export interface DiscoverFilterValues {
   videoOnly: boolean;
   /** Plus: require every filter (and hide people missing that info). */
   matchAllFilters: boolean;
-  /** Free: right now / within the hour / later tonight. */
+  /** Free: now / 30 min / 1 hour / later tonight. */
   howSoon: HowSoon | null;
   /** Plus, 9 PM–5 AM only: free until at least this late. */
   outLate: OutLate | null;
@@ -56,15 +67,20 @@ export interface DiscoverFilterValues {
   afterHoursNow: boolean;
   /** Plus, 9 PM–5 AM only: picked any late-night option when going live. */
   lateNightOpen: boolean;
-  /** Plus: just went live / close by / free for a while. */
-  spontaneous: SpontaneousOption[];
+  /** Plus, 9 PM–5 AM only: tagged themselves "Still outside". */
+  stillOut: boolean;
+  /** Plus: went live in the last 45 min. */
+  lastMinute: boolean;
+  /** Plus: confirmed they're free in the last 30 min. */
+  readyNow: boolean;
+  /** Plus: ultra-tight radius (1 / 2 / 5 mi). */
+  closeByMiles: number | null;
 }
 
 export interface DiscoverFilterState extends DiscoverFilterValues {
   hydrated: boolean;
   patch: (next: Partial<DiscoverFilterValues>) => void;
   setMaxDistanceMiles: (miles: number) => void;
-  setFreeUntilHour: (hour: number | null) => void;
   toggleVibeFilter: (activity: TonightActivity) => void;
   toggleFoodFilter: (cuisine: FoodCuisine, allowMany: boolean) => void;
   setVerifiedOnly: (value: boolean) => void;
@@ -77,7 +93,10 @@ export interface DiscoverFilterState extends DiscoverFilterValues {
       | 'interestFilter'
       | 'kids'
       | 'exercise'
-      | 'spontaneous',
+      | 'vibeFilter'
+      | 'energy'
+      | 'travel'
+      | TraitKey,
     value: string,
   ) => void;
   reset: () => void;
@@ -85,8 +104,12 @@ export interface DiscoverFilterState extends DiscoverFilterValues {
 
 export const DEFAULT_FILTERS: DiscoverFilterValues = {
   maxDistanceMiles: FREE_DEFAULT_RADIUS,
-  freeUntilHour: null,
   vibeFilter: [],
+  energy: [],
+  freeFor: null,
+  planInMind: false,
+  travel: [],
+  recentlyActive: false,
   foodFilter: [],
   verifiedOnly: false,
   interestFilter: [],
@@ -106,7 +129,20 @@ export const DEFAULT_FILTERS: DiscoverFilterValues = {
   outLate: null,
   afterHoursNow: false,
   lateNightOpen: false,
-  spontaneous: [],
+  stillOut: false,
+  lastMinute: false,
+  readyNow: false,
+  closeByMiles: null,
+  weed: [],
+  pets: [],
+  education: [],
+  industry: [],
+  religion: [],
+  politics: [],
+  loveLanguage: [],
+  communication: [],
+  chronotype: [],
+  socialEnergy: [],
 };
 
 const VALUE_KEYS = Object.keys(DEFAULT_FILTERS) as (keyof DiscoverFilterValues)[];
@@ -131,7 +167,6 @@ export const useDiscoverFilters = create<DiscoverFilterState>((set, get) => ({
   hydrated: false,
   patch: (next) => set(next),
   setMaxDistanceMiles: (maxDistanceMiles) => set({ maxDistanceMiles }),
-  setFreeUntilHour: (freeUntilHour) => set({ freeUntilHour }),
   toggleVibeFilter: (activity) => set({ vibeFilter: toggle(get().vibeFilter, activity) }),
   toggleFoodFilter: (cuisine, allowMany) => {
     const current = get().foodFilter;

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { Screen } from '@/components/ui/Screen';
 import { friendlyError } from '@/lib/errors';
@@ -33,10 +34,10 @@ import { InterestCount, InterestPicker } from '@/components/profile/InterestPick
 import {
   EXERCISE_OPTIONS,
   KIDS_OPTIONS,
-  PETS_OPTIONS,
   normalizeInterests,
 } from '@/constants/interests';
 import { ScaledSheet } from '@/lib/scale';
+import { TRAIT_KEYS, TRAITS, type TraitKey } from '@/constants/datingTraits';
 
 type Gender = 'woman' | 'man' | 'nonbinary';
 type SheetId =
@@ -58,7 +59,7 @@ type SheetId =
   | 'smoking'
   | 'exercise'
   | 'kids'
-  | 'pets'
+  | TraitKey
   | null;
 
 const GENDERS: { value: Gender; label: string }[] = [
@@ -66,6 +67,9 @@ const GENDERS: { value: Gender; label: string }[] = [
   { value: 'man', label: 'Man' },
   { value: 'nonbinary', label: 'Non-binary' },
 ];
+
+const BIO_MAX = 280;
+const BIO_STARTERS = ['Ask me about', 'Perfect night out:', 'Green flag:', 'Looking for someone who'];
 
 const PRONOUNS = ['she/her', 'he/him', 'they/them', 'she/they', 'he/they', 'ask me'];
 const DRINKING = ['Never', 'Sometimes', 'Socially', 'Often'];
@@ -75,7 +79,7 @@ const CHOICE_SHEETS: Partial<Record<NonNullable<SheetId>, string[]>> = {
   smoking: SMOKING,
   exercise: EXERCISE_OPTIONS,
   kids: KIDS_OPTIONS,
-  pets: PETS_OPTIONS,
+  ...(Object.fromEntries(TRAIT_KEYS.map((k) => [k, [...TRAITS[k].options]])) as Record<TraitKey, string[]>),
 };
 
 function genderLabel(value: string | null | undefined) {
@@ -213,15 +217,23 @@ export default function EditProfileScreen() {
   const [smoking, setSmoking] = useState(profile?.smoking || '');
   const [exercise, setExercise] = useState(profile?.exercise || '');
   const [kids, setKids] = useState(profile?.kids || '');
-  const [pets, setPets] = useState(profile?.pets || '');
-  const choiceValue: Record<string, string> = { drinking, smoking, exercise, kids, pets };
+  const [traits, setTraits] = useState<Record<TraitKey, string>>(
+    () => Object.fromEntries(TRAIT_KEYS.map((k) => [k, profile?.[k] || ''])) as Record<TraitKey, string>,
+  );
+  const choiceValue: Record<string, string> = { drinking, smoking, exercise, kids, ...traits };
   const setChoice: Record<string, (v: string) => void> = {
     drinking: setDrinking,
     smoking: setSmoking,
     exercise: setExercise,
     kids: setKids,
-    pets: setPets,
+    ...(Object.fromEntries(
+      TRAIT_KEYS.map((k) => [k, (v: string) => setTraits((t) => ({ ...t, [k]: v }))]),
+    ) as Record<TraitKey, (v: string) => void>),
   };
+  const traitValues = Object.fromEntries(TRAIT_KEYS.map((k) => [k, traits[k] || null])) as Record<
+    TraitKey,
+    string | null
+  >;
   const [sheet, setSheet] = useState<SheetId>(null);
   const [draftText, setDraftText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -377,7 +389,7 @@ export default function EditProfileScreen() {
         foodPreference: foodPreference,
         exercise: exercise || null,
         kids: kids || null,
-        pets: pets || null,
+        ...traitValues,
         updatedAt: nowIso,
         profileCompletion: {
           ...(profile?.profileCompletion ?? {}),
@@ -423,7 +435,7 @@ export default function EditProfileScreen() {
           foodPreference: next.foodPreference,
           exercise: next.exercise,
           kids: next.kids,
-          pets: next.pets,
+          ...traitValues,
           datingIntention: vibe,
           vibes: vibe ? [vibe] : [],
           interestedIn,
@@ -444,7 +456,7 @@ export default function EditProfileScreen() {
           foodPreference: next.foodPreference,
           exercise: next.exercise,
           kids: next.kids,
-          pets: next.pets,
+          ...traitValues,
           datingIntention: vibe,
           updatedAt: serverTimestamp(),
         };
@@ -465,6 +477,7 @@ export default function EditProfileScreen() {
           exercise: next.exercise,
           occupation: next.occupation ?? null,
           school: next.school ?? null,
+          ...traitValues,
           datingIntention: vibe,
         }).catch(() => undefined);
       }
@@ -521,10 +534,8 @@ export default function EditProfileScreen() {
         return 'Workout';
       case 'kids':
         return 'Kids';
-      case 'pets':
-        return 'Pets';
       default:
-        return '';
+        return sheet && sheet in TRAITS ? TRAITS[sheet as TraitKey].label : '';
     }
   })();
 
@@ -730,6 +741,7 @@ export default function EditProfileScreen() {
             value={smoking || null}
             onPress={() => setSheet('smoking')}
           />
+          <EditorRow label="Weed" value={traits.weed || null} onPress={() => setSheet('weed')} />
           <EditorRow
             label="Kids"
             value={kids || null}
@@ -737,10 +749,35 @@ export default function EditProfileScreen() {
           />
           <EditorRow
             label="Pets"
-            value={pets || null}
+            value={traits.pets || null}
             last
             onPress={() => setSheet('pets')}
           />
+        </Section>
+
+        <Section title="Personality">
+          {(['socialEnergy', 'chronotype', 'loveLanguage', 'communication'] as const).map((k, i, all) => (
+            <EditorRow
+              key={k}
+              label={TRAITS[k].label}
+              value={traits[k] || null}
+              last={i === all.length - 1}
+              onPress={() => setSheet(k)}
+            />
+          ))}
+        </Section>
+
+        <Section title="Background">
+          {(['education', 'industry', 'religion', 'politics'] as const).map((k, i, all) => (
+            <EditorRow
+              key={k}
+              label={TRAITS[k].label}
+              value={traits[k] || null}
+              placeholder={k === 'religion' || k === 'politics' ? 'Optional' : 'Add'}
+              last={i === all.length - 1}
+              onPress={() => setSheet(k)}
+            />
+          ))}
         </Section>
 
         <Section title="Photos & video">
@@ -766,8 +803,13 @@ export default function EditProfileScreen() {
           <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
-              <AppText style={styles.sheetTitle}>{sheetTitle}</AppText>
-              {isTextSheet ? (
+              <View style={styles.flexShrink}>
+                <AppText style={styles.sheetTitle}>{sheetTitle}</AppText>
+                {sheet === 'bio' ? (
+                  <AppText style={styles.sheetSub}>People read this before they tap ♥</AppText>
+                ) : null}
+              </View>
+              {sheet === 'bio' ? null : isTextSheet ? (
                 <Pressable onPress={commitTextSheet} hitSlop={10}>
                   <AppText style={styles.doneLabel}>Save</AppText>
                 </Pressable>
@@ -787,14 +829,14 @@ export default function EditProfileScreen() {
                 sheet === 'birthday'
                   ? 'YYYY-MM-DD'
                   : sheet === 'bio'
-                    ? 'A little about you'
+                    ? 'What should someone know before meeting you tonight?'
                     : sheet === 'legalName'
                       ? 'Full name on your ID'
                       : sheetTitle
               }
               placeholderTextColor={colors.textSecondary}
               multiline={sheet === 'bio'}
-              maxLength={sheet === 'bio' ? 280 : sheet === 'name' ? 40 : 80}
+              maxLength={sheet === 'bio' ? BIO_MAX : sheet === 'name' ? 40 : 80}
               keyboardType={sheet === 'birthday' ? 'numbers-and-punctuation' : 'default'}
               autoCapitalize={
                 sheet === 'birthday' ? 'none' : sheet === 'name' || sheet === 'legalName' ? 'words' : 'sentences'
@@ -805,6 +847,46 @@ export default function EditProfileScreen() {
               submitBehavior={sheet === 'bio' ? 'newline' : 'submit'}
               style={[styles.sheetInput, sheet === 'bio' && styles.sheetInputBio]}
             />
+          ) : null}
+          {sheet === 'bio' ? (
+            <>
+              <View style={styles.bioMeta}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="always"
+                  contentContainerStyle={styles.bioStarters}
+                  style={styles.flexShrink}
+                >
+                  {BIO_STARTERS.map((starter) => (
+                    <Pressable
+                      key={starter}
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        setDraftText((t) => {
+                          const base = t.trimEnd();
+                          return `${base}${base ? '\n' : ''}${starter} `.slice(0, BIO_MAX);
+                        });
+                        inputRef.current?.focus();
+                      }}
+                      style={({ pressed }) => [styles.bioStarter, pressed && styles.pressed]}
+                    >
+                      <AppText style={styles.bioStarterText}>+ {starter}</AppText>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <AppText style={[styles.bioCount, draftText.length >= BIO_MAX - 20 && styles.bioCountNear]}>
+                  {draftText.length}/{BIO_MAX}
+                </AppText>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={commitTextSheet}
+                style={({ pressed }) => [styles.sheetPrimary, pressed && styles.pressed]}
+              >
+                <AppText style={styles.sheetPrimaryLabel}>Save bio</AppText>
+              </Pressable>
+            </>
           ) : null}
           {sheet === 'legalName' ? (
             <AppText style={styles.sheetNote}>
@@ -1204,8 +1286,53 @@ const styles = ScaledSheet.create({
     fontSize: 16,
   },
   sheetInputBio: {
-    minHeight: 140,
+    minHeight: 150,
+    maxHeight: 220,
     textAlignVertical: 'top',
+    lineHeight: 22,
+    paddingTop: 14,
+    borderRadius: 16,
+    borderColor: 'rgba(168,85,247,0.45)',
+  },
+  sheetSub: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  flexShrink: {
+    flexShrink: 1,
+  },
+  bioMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: -4,
+  },
+  bioStarters: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  bioStarter: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  bioStarterText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  bioCount: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  bioCountNear: {
+    color: colors.brandBright,
   },
   chipWrap: {
     flexDirection: 'row',

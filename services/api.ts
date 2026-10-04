@@ -7,6 +7,8 @@ import type {
   Profile,
   RadiusMiles,
   TonightActivity,
+  TonightEnergy,
+  TravelPref,
   FoodCuisine,
   DiscoveryCard,
   SendPingResult,
@@ -156,6 +158,9 @@ export interface StartLiveInput {
   availabilityLabel?: string | null;
   laterTonightHour?: number | null;
   afterHours?: AfterHoursTag[];
+  energy?: TonightEnergy | null;
+  travel?: TravelPref | null;
+  planIdea?: string | null;
 }
 
 export async function startLiveSession(input: StartLiveInput): Promise<LiveSession> {

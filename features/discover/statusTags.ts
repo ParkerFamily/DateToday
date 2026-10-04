@@ -111,6 +111,8 @@ const OPEN_TO: Record<string, string> = {
   drinks: 'Open to drinks',
   coffee: 'Open to coffee',
   activity: 'Up for an activity',
+  chill: 'Down to chill',
+  surprise: 'Down for something spontaneous',
 };
 
 export function openToLabel(activity: string): string {

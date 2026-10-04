@@ -3,7 +3,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   default: { getItem: jest.fn(async () => null), setItem: jest.fn(async () => undefined) },
 }));
 
-import { activeFilterLabels, applyDiscoverFilters } from '@/features/discover/applyFilters';
+import { activeFilterLabels, applyDiscoverFilters, matchedFilterLabels } from '@/features/discover/applyFilters';
 import { DEFAULT_FILTERS, type DiscoverFilterValues } from '@/store/discoverFilters';
 import type { DiscoveryCard } from '@/types';
 
@@ -100,11 +100,15 @@ describe('applyDiscoverFilters', () => {
       ]);
     });
 
-    it('counts past-midnight people as free late for the free-until filter', () => {
-      expect(ids(applyDiscoverFilters(night, f({ freeUntilHour: 23 }), { plus: false, now: at(20) }))).toEqual([
+    it('counts past-midnight people as free for the rest of the night', () => {
+      expect(ids(applyDiscoverFilters(night, f({ freeFor: 'night' }), { plus: false, now: at(20) }))).toEqual([
         'late',
         'midnight',
       ]);
+    });
+
+    it('Still outside matches the late-night tag', () => {
+      expect(ids(applyDiscoverFilters(night, f({ stillOut: true }), { plus: true, now: at(23) }))).toEqual(['late']);
     });
 
     it('keeps tonight’s thresholds after midnight', () => {
@@ -144,9 +148,18 @@ describe('applyDiscoverFilters', () => {
 
     it('is free and splits by when they can meet', () => {
       expect(run('now')).toEqual(['live']);
+      expect(run('soon')).toEqual(['live']);
       expect(run('hour')).toEqual(['live', 'at7']);
       expect(run('later')).toEqual(['at7', 'at9']);
-      expect(activeFilterLabels(f({ howSoon: 'hour' }), { plus: false })).toEqual(['⏱ Within 1 hour']);
+      expect(activeFilterLabels(f({ howSoon: 'hour' }), { plus: false })).toEqual(['⏱ 1 hour']);
+    });
+
+    it('30 min includes people free later within half an hour', () => {
+      const soon = new Date(2026, 8, 26, 18, 40);
+      expect(ids(applyDiscoverFilters(people, f({ howSoon: 'soon' }), { plus: false, now: soon }))).toEqual([
+        'live',
+        'at7',
+      ]);
     });
   });
 
@@ -157,8 +170,10 @@ describe('applyDiscoverFilters', () => {
       ids(applyDiscoverFilters(people, f(over), { plus: true, now }));
     expect(run({})).toEqual(['live', 'idle']);
     expect(run({ howSoon: 'now' })).toEqual(['live']);
-    expect(run({ freeUntilHour: 21 })).toEqual(['live']);
-    expect(run({ spontaneous: ['close_by'] })).toEqual(['live']);
+    expect(run({ freeFor: 'hour' })).toEqual(['live']);
+    expect(run({ lastMinute: true })).toEqual([]);
+    expect(run({ readyNow: true })).toEqual([]);
+    expect(run({ planInMind: true })).toEqual([]);
     expect(run({ lateNightOpen: true })).toEqual([]);
   });
 
@@ -169,17 +184,92 @@ describe('applyDiscoverFilters', () => {
     expect(ids(applyDiscoverFilters(people, values, { plus: true }))).toEqual(['yogi', 'hiker']);
   });
 
-  it('applies Spontaneous filters', () => {
+  it('applies Last-minute, Close by, Ready now and How long free', () => {
     const now = new Date(2026, 8, 26, 20, 0);
     const people = [
       card('fresh', { startedAt: new Date(2026, 8, 26, 19, 40).toISOString(), distanceMiles: 5 }),
-      card('near', { startedAt: new Date(2026, 8, 26, 17, 0).toISOString(), distanceMiles: 1 }),
+      card('near', {
+        startedAt: new Date(2026, 8, 26, 17, 0).toISOString(),
+        confirmedAt: new Date(2026, 8, 26, 19, 45).toISOString(),
+        distanceMiles: 1,
+      }),
       card('short', { distanceMiles: 1, liveUntil: new Date(2026, 8, 26, 21, 0).toISOString() }),
     ];
-    const run = (spontaneous: DiscoverFilterValues['spontaneous']) =>
-      ids(applyDiscoverFilters(people, f({ spontaneous }), { plus: true, now }));
-    expect(run(['just_live'])).toEqual(['fresh']);
-    expect(run(['close_by'])).toEqual(['near', 'short']);
-    expect(run(['free_a_while'])).toEqual(['fresh', 'near']);
+    const run = (over: Partial<DiscoverFilterValues>, plus = true) =>
+      ids(applyDiscoverFilters(people, f(over), { plus, now }));
+    expect(run({ lastMinute: true })).toEqual(['fresh']);
+    expect(run({ closeByMiles: 1 })).toEqual(['near', 'short']);
+    expect(run({ readyNow: true })).toEqual(['fresh', 'near']);
+    expect(run({ freeFor: 'hour' }, false)).toEqual(['fresh', 'near', 'short']);
+    expect(run({ freeFor: 'few' }, false)).toEqual(['fresh', 'near']);
+    expect(run({ lastMinute: true, closeByMiles: 1 }, false)).toEqual(['fresh', 'near', 'short']);
+  });
+
+  it('matches tonight vibe: energy, plan in mind, getting there', () => {
+    const people = [
+      card('social', { energy: 'social', travel: 'can_travel', planIdea: 'Rooftop drinks' }),
+      card('chill', { energy: 'low_key', travel: 'nearby' }),
+      card('blank'),
+    ];
+    const run = (over: Partial<DiscoverFilterValues>) =>
+      ids(applyDiscoverFilters(people, f(over), { plus: true }));
+    expect(run({ energy: ['social'] })).toEqual(['social', 'blank']);
+    expect(run({ energy: ['social'], matchAllFilters: true })).toEqual(['social']);
+    expect(run({ travel: ['nearby'] })).toEqual(['chill', 'blank']);
+    expect(run({ planInMind: true })).toEqual(['social']);
+  });
+
+  it('filters by profile traits for Plus only', () => {
+    const people = [
+      card('owl', { chronotype: 'Night owl', religion: 'Spiritual' }),
+      card('bird', { chronotype: 'Early bird' }),
+      card('blank'),
+    ];
+    const values = f({ chronotype: ['Night owl'] });
+    expect(ids(applyDiscoverFilters(people, values, { plus: false }))).toEqual(['owl', 'bird', 'blank']);
+    expect(ids(applyDiscoverFilters(people, values, { plus: true }))).toEqual(['owl', 'blank']);
+    expect(ids(applyDiscoverFilters(people, { ...values, matchAllFilters: true }, { plus: true }))).toEqual(['owl']);
+    expect(activeFilterLabels(values, { plus: true })).toEqual(['Night owl or early bird: Night owl']);
+  });
+
+  it('Recently active keeps live people and nearby people seen today', () => {
+    const now = new Date(2026, 8, 26, 20, 0);
+    const people = [
+      card('live'),
+      card('today', { availabilityMode: 'nearby', lastActiveAt: new Date(2026, 8, 26, 9, 0).toISOString() }),
+      card('stale', { availabilityMode: 'nearby', lastActiveAt: new Date(2026, 8, 20, 9, 0).toISOString() }),
+    ];
+    expect(ids(applyDiscoverFilters(people, f({ recentlyActive: true }), { plus: false, now }))).toEqual([
+      'live',
+      'today',
+    ]);
+  });
+
+  it('lists only the filters a card matches with a real answer', () => {
+    const now = new Date(2026, 8, 26, 20, 0);
+    const values = f({
+      vibeFilter: ['drinks', 'coffee'],
+      energy: ['social'],
+      readyNow: true,
+      closeByMiles: 2,
+      chronotype: ['Night owl'],
+      drinking: ['Socially'],
+      travel: ['nearby'],
+    });
+    const c = card('x', {
+      energy: 'social',
+      startedAt: new Date(2026, 8, 26, 19, 50).toISOString(),
+      chronotype: 'Night owl',
+      distanceMiles: 1.5,
+    });
+    expect(matchedFilterLabels(c, values, { plus: true, now })).toEqual([
+      '⚡ Ready now',
+      'Drinks',
+      '🥂 Social',
+      '📍 Under 2 mi',
+      'Drinks: socially',
+      'Night owl',
+    ]);
+    expect(matchedFilterLabels(c, values, { plus: false, now })).toEqual(['Drinks', '🥂 Social']);
   });
 });

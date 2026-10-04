@@ -147,7 +147,7 @@ export default function ProfileTabScreen() {
           style={({ pressed }) => [styles.bioCard, pressed && { opacity: 0.85 }]}
         >
           <View style={styles.strengthTop}>
-            <AppText style={styles.strengthTitle}>About me</AppText>
+            <AppText style={styles.strengthTitle}>Bio</AppText>
             <AppText style={styles.bioEdit}>{profile?.bio?.trim() ? 'Edit' : 'Add'} ›</AppText>
           </View>
           {vibeLabel(profile?.datingIntention) ? (

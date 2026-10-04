@@ -16,6 +16,7 @@ import {
   type Timestamp,
 } from 'firebase/firestore';
 import { cleanAfterHoursTags, type AfterHoursTag } from '@/constants/afterHours';
+import { cleanEnergy, cleanPlanIdea, cleanTravel, traitFields } from '@/constants/datingTraits';
 import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
 import { calculateAge } from '@/utils/time';
 import type {
@@ -25,6 +26,8 @@ import type {
   ProfileVideoKind,
   RadiusMiles,
   TonightActivity,
+  TonightEnergy,
+  TravelPref,
   VerificationStatus,
 } from '@/types';
 import { analytics } from '@/lib/analytics';
@@ -65,6 +68,9 @@ export type PublishLiveInput = {
   laterTonightHour?: number | null;
   isBoosted?: boolean;
   afterHours?: AfterHoursTag[];
+  energy?: TonightEnergy | null;
+  travel?: TravelPref | null;
+  planIdea?: string | null;
 };
 
 function videoPromptsFromUser(d: Record<string, unknown>): DiscoveryCard['videoPrompts'] {
@@ -119,6 +125,7 @@ function publicCardFields(u: Record<string, unknown>) {
     exercise: (u.exercise as string | null) ?? null,
     occupation: (u.occupation as string | null) ?? null,
     school: (u.school as string | null) ?? null,
+    ...traitFields(u),
     // Needed so both people's "show me" preferences can be honored in the feed.
     gender: (u.gender as string | null) ?? null,
     interestedIn: (u.interestedIn as string | null) ?? 'everyone',
@@ -181,6 +188,9 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
       ? input.laterTonightHour
       : null;
   const afterHours = cleanAfterHoursTags(input.afterHours);
+  const energy = cleanEnergy(input.energy);
+  const travel = cleanTravel(input.travel);
+  const planIdea = cleanPlanIdea(input.planIdea);
 
   const payload = {
     userId: uid,
@@ -202,6 +212,9 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     isBoosted: Boolean(input.isBoosted),
     boostedAt: input.isBoosted ? nowIso : null,
     afterHours,
+    energy,
+    travel,
+    planIdea,
     ...publicCardFields(u),
     updatedAt: serverTimestamp(),
   };
@@ -229,6 +242,9 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     boostedAt: input.isBoosted ? nowIso : null,
     afterHours,
     confirmedAt: nowIso,
+    energy,
+    travel,
+    planIdea,
   };
 }
 
@@ -261,6 +277,9 @@ export type LiveSessionPatch = Partial<
     | 'boostedAt'
     | 'afterHours'
     | 'confirmedAt'
+    | 'energy'
+    | 'travel'
+    | 'planIdea'
   >
 >;
 
@@ -319,6 +338,9 @@ export async function fetchMyActiveLiveSession(uid: string): Promise<LiveSession
     boostedAt: (d.boostedAt as string | null) ?? null,
     afterHours: cleanAfterHoursTags(d.afterHours),
     confirmedAt: (d.confirmedAt as string | null) ?? null,
+    energy: cleanEnergy(d.energy),
+    travel: cleanTravel(d.travel),
+    planIdea: cleanPlanIdea(d.planIdea),
   };
 }
 
@@ -428,7 +450,11 @@ export async function fetchFirestoreDiscoveryFeed(
       availabilityMode: mode,
       laterTonightHour: laterHour,
       startedAt,
+      confirmedAt: (d.confirmedAt as string | null) ?? null,
       afterHours: cleanAfterHoursTags(d.afterHours),
+      energy: cleanEnergy(d.energy),
+      travel: cleanTravel(d.travel),
+      planIdea: cleanPlanIdea(d.planIdea),
     });
 
     if (cards.length >= limit) break;
@@ -473,6 +499,7 @@ function cardBase(id: string, d: Record<string, unknown>, dist: number) {
     quizLevel: Number(d.quizLevel) || 0,
     occupation: (d.occupation as string | null) ?? null,
     school: (d.school as string | null) ?? null,
+    ...traitFields(d),
   };
 }
 

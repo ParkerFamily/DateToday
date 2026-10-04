@@ -48,6 +48,24 @@ export type TonightActivity =
   | 'chill'
   | 'surprise';
 
+export type TonightEnergy = 'low_key' | 'social' | 'turnt' | 'romantic' | 'adventurous';
+
+export type TravelPref = 'can_travel' | 'nearby' | 'halfway';
+
+/** Optional "your type" answers — stored on users + profiles, copied onto discovery cards. */
+export interface ProfileTraits {
+  weed?: string | null;
+  pets?: string | null;
+  education?: string | null;
+  industry?: string | null;
+  religion?: string | null;
+  politics?: string | null;
+  loveLanguage?: string | null;
+  communication?: string | null;
+  chronotype?: string | null;
+  socialEnergy?: string | null;
+}
+
 export type RadiusMiles = 5 | 10 | 15 | 25 | 50;
 
 export type FoodCuisine =
@@ -97,7 +115,7 @@ export interface AppUser {
   updatedAt: string;
 }
 
-export interface Profile {
+export interface Profile extends ProfileTraits {
   userId: string;
   displayName: string;
   /** Name on government ID — private (users/{uid} only), locked after onboarding. */
@@ -121,7 +139,6 @@ export interface Profile {
   foodPreference?: string | null;
   exercise?: string | null;
   kids?: string | null;
-  pets?: string | null;
   /** Highest compatibility quiz level finished (0 = not taken). */
   quizLevel?: number;
   verificationStatus: VerificationStatus;
@@ -189,6 +206,10 @@ export interface LiveSession {
   afterHours?: AfterHoursTag[];
   /** Last "Still free tonight? → Yep" (ISO). Missing = startedAt. */
   confirmedAt?: string | null;
+  energy?: TonightEnergy | null;
+  travel?: TravelPref | null;
+  /** Optional spot or idea, e.g. "Rooftop drinks at Ponce". */
+  planIdea?: string | null;
 }
 
 export interface DiscoveryVideoPrompt {
@@ -200,7 +221,7 @@ export interface DiscoveryVideoPrompt {
   durationSeconds: number;
 }
 
-export interface DiscoveryCard {
+export interface DiscoveryCard extends ProfileTraits {
   userId: string;
   displayName: string;
   age: number;
@@ -231,7 +252,12 @@ export interface DiscoveryCard {
   kids?: string | null;
   exercise?: string | null;
   startedAt?: string | null;
+  /** Last reconfirm of a live session (ISO); missing = startedAt. */
+  confirmedAt?: string | null;
   afterHours?: AfterHoursTag[];
+  energy?: TonightEnergy | null;
+  travel?: TravelPref | null;
+  planIdea?: string | null;
   /** Compatibility quiz level they've finished; 0 = not taken. */
   quizLevel?: number;
   occupation?: string | null;
