@@ -46,6 +46,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
     Alert,
@@ -256,6 +257,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   };
 
   const goNext = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (card) markHandled(card.userId);
   };
 
@@ -292,6 +294,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       return;
     }
     try {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setInterestedLoading(true);
       // Never invent mutual matches from demo ids outside explicit mock mode.
       if (env.useMockData && card.userId.startsWith('demo-')) {
@@ -306,17 +309,23 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       if (isBackendConfigured()) {
         void registerPushTokenAsync({ prompt: true });
         const result = await sendInterest(card.userId);
-        if (result.mutual && result.matchId) openMatch(card, result.matchId);
-        else showInterestSentThenAdvance(card.userId);
+        if (result.mutual && result.matchId) {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          openMatch(card, result.matchId);
+        } else {
+          showInterestSentThenAdvance(card.userId);
+        }
         return;
       }
       const result = await sendPing(card.userId);
       if (result.mutual && result.matchId) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         openMatch(card, result.matchId);
       } else {
         showInterestSentThenAdvance(card.userId);
       }
     } catch (error) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert(
         'Could not send interest',
         friendlyError(error, 'Try again'),
@@ -620,6 +629,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           style={styles.scroll}
           contentContainerStyle={{ paddingBottom: bottomPad }}
           showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
         >
           <View style={[styles.hero, { height: heroH * 0.92 }]}>
             {card.mainPhotoUrl ? (
@@ -766,19 +776,26 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 : Math.max(insets.bottom - 8, 8),
             },
           ]}
+          pointerEvents="box-none"
         >
           <Pressable
             accessibilityLabel="Pass"
+            accessibilityRole="button"
             onPress={goNext}
             disabled={interestFlash}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            android_ripple={{ color: 'rgba(255,255,255,0.2)', radius: 32 }}
             style={({ pressed }) => [styles.passBtn, pressed && styles.pressed]}
           >
             <Ionicons name="close" size={32} color={colors.text} />
           </Pressable>
           <Pressable
             accessibilityLabel="Interested"
+            accessibilityRole="button"
             disabled={interestedLoading || interestFlash}
             onPress={() => void onInterested()}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            android_ripple={{ color: 'rgba(255,255,255,0.3)', radius: 36 }}
             style={({ pressed }) => [styles.likeBtn, pressed && styles.pressed]}
           >
             <Ionicons name="heart" size={30} color={colors.text} />
@@ -840,6 +857,7 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+    zIndex: 1,
   },
   hero: {
     width: '100%',
@@ -1063,6 +1081,8 @@ const styles = StyleSheet.create({
     gap: 28,
     paddingTop: 12,
     backgroundColor: 'rgba(5,5,6,0.88)',
+    zIndex: 10,
+    elevation: 10,
   },
   passBtn: {
     width: 64,
@@ -1073,6 +1093,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.elevated,
     borderWidth: 1,
     borderColor: colors.border,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   likeBtn: {
     width: 72,
@@ -1081,6 +1106,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.brand,
+    elevation: 8,
+    shadowColor: colors.brand,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
   },
   interestFlash: {
     ...StyleSheet.absoluteFill,
@@ -1089,6 +1119,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(5,5,6,0.72)',
     gap: 8,
     paddingHorizontal: spacing.lg,
+    zIndex: 100,
   },
   interestFlashTitle: {
     color: colors.text,
