@@ -220,6 +220,10 @@ export function subscribeMessages(
 }
 
 function requireUid() {
+  // Try session store first (more reliable), fallback to Firebase Auth
+  const sessionUid = useSessionStore.getState().userId;
+  if (sessionUid) return sessionUid;
+  
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) throw new Error('Sign in first.');
   return uid;
@@ -228,8 +232,12 @@ function requireUid() {
 export async function sendMatchMessage(matchId: string, text: string) {
   const body = text.trim().slice(0, 2000);
   if (!body) return;
+  
+  // Get UID before starting Firestore operation to catch auth errors early
+  const senderId = requireUid();
+  
   await addDoc(collection(getDb(), 'matches', matchId, 'messages'), {
-    senderId: requireUid(),
+    senderId,
     type: 'text',
     text: body,
     createdAt: serverTimestamp(),

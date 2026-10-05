@@ -292,7 +292,7 @@ export default function PlanDateScreen() {
               </Animated.View>
 
               <AppText style={styles.heading}>When?</AppText>
-              <View style={styles.dayRow}>
+              <View style={styles.dayRow} pointerEvents="box-none">
                 {DAY_CHIPS.map((d) => {
                   const on = dayChoice === d.value;
                   const disabled = d.value === 'tonight' && !tonightOpen;
@@ -305,6 +305,7 @@ export default function PlanDateScreen() {
                         setDayChoice(d.value);
                         setMoreTimes(false);
                       }}
+                      hitSlop={4}
                       style={({ pressed }) => [
                         styles.dayChip,
                         on && styles.chipOn,
@@ -347,7 +348,7 @@ export default function PlanDateScreen() {
               ) : null}
 
               <AppText style={styles.subheading}>{moreTimes ? 'All times' : 'Suggested times'}</AppText>
-              <View style={styles.timeRow}>
+              <View style={styles.timeRow} pointerEvents="box-none">
                 {visibleTimes.map((m) => {
                   const on = time === m;
                   return (
@@ -357,6 +358,7 @@ export default function PlanDateScreen() {
                         tap();
                         setTime(m);
                       }}
+                      hitSlop={4}
                       style={({ pressed }) => [
                         styles.timeChip,
                         moreTimes && styles.timeChipSmall,
