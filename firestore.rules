@@ -9,9 +9,8 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
-    // Clients may set verification fields. Production should prefer Cloud Function
-    // confirmPersonaVerification (Admin write) once the project is on Blaze.
-    // Until then, the app only writes verified after a live Persona API poll.
+    // Only confirmPersonaVerification (Admin SDK) can set 'verified'. Clients may record
+    // in-progress states, or leave an existing server-set 'verified' untouched.
     function verificationNotForged() {
       return !('verificationStatus' in request.resource.data)
         || request.resource.data.verificationStatus in [
@@ -19,8 +18,18 @@ service cloud.firestore {
           'pending',
           'failed',
           'manual_review',
-          'verified',
-        ];
+        ]
+        || (
+          resource != null
+          && resource.data.get('verificationStatus', '') == 'verified'
+          && request.resource.data.verificationStatus == 'verified'
+        );
+    }
+
+    // Denormalized cards (live / nearby) may only claim 'verified' if the account is.
+    function verifiedMatchesAccount(userId) {
+      return request.resource.data.get('verificationStatus', '') != 'verified'
+        || get(/databases/$(database)/documents/users/$(userId)).data.get('verificationStatus', '') == 'verified';
     }
 
     // Prevent self-granting paid plan / role fields if present on the doc.
@@ -64,8 +73,10 @@ service cloud.firestore {
       allow create: if isOwner(userId) && verificationNotForged() && entitlementsNotForged()
         && legalNameValid();
       allow update: if isOwner(userId) && verificationNotForged() && entitlementsNotForged()
-        && legalNameValid() && legalNameLocked();
-      allow delete: if isOwner(userId);
+        && legalNameValid() && legalNameLocked()
+        && (resource.data.get('phoneVerificationRequired', false) != true
+          || request.resource.data.get('phoneVerificationRequired', false) == true);
+      allow delete: if isOwner(userId) && resource.data.get('phoneVerificationRequired', false) != true;
 
       function legalNameValid() {
         return !('legalName' in request.resource.data)
@@ -146,8 +157,7 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
-    // Coordinates stay private. Only the backend may list beacons and it
-    // returns eligible nearby candidates without coordinates.
+    // Approximate live beacons for Ping discovery (rounded lat/lng only).
     match /liveSessions/{userId} {
       allow get: if isOwner(userId);
       allow list: if false;
@@ -188,11 +198,33 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Non-live "nearby" presence (rounded lat/lng + public card fields) so the feed isn't empty.
+    match /nearbyProfiles/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && request.resource.data.userId == userId
+        && verifiedMatchesAccount(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // Reply speed / recent plans / join date behind Discover status tags. Cloud Functions only.
+    match /userStats/{userId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     // Hearts. Written only by the sendInterest Cloud Function (mutual check + push).
     match /interests/{interestId} {
       allow read: if signedIn()
         && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
       allow write: if false;
+    }
+
+    // Unmatched pairs (unmatchUser) and trigger dedupe markers; Cloud Functions only.
+    match /unmatches/{pairId} {
+      allow read, write: if false;
+    }
+    match /processedEvents/{eventId} {
+      allow read, write: if false;
     }
 
     // Cached quiz match % per pair; read and written only by getCompatibility.
@@ -232,16 +264,20 @@ service cloud.firestore {
           && (
             (
               request.resource.data.type == 'text'
-              && request.resource.data.text is string
-              && request.resource.data.text.size() > 0
-              && request.resource.data.text.size() <= 2000
               && request.resource.data.keys().hasOnly(['senderId', 'type', 'text', 'createdAt'])
+              && request.resource.data.text is string
+              && request.resource.data.text.trim().size() > 0
+              && request.resource.data.text.size() <= 2000
             )
             || (
               request.resource.data.type == 'date_proposal'
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'proposal', 'status', 'createdAt'])
               && request.resource.data.status == 'proposed'
               && request.resource.data.proposal is map
-              && request.resource.data.keys().hasOnly(['senderId', 'type', 'proposal', 'status', 'createdAt'])
+              && request.resource.data.proposal.keys().hasOnly([
+                'activity', 'activityLabel', 'whenLabel', 'venueName', 'venueAddress',
+                'neighborhood', 'venueLat', 'venueLng', 'startsAt', 'note'
+              ])
             )
           );
 
