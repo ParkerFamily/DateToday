@@ -81,7 +81,16 @@ function validActivationInput(body, now) {
   const foodCuisines = Array.isArray(body?.foodCuisines)
     ? body.foodCuisines.filter(value => typeof value === 'string').slice(0, 8)
     : [];
-  return { coordinates, expiresAt, activities, foodCuisines };
+  return {
+    coordinates: {
+      latitude: Math.round(coordinates.latitude * 100) / 100,
+      longitude: Math.round(coordinates.longitude * 100) / 100,
+    },
+    radiusMiles: body.radiusMiles,
+    expiresAt,
+    activities,
+    foodCuisines,
+  };
 }
 
 async function authenticate(req, auth) {
@@ -199,7 +208,7 @@ async function nearbyLive(req, res, dependencies = {}) {
     const [outgoing, incoming, activations] = await Promise.all([
       db.collection('blocks').where('blockerId', '==', decoded.uid).get(),
       db.collection('blocks').where('blockedId', '==', decoded.uid).get(),
-      activationRef.where('status', '==', 'active').limit(MAX_SCAN + 1).get(),
+      activationRef.where('expiresAt', '>', new Date(now)).limit(MAX_SCAN + 1).get(),
     ]);
     if (activations.size > MAX_SCAN) return res.status(503).json({ error: 'Live feed is temporarily unavailable.' });
     outgoing.docs.forEach(doc => hiddenIds.add(doc.data().blockedId));
