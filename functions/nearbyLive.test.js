@@ -53,12 +53,13 @@ function fakeDb(seed = {}) {
       };
     },
     where(field, operator, expected) {
-      assert.equal(operator, '==');
+      assert.ok(['==', '>'].includes(operator));
       return {
         limit() { return this; },
         get: async () => {
           const rows = [...documents.entries()]
-            .filter(([key, data]) => key.startsWith(`${name}/`) && data[field] === expected)
+            .filter(([key, data]) => key.startsWith(`${name}/`) &&
+              (operator === '==' ? data[field] === expected : data[field] > expected))
             .map(([key, data]) => ({ id: key.slice(name.length + 1), data: () => data }));
           return { size: rows.length, docs: rows };
         },
@@ -75,7 +76,10 @@ function fakeDb(seed = {}) {
       const writes = [];
       const tx = {
         async get(item) { return snapshot(documents.get(`${item.collection}/${item.id}`)); },
-        set(item, data) { writes.push([item, data]); },
+        set(item, data) {
+          assert.equal(Object.values(data).includes(undefined), false, 'Firestore rejects undefined fields');
+          writes.push([item, data]);
+        },
       };
       const result = await callback(tx);
       for (const [item, data] of writes) {
@@ -146,6 +150,8 @@ test('repeated activation cannot sweep by changing location before cooldown expi
   assert.ok(first.body.session.startedAt);
   assert.ok(first.body.session.expiresAt);
   const activationBefore = db.documents.get('liveActivations/viewer');
+  assert.equal(activationBefore.radiusMiles, 10);
+  assert.equal(validActivation(activationBefore, NOW), true);
 
   const second = response();
   await activateLive(request('POST', validActivationBody({ latitude: 40, longitude: -73 })), second, dependencies);
@@ -224,4 +230,34 @@ test('nearby feed calculates candidates from activation coordinates, never clien
   assert.ok(res.body.candidates[0].distanceMiles < 1);
   assert.equal('latitude' in res.body.candidates[0], false);
   assert.equal('longitude' in res.body.candidates[0], false);
+});
+
+test('activated accounts see only active, mutual, unblocked, nearby eligible candidates', async () => {
+  for (const exclusion of ['none', 'expired', 'far', 'mutual', 'paused', 'ended', 'blocked', 'incoming-block', 'hidden']) {
+    const db = fakeDb({
+      'users/viewer': profile(),
+      'users/candidate': profile({ displayName: 'Sam' }),
+    });
+    const dependencies = { db, now: NOW };
+    for (const uid of ['viewer', 'candidate']) {
+      const res = response();
+      await activateLive(request('POST', validActivationBody()), res, {
+        ...dependencies, auth: { verifyIdToken: async () => ({ uid }) },
+      });
+      assert.equal(res.statusCode, 201);
+    }
+    const candidateActivation = db.documents.get('liveActivations/candidate');
+    if (exclusion === 'expired') candidateActivation.expiresAt = new Date(NOW - 1);
+    if (exclusion === 'far') candidateActivation.latitude = 0;
+    if (exclusion === 'mutual') db.documents.get('users/candidate').interestedIn = 'men';
+    if (exclusion === 'paused') db.documents.get('users/candidate').privacyControls = { pauseDiscovery: true };
+    if (exclusion === 'ended') db.documents.get('liveSessions/candidate').status = 'ended';
+    if (exclusion === 'blocked') db.documents.set('blocks/a', { blockerId: 'viewer', blockedId: 'candidate' });
+    if (exclusion === 'incoming-block') db.documents.set('blocks/a', { blockerId: 'candidate', blockedId: 'viewer' });
+    if (exclusion === 'hidden') db.documents.set('hiddenUsers/viewer', { uids: ['candidate'] });
+    const res = response();
+    await nearbyLive(request('GET'), res, { ...dependencies, auth });
+    assert.equal(res.statusCode, 200, exclusion);
+    assert.equal(res.body.candidates.length, exclusion === 'none' ? 1 : 0, exclusion);
+  }
 });
