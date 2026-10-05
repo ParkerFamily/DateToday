@@ -119,7 +119,13 @@
         }
       ],
       "expo-font",
-      "expo-video",
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": false,
+          "supportsPictureInPicture": false
+        }
+      ],
       [
         "expo-camera",
         {
@@ -131,7 +137,6 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "DateToday needs photo library access so you can choose a profile photo.",
           "cameraPermission": "DateToday needs camera access for profile and tonight videos."
         }
       ],
