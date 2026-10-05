@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { getFirebaseStorage } from '@/lib/firebase/client';
+import { Platform } from 'react-native';
 
 /** True when the URI is already a hosted http(s) URL. */
 export function isRemoteMediaUrl(uri: string | null | undefined): boolean {
@@ -49,21 +50,43 @@ export function describeUploadError(error: unknown): string {
 function blobFromUri(uri: string): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    
     xhr.onload = () => {
       if (xhr.status !== 0 && (xhr.status < 200 || xhr.status >= 300)) {
+        console.error(`[DateToday] XHR failed with status ${xhr.status} for ${uri.slice(0, 50)}...`);
         reject(new Error(`Failed to read media (HTTP ${xhr.status})`));
         return;
       }
       if (!xhr.response) {
+        console.error(`[DateToday] XHR returned empty response for ${uri.slice(0, 50)}...`);
         reject(new Error('Failed to read media (empty response)'));
         return;
       }
-      resolve(xhr.response as Blob);
+      const blob = xhr.response as Blob;
+      console.log(`[DateToday] Created blob from ${uri.slice(0, 30)}... (${blob.size} bytes, type: ${blob.type})`);
+      resolve(blob);
     };
-    xhr.onerror = () => reject(new Error('Failed to read local media file'));
+    
+    xhr.onerror = (e) => {
+      console.error('[DateToday] XHR onerror for', uri.slice(0, 50), e);
+      reject(new Error(`Failed to read local media file: ${uri.slice(0, 100)}`));
+    };
+    
+    xhr.ontimeout = () => {
+      console.error('[DateToday] XHR timeout for', uri.slice(0, 50));
+      reject(new Error('Timeout reading media file'));
+    };
+    
     xhr.responseType = 'blob';
+    xhr.timeout = 30000; // 30 second timeout for reading file
     xhr.open('GET', uri, true);
-    xhr.send(null);
+    
+    try {
+      xhr.send(null);
+    } catch (error) {
+      console.error('[DateToday] XHR send failed:', error);
+      reject(new Error(`Failed to initiate file read: ${error instanceof Error ? error.message : 'Unknown'}`));
+    }
   });
 }
 
@@ -80,7 +103,12 @@ export async function uploadLocalMedia(
 ): Promise<string> {
   if (isRemoteMediaUrl(localUri)) return localUri;
 
+  console.log(`[DateToday] uploadLocalMedia (${Platform.OS}): ${localUri.slice(0, 100)}... → ${storagePath}`);
+
   let fileUri = localUri;
+  let shouldCleanup = false;
+
+  // Normalize non-file:// URIs (content://, ph://, etc.) to file:// by copying to cache
   if (!fileUri.startsWith('file://')) {
     const ext = contentType.includes('video')
       ? 'mp4'
@@ -93,12 +121,46 @@ export async function uploadLocalMedia(
     if (!FileSystem.cacheDirectory) {
       throw new Error('Device cache is unavailable for media upload.');
     }
-    await FileSystem.copyAsync({ from: localUri, to: dest });
-    fileUri = dest;
+    
+    try {
+      // Verify source file exists before copying
+      const info = await FileSystem.getInfoAsync(localUri);
+      if (!info.exists) {
+        throw new Error(`Source file not found: ${localUri.slice(0, 50)}...`);
+      }
+      
+      await FileSystem.copyAsync({ from: localUri, to: dest });
+      fileUri = dest;
+      shouldCleanup = true;
+      
+      // Verify copy succeeded
+      const destInfo = await FileSystem.getInfoAsync(fileUri);
+      if (!destInfo.exists) {
+        throw new Error('Failed to copy file to cache for upload.');
+      }
+      const sizeInfo = 'size' in destInfo ? ` (${destInfo.size} bytes)` : '';
+      console.log(`[DateToday] Copied ${localUri.slice(0, 30)}... to cache${sizeInfo}`);
+    } catch (error) {
+      console.error('[DateToday] File copy failed:', error);
+      throw new Error(`Could not prepare file for upload: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   const objectRef = ref(getFirebaseStorage(), storagePath);
-  const blob = await blobFromUri(fileUri);
+  let blob: Blob;
+  
+  try {
+    blob = await blobFromUri(fileUri);
+  } catch (error) {
+    // Clean up temp file if we created one
+    if (shouldCleanup) {
+      try {
+        await FileSystem.deleteAsync(fileUri, { idempotent: true });
+      } catch {}
+    }
+    throw error;
+  }
+
   try {
     for (let attempt = 1; ; attempt++) {
       try {
@@ -107,13 +169,23 @@ export async function uploadLocalMedia(
         break;
       } catch (error) {
         if (attempt >= MAX_UPLOAD_ATTEMPTS || !isTransientUploadError(error)) throw error;
+        console.log(`[DateToday] Upload attempt ${attempt} failed, retrying...`);
         await new Promise((r) => setTimeout(r, 1500 * attempt));
       }
     }
   } finally {
     (blob as Blob & { close?: () => void }).close?.();
+    // Clean up temp file after upload completes or fails
+    if (shouldCleanup) {
+      try {
+        await FileSystem.deleteAsync(fileUri, { idempotent: true });
+      } catch {}
+    }
   }
-  return getDownloadURL(objectRef);
+  
+  const downloadUrl = await getDownloadURL(objectRef);
+  console.log(`[DateToday] Upload succeeded: ${storagePath}`);
+  return downloadUrl;
 }
 
 const MAX_UPLOAD_ATTEMPTS = 3;

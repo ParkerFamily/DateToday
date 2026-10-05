@@ -26,14 +26,49 @@ interface PromptRecorderProps {
 /** Recordings land in the cache folder, which the OS may purge before the upload runs. */
 async function moveOutOfCache(uri: string): Promise<string> {
   const dir = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}prompt-videos/` : null;
-  if (!dir) return uri;
+  if (!dir) {
+    console.warn('[DateToday] No documentDirectory, keeping video in original location:', uri);
+    return uri;
+  }
+  
   try {
+    // Ensure directory exists
     await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => undefined);
+    
+    // Verify source exists
+    const sourceInfo = await FileSystem.getInfoAsync(uri);
+    if (!sourceInfo.exists) {
+      console.error('[DateToday] Source video not found:', uri);
+      return uri;
+    }
+    
     const ext = /\.(\w+)(?:\?|$)/.exec(uri)?.[1] ?? 'mp4';
     const dest = `${dir}${Date.now()}.${ext}`;
+    
+    const sizeInfo = 'size' in sourceInfo ? ` (${sourceInfo.size} bytes)` : '';
+    console.log(`[DateToday] Moving video from cache${sizeInfo}: ${uri.slice(0, 50)}...`);
     await FileSystem.copyAsync({ from: uri, to: dest });
+    
+    // Verify destination
+    const destInfo = await FileSystem.getInfoAsync(dest);
+    if (!destInfo.exists) {
+      console.error('[DateToday] Video copy failed, destination not found');
+      return uri;
+    }
+    
+    const destSizeInfo = 'size' in destInfo ? ` (${destInfo.size} bytes)` : '';
+    console.log(`[DateToday] Video moved successfully${destSizeInfo}: ${dest.slice(0, 50)}...`);
+    
+    // Try to delete original cache file (best effort)
+    try {
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    } catch (e) {
+      console.warn('[DateToday] Could not delete original cache file:', e);
+    }
+    
     return dest;
-  } catch {
+  } catch (error) {
+    console.error('[DateToday] moveOutOfCache failed:', error);
     return uri;
   }
 }
@@ -183,15 +218,41 @@ export function PromptRecorder({
       });
       clearTimers();
       recordingRef.current = false;
-      if (result?.uri) {
-        setUri(await moveOutOfCache(result.uri));
-        setPhase('review');
-      } else {
+      
+      if (!result?.uri) {
+        console.error('[DateToday] recordAsync returned no URI:', result);
         recordingFailed('Nothing was captured. Record again and wait a few seconds before stopping.');
+        return;
       }
+      
+      console.log('[DateToday] Recording completed:', result.uri.slice(0, 100));
+      
+      // Verify the recorded file exists
+      try {
+        const info = await FileSystem.getInfoAsync(result.uri);
+        if (!info.exists) {
+          console.error('[DateToday] Recorded file not found:', result.uri);
+          recordingFailed('Video file was not saved. Try recording again.');
+          return;
+        }
+        const sizeInfo = 'size' in info ? ` ${info.size} bytes` : '';
+        console.log(`[DateToday] Recorded file verified:${sizeInfo}`);
+      } catch (error) {
+        console.error('[DateToday] Could not verify recorded file:', error);
+        // Continue anyway - the file might still be accessible
+      }
+      
+      const movedUri = await moveOutOfCache(result.uri);
+      setUri(movedUri);
+      setPhase('review');
     } catch (error) {
-      console.warn('[DateToday] recordAsync failed', error);
-      recordingFailed('Something interrupted the camera. Tap record to try again.');
+      console.error('[DateToday] recordAsync failed:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      recordingFailed(
+        message.includes('permission') || message.includes('Permission')
+          ? 'Camera permission was revoked. Enable it in Settings and try again.'
+          : 'Something interrupted the camera. Tap record to try again.'
+      );
     }
   };
 
