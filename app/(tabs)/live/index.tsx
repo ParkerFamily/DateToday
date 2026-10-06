@@ -69,7 +69,6 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
 
-const HOLD_MS = 1200;
 const LATER_HOURS = [18, 19, 20, 21] as const;
 const PLACE_CATEGORIES: PlanCategory[] = ['drinks', 'dinner', 'coffee', 'activity'];
 
@@ -133,12 +132,6 @@ export default function LiveHomeScreen() {
   const planIdea = placePlanIdea(placeStyle, spot);
   const placeCategory =
     (activities.find((a) => PLACE_CATEGORIES.includes(a as PlanCategory)) as PlanCategory | undefined) ?? 'drinks';
-  const [holdProgress, setHoldProgress] = useState(0);
-  const holdFill = useSharedValue(0);
-  const holdFillStyle = useAnimatedStyle(() => ({ width: `${holdFill.value * 100}%` }));
-  const holdRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const holdDone = useRef(false);
-  const lastHaptic = useRef(0);
   const [leaving, setLeaving] = useState(false);
   const [offlineToast, setOfflineToast] = useState(false);
 
@@ -211,23 +204,6 @@ export default function LiveHomeScreen() {
     opacity: 1 - leaveProgress.value * 0.75,
     transform: [{ scale: 1 - leaveProgress.value * 0.06 }],
   }));
-
-  useEffect(() => {
-    return () => {
-      if (holdRef.current) clearInterval(holdRef.current);
-    };
-  }, []);
-
-  const clearHold = () => {
-    if (holdRef.current) {
-      clearInterval(holdRef.current);
-      holdRef.current = null;
-    }
-    cancelAnimation(holdFill);
-    holdFill.value = 0;
-    setHoldProgress(0);
-    holdDone.current = false;
-  };
 
   const activateLive = async () => {
     if (!readyForLive) {
@@ -342,44 +318,6 @@ export default function LiveHomeScreen() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const onHoldStart = () => {
-    if (live || loading) return;
-    if (!readyForLive) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      Alert.alert(
-        'Finish setup to Go Live',
-        `Still needed:\n${missing.slice(0, 5).join('\n')}`,
-        [
-          { text: 'OK', style: 'cancel' },
-          { text: 'Finish profile', onPress: () => router.push('/(tabs)/profile') },
-        ],
-      );
-      return;
-    }
-    clearHold();
-    const started = Date.now();
-    lastHaptic.current = 0;
-    holdFill.value = withTiming(1, { duration: HOLD_MS, easing: Easing.linear });
-    holdRef.current = setInterval(() => {
-      const p = Math.min(1, (Date.now() - started) / HOLD_MS);
-      const tick = Math.floor(p * 10);
-      if (tick > lastHaptic.current && tick < 10) {
-        lastHaptic.current = tick;
-        setHoldProgress(tick / 10);
-        void Haptics.selectionAsync();
-      }
-      if (p >= 1 && !holdDone.current) {
-        holdDone.current = true;
-        if (holdRef.current) clearInterval(holdRef.current);
-        holdRef.current = null;
-        setHoldProgress(0);
-        holdFill.value = 0;
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        void activateLive();
-      }
-    }, 40);
   };
 
   const goOffline = async () => {
@@ -856,10 +794,9 @@ export default function LiveHomeScreen() {
             <View style={styles.ctaStack}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Hold to go live"
+                accessibilityLabel="Go live tonight"
                 disabled={loading}
-                onPressIn={onHoldStart}
-                onPressOut={clearHold}
+                onPress={() => void activateLive()}
                 style={[styles.goLiveBtn, loading && styles.goLiveDisabled]}
               >
                 <LinearGradient
@@ -868,18 +805,13 @@ export default function LiveHomeScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.goLiveGrad}
                 >
-                  <Animated.View pointerEvents="none" style={[styles.goLiveFill, holdFillStyle]} />
                   <AppText style={styles.goLiveLabel}>
-                    {loading
-                      ? 'Going live…'
-                      : holdProgress > 0.02
-                        ? `Keep holding… ${Math.round(holdProgress * 100)}%`
-                        : 'Hold to go live'}
+                    {loading ? 'Going live…' : 'GO LIVE TONIGHT ⚡'}
                   </AppText>
                 </LinearGradient>
               </Pressable>
               <AppText style={styles.goLiveHint}>
-                Go live to appear higher and let people know you're actually free tonight.
+                Go Live to let nearby matches know you're ready to make plans tonight.
               </AppText>
             </View>
           </>
@@ -1278,13 +1210,6 @@ const styles = ScaledSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
     overflow: 'hidden',
-  },
-  goLiveFill: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   goLiveLabel: {
     color: colors.text,
