@@ -6,8 +6,27 @@ import { usePrivacyControls } from '@/store/privacyControls';
 import { useSessionStore } from '@/store/session';
 
 const REFRESH_MS = 20 * 60 * 1000;
+const MIN_MOVE_MILES = 0.5;
 let lastWrite = 0;
+let lastCoords: { latitude: number; longitude: number } | null = null;
 let removed = false;
+
+function haversineDistance(
+  coord1: { latitude: number; longitude: number },
+  coord2: { latitude: number; longitude: number }
+): number {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = ((coord2.latitude - coord1.latitude) * Math.PI) / 180;
+  const dLon = ((coord2.longitude - coord1.longitude) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((coord1.latitude * Math.PI) / 180) *
+      Math.cos((coord2.latitude * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 async function currentCoords(allowPrompt: boolean): Promise<{ latitude: number; longitude: number } | null> {
   let perm = await Location.getForegroundPermissionsAsync();
@@ -34,6 +53,7 @@ async function sync(force = false) {
     if (!removed) {
       removed = true;
       lastWrite = 0;
+      lastCoords = null;
       await live.removeNearbyPresence();
     }
     return;
@@ -41,7 +61,15 @@ async function sync(force = false) {
   if (!force && Date.now() - lastWrite < REFRESH_MS) return;
   const coords = await currentCoords(force);
   if (!coords) return;
+  
+  // Only write if moved >0.5 miles since last sync (saves Firestore writes)
+  if (lastCoords && !force) {
+    const distMoved = haversineDistance(lastCoords, coords);
+    if (distMoved < MIN_MOVE_MILES) return;
+  }
+  
   lastWrite = Date.now();
+  lastCoords = coords;
   removed = false;
   await live.publishNearbyPresence(coords);
 }

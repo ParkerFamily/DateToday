@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -91,7 +92,13 @@ export default function ProfileTabScreen() {
       >
         <View style={styles.heroCard}>
           {profile?.mainPhotoUrl ? (
-            <Image source={{ uri: profile.mainPhotoUrl }} style={styles.heroImage} />
+            <Image 
+              source={{ uri: profile.mainPhotoUrl }} 
+              style={styles.heroImage}
+              cachePolicy="memory-disk"
+              contentFit="cover"
+              transition={200}
+            />
           ) : (
             <LinearGradient
               colors={['rgba(124,58,237,0.35)', '#0C0C10']}

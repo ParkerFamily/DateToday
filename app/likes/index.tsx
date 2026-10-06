@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
@@ -65,7 +66,12 @@ export default function LikesScreen() {
                 }
               >
                 {card?.mainPhotoUrl ? (
-                  <Image source={{ uri: card.mainPhotoUrl }} style={styles.avatar} />
+                  <Image 
+                    source={{ uri: card.mainPhotoUrl }} 
+                    style={styles.avatar}
+                    cachePolicy="memory-disk"
+                    transition={150}
+                  />
                 ) : (
                   <View style={[styles.avatar, styles.avatarPh]} />
                 )}
@@ -91,7 +97,13 @@ export default function LikesScreen() {
                   accessibilityLabel="Hidden like — unlock with DateToday+"
                 >
                   {card?.mainPhotoUrl ? (
-                    <Image source={{ uri: card.mainPhotoUrl }} style={styles.avatar} blurRadius={40} />
+                    <Image 
+                      source={{ uri: card.mainPhotoUrl }} 
+                      style={styles.avatar} 
+                      blurRadius={40}
+                      cachePolicy="memory-disk"
+                      transition={150}
+                    />
                   ) : (
                     <View style={[styles.avatar, styles.avatarPh]} />
                   )}

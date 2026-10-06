@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, {
@@ -159,7 +160,12 @@ export default function MutualMatchScreen() {
           <Animated.View style={[styles.faces, facesAnim]}>
             <View style={styles.faceWrap}>
               {myPhoto ? (
-                <Image source={{ uri: myPhoto }} style={styles.face} />
+                <Image 
+                  source={{ uri: myPhoto }} 
+                  style={styles.face}
+                  cachePolicy="memory-disk"
+                  transition={200}
+                />
               ) : (
                 <View style={[styles.face, styles.faceFallback]}>
                   <AppText style={styles.faceInitial}>You</AppText>
@@ -169,7 +175,12 @@ export default function MutualMatchScreen() {
             <AppText style={styles.plus}>+</AppText>
             <View style={styles.faceWrap}>
               {theirPhoto ? (
-                <Image source={{ uri: theirPhoto }} style={styles.face} />
+                <Image 
+                  source={{ uri: theirPhoto }} 
+                  style={styles.face}
+                  cachePolicy="memory-disk"
+                  transition={200}
+                />
               ) : (
                 <View style={[styles.face, styles.faceFallback]}>
                   <AppText style={styles.faceInitial}>

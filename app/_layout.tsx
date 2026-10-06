@@ -85,21 +85,23 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
   setProfileHydration('loading');
   
   try {
-    console.log('[DateToday] Hydrating user profile for', uid);
+    if (__DEV__) console.log('[DateToday] Hydrating user profile for', uid);
     const saved = await loadUserProfile(uid);
     
     if (!saved) {
-      console.log('[DateToday] No saved profile found for', uid);
+      if (__DEV__) console.log('[DateToday] No saved profile found for', uid);
       setProfileHydration('done');
       return;
     }
     
-    console.log('[DateToday] Profile loaded successfully:', {
-      userId: saved.profile.userId,
-      displayName: saved.profile.displayName,
-      verificationStatus: saved.profile.verificationStatus,
-      hasPhoto: Boolean(saved.profile.mainPhotoUrl),
-    });
+    if (__DEV__) {
+      console.log('[DateToday] Profile loaded successfully:', {
+        userId: saved.profile.userId,
+        displayName: saved.profile.displayName,
+        verificationStatus: saved.profile.verificationStatus,
+        hasPhoto: Boolean(saved.profile.mainPhotoUrl),
+      });
+    }
     
     setProfile(saved.profile);
     setPreferences(saved.preferences);
@@ -115,15 +117,29 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
       void ensureLocationPermissionAsked();
     }
     
-    const { usePrivacyControls } = await import('@/store/privacyControls');
+    // Parallelize independent operations for faster hydration
+    const [
+      { usePrivacyControls },
+      { useBlocksStore },
+      { refreshBlockedUsers },
+      { restoreLiveSession },
+      { hydrateTonightBoostForSession }
+    ] = await Promise.all([
+      import('@/store/privacyControls'),
+      import('@/store/blocks'),
+      import('@/features/safety/api'),
+      import('@/features/live/restoreLiveSession'),
+      import('@/lib/commerce/sessionCommerce')
+    ]);
+    
     usePrivacyControls.getState().hydrate(saved.privacyControls ?? undefined);
-    const { useBlocksStore } = await import('@/store/blocks');
-    await useBlocksStore.getState().hydrate();
-    const { refreshBlockedUsers } = await import('@/features/safety/api');
-    await refreshBlockedUsers().catch(() => undefined);
-    const { restoreLiveSession } = await import('@/features/live/restoreLiveSession');
-    await restoreLiveSession(uid);
-    const { hydrateTonightBoostForSession } = await import('@/lib/commerce/sessionCommerce');
+    
+    await Promise.all([
+      useBlocksStore.getState().hydrate(),
+      refreshBlockedUsers().catch(() => undefined),
+      restoreLiveSession(uid),
+    ]);
+    
     const restored = useSessionStore.getState().liveSession;
     if (restored && !restored.isBoosted) await hydrateTonightBoostForSession(restored);
   } catch (error) {
@@ -146,9 +162,12 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     let mounted = true;
 
     async function bootstrap() {
-      // Local block list applies even before auth finishes.
-      void import('@/store/blocks').then((m) => m.useBlocksStore.getState().hydrate());
-      await pullOtaUpdate();
+      // Parallelize OTA update and blocks hydration
+      await Promise.all([
+        pullOtaUpdate(),
+        import('@/store/blocks').then((m) => m.useBlocksStore.getState().hydrate()),
+      ]);
+      
       SplashScreen.hideAsync().catch(() => undefined);
       try {
         if (!isBackendConfigured()) {
@@ -202,7 +221,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
       void (async () => {
         if (!user) {
-          console.log('[DateToday] Auth state changed: signed out');
+          if (__DEV__) console.log('[DateToday] Auth state changed: signed out');
           useSessionStore.getState().setAuth(null, null);
           return;
         }
@@ -210,21 +229,23 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         const prev = useSessionStore.getState().userId;
         const currentProfile = useSessionStore.getState().profile;
         
-        console.log('[DateToday] Auth state changed:', {
-          newUid: user.uid,
-          prevUid: prev,
-          hasProfile: Boolean(currentProfile),
-          profileUserId: currentProfile?.userId,
-        });
+        if (__DEV__) {
+          console.log('[DateToday] Auth state changed:', {
+            newUid: user.uid,
+            prevUid: prev,
+            hasProfile: Boolean(currentProfile),
+            profileUserId: currentProfile?.userId,
+          });
+        }
         
         if (prev === user.uid && currentProfile) {
           // Same session — don't clobber a loaded profile on token refresh.
-          console.log('[DateToday] Same user, keeping existing profile');
+          if (__DEV__) console.log('[DateToday] Same user, keeping existing profile');
           useSessionStore.getState().setAuth(user.uid, user.email ?? null);
           return;
         }
         
-        console.log('[DateToday] Hydrating user profile after auth change');
+        if (__DEV__) console.log('[DateToday] Hydrating user profile after auth change');
         await hydrateSignedInUser(user.uid, user.email ?? null);
         
         if (Platform.OS === 'android') return;

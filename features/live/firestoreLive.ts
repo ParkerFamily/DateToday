@@ -453,7 +453,15 @@ export async function fetchFirestoreDiscoveryFeed(
   const myLng = Number(mine.longitude);
   if (!Number.isFinite(myLat) || !Number.isFinite(myLng)) return [];
 
-  const q = query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'));
+  // TODO: Replace with server-side geohash/geospatial indexing for scalability.
+  // Currently fetching all active sessions and filtering client-side by distance.
+  // Generous limit (200) prevents runaway reads but reduces discoverability in dense cities.
+  const q = query(
+    collection(getDb(), 'liveSessions'), 
+    where('status', '==', 'active'),
+    orderBy('startedAt', 'desc'),
+    limitTo(200)
+  );
   const snap = await withTimeout(getDocs(q), 12000, 'Find people nearby');
   const now = Date.now();
   const cards: DiscoveryCard[] = [];

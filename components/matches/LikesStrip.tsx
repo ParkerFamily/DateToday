@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Image, Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { AppText } from '@/components/ui/AppText';
@@ -70,7 +71,12 @@ export function LikesStrip() {
                 >
                   <View style={[styles.ring, styles.ringOpen]}>
                     {card?.mainPhotoUrl ? (
-                      <Image source={{ uri: card.mainPhotoUrl }} style={styles.avatar} />
+                      <Image 
+                        source={{ uri: card.mainPhotoUrl }} 
+                        style={styles.avatar}
+                        cachePolicy="memory-disk"
+                        transition={150}
+                      />
                     ) : (
                       <View style={[styles.avatar, styles.avatarEmpty]}>
                         <Ionicons name="person" size={rs(28)} color={colors.textSecondary} />
@@ -98,7 +104,13 @@ export function LikesStrip() {
                 >
                   <View style={[styles.ring, styles.ringLocked]}>
                     {card?.mainPhotoUrl ? (
-                      <Image source={{ uri: card.mainPhotoUrl }} style={styles.avatar} blurRadius={40} />
+                      <Image 
+                        source={{ uri: card.mainPhotoUrl }} 
+                        style={styles.avatar} 
+                        blurRadius={40}
+                        cachePolicy="memory-disk"
+                        transition={150}
+                      />
                     ) : (
                       <View style={[styles.avatar, styles.avatarEmpty]} />
                     )}

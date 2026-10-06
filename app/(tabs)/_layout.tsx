@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Platform, Text, View, type ColorValue } from 'react-native';
+import { AppState, Platform, Text, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -40,12 +40,34 @@ function LiveTabIcon({
       pulse.value = 1;
       return;
     }
-    pulse.value = withRepeat(
-      withTiming(1.18, { duration: 900, easing: Easing.inOut(Easing.quad) }),
-      -1,
-      true,
-    );
-    return () => cancelAnimation(pulse);
+    
+    // Pause animation when app is backgrounded to save battery
+    let isActive = AppState.currentState === 'active';
+    
+    const startAnim = () => {
+      pulse.value = withRepeat(
+        withTiming(1.18, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+        -1,
+        true,
+      );
+    };
+    
+    if (isActive) startAnim();
+    
+    const sub = AppState.addEventListener('change', (next) => {
+      isActive = next === 'active';
+      if (isActive && live) {
+        startAnim();
+      } else {
+        cancelAnimation(pulse);
+        pulse.value = 1;
+      }
+    });
+    
+    return () => {
+      cancelAnimation(pulse);
+      sub.remove();
+    };
   }, [live, pulse]);
 
   const anim = useAnimatedStyle(() => ({

@@ -60,12 +60,12 @@ import * as Haptics from 'expo-haptics';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
     Alert,
-    Image,
     Pressable,
     ScrollView,
     StyleSheet,
     View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
 import { energyLabel } from '@/constants/datingTraits';
@@ -136,12 +136,18 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   /** Preview: first ♥ is one-way interest; second ♥ simulates mutual match */
   const interestsSentRef = useRef(0);
   const uid = useSessionStore((s) => s.userId);
-  // A primitive key so new messages / read receipts on matches don't re-render the whole feed.
-  const matchedKey = useMatchesStore((s) => {
-    const ids: string[] = [];
-    for (const m of s.matches) for (const u of m.userIds) if (u !== uid) ids.push(u);
-    return ids.sort().join(',');
-  });
+  // Extract only matched user IDs (stable key that only changes when matches add/remove, not on message updates)
+  const matchedKey = useMatchesStore(
+    useCallback((s) => {
+      const ids: string[] = [];
+      for (const m of s.matches) {
+        for (const u of m.userIds) {
+          if (u !== uid) ids.push(u);
+        }
+      }
+      return ids.sort().join(',');
+    }, [uid]),
+  );
   const liveSession = useSessionStore((s) => s.liveSession);
   const discoveryPaused = useSessionStore((s) => s.discoveryPaused);
   const setDiscoverAttention = useSessionStore((s) => s.setDiscoverAttention);
@@ -227,21 +233,31 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       .filter((c) => !handled.has(c.userId) && !sentTo.has(c.userId) && !matchedIds.has(c.userId));
   }, [rawFeed, filters.maxDistanceMiles, blockedMap, handled, sentTo, matchedIds]);
 
+  // Memoize compatibility scores per card to avoid O(n^2 log n) recalculation during sort
+  const cardScores = useMemo(() => {
+    const scores = new Map<string, number>();
+    for (const c of nearbyBeforeFilters) {
+      const compatScore = tonightCompatibility(myVibe, { 
+        activities: c.activities, 
+        foodCuisines: c.foodCuisines 
+      }).score;
+      const interestScore = sharedInterests(myInterests, c.interests).length * 4;
+      scores.set(c.userId, compatScore + interestScore);
+    }
+    return scores;
+  }, [nearbyBeforeFilters, myVibe, myInterests]);
+
   const cards = useMemo(() => {
     const list = applyDiscoverFilters(nearbyBeforeFilters, filters, { plus: plusFoods, myInterests });
 
-    // Each shared interest is worth a bit less than a shared plan for tonight.
-    const score = (c: DiscoveryCard) =>
-      tonightCompatibility(myVibe, { activities: c.activities, foodCuisines: c.foodCuisines }).score +
-      sharedInterests(myInterests, c.interests).length * 4;
     // Live now, then free later tonight, then nearby people who aren't live.
     return [...list].sort((a, b) => {
       const ta = feedTier(a);
       const tb = feedTier(b);
       if (ta !== tb) return ta - tb;
       if (ta === 1) return (a.laterTonightHour ?? 99) - (b.laterTonightHour ?? 99);
-      const sa = score(a);
-      const sb = score(b);
+      const sa = cardScores.get(a.userId) ?? 0;
+      const sb = cardScores.get(b.userId) ?? 0;
       if (ta === 2) {
         const ra = isRecentlyActive(a) ? 1 : 0;
         const rb = isRecentlyActive(b) ? 1 : 0;
@@ -255,7 +271,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         { priorityPool },
       );
     });
-  }, [nearbyBeforeFilters, filters, myVibe, priorityPool, plusFoods, myInterests]);
+  }, [nearbyBeforeFilters, filters, cardScores, priorityPool, plusFoods, myInterests]);
 
   const laterTonight = useMemo(() => {
     return nearbyBeforeFilters
@@ -617,7 +633,12 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                     }
                   >
                     {p.mainPhotoUrl ? (
-                      <Image source={{ uri: p.mainPhotoUrl }} style={styles.laterAvatar} />
+                      <Image 
+                        source={{ uri: p.mainPhotoUrl }} 
+                        style={styles.laterAvatar}
+                        cachePolicy="memory-disk"
+                        transition={200}
+                      />
                     ) : (
                       <View style={[styles.laterAvatar, styles.laterAvatarPh]} />
                     )}
@@ -710,7 +731,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         >
           <View style={[styles.hero, { height: heroH * 0.92 }]}>
             {card.mainPhotoUrl ? (
-              <Image source={{ uri: card.mainPhotoUrl }} style={styles.media} />
+              <Image 
+                source={{ uri: card.mainPhotoUrl }} 
+                style={styles.media}
+                cachePolicy="memory-disk"
+                contentFit="cover"
+                transition={200}
+              />
             ) : (
               <View style={[styles.media, styles.mediaPlaceholder]}>
                 <AppText style={styles.videoHint}>VIDEO</AppText>
@@ -902,6 +929,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 <Image
                   source={{ uri: signature?.thumbnailUrl ?? card.mainPhotoUrl! }}
                   style={styles.media}
+                  cachePolicy="memory-disk"
+                  contentFit="cover"
+                  transition={200}
                 />
               ) : null}
               <View style={styles.playBtn}>
@@ -913,7 +943,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
           {card.mainPhotoUrl ? (
             <View style={styles.photoBlock}>
-              <Image source={{ uri: card.mainPhotoUrl }} style={styles.midPhoto} />
+              <Image 
+                source={{ uri: card.mainPhotoUrl }} 
+                style={styles.midPhoto}
+                cachePolicy="memory-disk"
+                contentFit="cover"
+                transition={200}
+              />
             </View>
           ) : null}
 
@@ -936,6 +972,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 <Image
                   source={{ uri: about?.thumbnailUrl ?? card.mainPhotoUrl! }}
                   style={styles.media}
+                  cachePolicy="memory-disk"
+                  contentFit="cover"
+                  transition={200}
                 />
               ) : null}
               <View style={styles.playBtn}>
