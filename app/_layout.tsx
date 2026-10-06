@@ -9,6 +9,7 @@ import {
 import { installNotificationActions, isNotificationAction } from '@/features/notifications/actions';
 import * as Notifications from 'expo-notifications';
 import { loadUserProfile } from '@/features/profile/saveOnboarding';
+import { ensureLocationPermissionAsked } from '@/features/auth/postAuth';
 import { isBackendConfigured } from '@/lib/env';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
@@ -106,6 +107,14 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
     if (saved.hasLegalConsent) {
       useOnboardingDraft.getState().acceptLegalConsent();
     }
+    
+    // Request location permission for existing users who haven't been asked yet.
+    // This ensures iOS shows location in Settings even for users who completed
+    // onboarding before location permissions were added.
+    if (hasEnteredApp(saved.profile)) {
+      void ensureLocationPermissionAsked();
+    }
+    
     const { usePrivacyControls } = await import('@/store/privacyControls');
     usePrivacyControls.getState().hydrate(saved.privacyControls ?? undefined);
     const { useBlocksStore } = await import('@/store/blocks');

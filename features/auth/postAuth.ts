@@ -3,6 +3,7 @@ import { recordLegalConsent } from '@/features/consent/recordConsent';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import { hasEnteredApp } from '@/utils/accountEntry';
+import * as Location from 'expo-location';
 
 type AppRouter = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -16,6 +17,33 @@ type SocialUser = {
   isNewUser: boolean;
   provider?: 'google' | 'apple';
 };
+
+/**
+ * Request location permission if iOS hasn't been asked yet (undetermined status).
+ * This ensures iOS will show location in Settings after the first request.
+ * Never shows an alert; just asks once so the permission appears in Settings.
+ * 
+ * iOS quirk: Location permission won't appear in Settings until the app requests it at least once.
+ * This function ensures all users (new and existing) get prompted, fixing the issue where
+ * existing users who skip onboarding never see the location permission option in Settings.
+ */
+export async function ensureLocationPermissionAsked(): Promise<void> {
+  try {
+    const { status } = await Location.getForegroundPermissionsAsync();
+    
+    // Only request if never asked before (iOS won't show in Settings until we ask)
+    if (status === Location.PermissionStatus.UNDETERMINED) {
+      const result = await Location.requestForegroundPermissionsAsync();
+      useSessionStore.getState().setLocationGranted(result.status === 'granted');
+    } else {
+      // Update store with current status
+      useSessionStore.getState().setLocationGranted(status === 'granted');
+    }
+  } catch (error) {
+    // Silently fail - location is optional and we'll ask again later if needed
+    console.log('[Location] Could not request permission on post-auth:', error);
+  }
+}
 
 /**
  * After Google/Apple:
@@ -61,6 +89,11 @@ export async function continueAfterSocialAuth(
         useOnboardingDraft.getState().acceptLegalConsent();
       }
       setProfileHydration('done');
+      
+      // Request location permission if iOS hasn't been asked yet.
+      // This ensures the permission shows up in iOS Settings even for existing users.
+      void ensureLocationPermissionAsked();
+      
       router.replace('/(tabs)/live');
       return;
     }
