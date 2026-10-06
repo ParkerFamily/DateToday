@@ -13,7 +13,17 @@ import { flowCopy, formatLaterHour } from '@/constants/flow';
 import { colors, gradients, spacing } from '@/constants/theme';
 import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
 import { AFTER_HOURS_TAGS, type AfterHoursTag } from '@/constants/afterHours';
-import { ENERGY_OPTIONS, energyLabel, PLAN_IDEA_MAX, TRAVEL_OPTIONS } from '@/constants/datingTraits';
+import {
+    ENERGY_OPTIONS,
+    energyLabel,
+    parsePlanIdea,
+    PLACE_OPTIONS,
+    placePlanIdea,
+    TRAVEL_OPTIONS,
+    type PlaceStyle,
+} from '@/constants/datingTraits';
+import { PlacePicker, SelectedPlaceCard } from '@/components/plan/PlacePicker';
+import type { PlanCategory } from '@/features/places/search';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import {
     clearTonightBoost,
@@ -37,11 +47,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
     AppState,
+    Linking,
     Modal,
     Pressable,
     ScrollView,
     StyleSheet,
-    TextInput,
     View,
 } from 'react-native';
 import Animated, {
@@ -61,6 +71,7 @@ import { ScaledSheet, rs } from '@/lib/scale';
 
 const HOLD_MS = 1200;
 const LATER_HOURS = [18, 19, 20, 21] as const;
+const PLACE_CATEGORIES: PlanCategory[] = ['drinks', 'dinner', 'coffee', 'activity'];
 
 const PLAN_OPTIONS: {
   value: TonightActivity;
@@ -117,7 +128,11 @@ export default function LiveHomeScreen() {
   const [afterHoursTags, setAfterHoursTags] = useState<AfterHoursTag[]>([]);
   const [energy, setEnergy] = useState<TonightEnergy | null>(null);
   const [travel, setTravel] = useState<TravelPref | null>(null);
-  const [planIdea, setPlanIdea] = useState('');
+  const [placeStyle, setPlaceStyle] = useState<PlaceStyle | null>(null);
+  const [spot, setSpot] = useState<string | null>(null);
+  const planIdea = placePlanIdea(placeStyle, spot);
+  const placeCategory =
+    (activities.find((a) => PLACE_CATEGORIES.includes(a as PlanCategory)) as PlanCategory | undefined) ?? 'drinks';
   const [holdProgress, setHoldProgress] = useState(0);
   const holdFill = useSharedValue(0);
   const holdFillStyle = useAnimatedStyle(() => ({ width: `${holdFill.value * 100}%` }));
@@ -243,6 +258,17 @@ export default function LiveHomeScreen() {
         });
         latitude = position.coords.latitude;
         longitude = position.coords.longitude;
+      } else if (isBackendConfigured()) {
+        // Never go live at a made-up spot — people nearby would see the wrong distance.
+        Alert.alert(
+          'Turn on location to go Live',
+          'DateToday uses your approximate location so people near you can find you tonight.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+          ],
+        );
+        return;
       }
 
       // Firebase is primary — always publish a real beacon (no silent local-only pool).
@@ -260,7 +286,7 @@ export default function LiveHomeScreen() {
           afterHours: showLateNight ? afterHoursTags : [],
           energy,
           travel,
-          planIdea: planIdea.trim() || null,
+          planIdea,
         });
         setLiveSession({ ...session, isBoosted: false, boostedAt: null });
         setPingResults(0, 0);
@@ -289,7 +315,7 @@ export default function LiveHomeScreen() {
           boostedAt: null,
           energy,
           travel,
-          planIdea: planIdea.trim() || null,
+          planIdea,
         };
         setLiveSession(localSession);
         setPingResults(0, 0);
@@ -438,7 +464,9 @@ export default function LiveHomeScreen() {
             setAfterHoursTags(liveSession.afterHours ?? []);
             setEnergy(liveSession.energy ?? null);
             setTravel(liveSession.travel ?? null);
-            setPlanIdea(liveSession.planIdea ?? '');
+            const parsed = parsePlanIdea(liveSession.planIdea);
+            setPlaceStyle(parsed.style);
+            setSpot(parsed.spot);
             setSheet('edit');
           }}
           onOffline={() => onStopRef.current()}
@@ -466,6 +494,11 @@ export default function LiveHomeScreen() {
   const pickTravel = (value: TravelPref) => {
     void Haptics.selectionAsync();
     setTravel((prev) => (prev === value ? null : value));
+  };
+
+  const pickPlace = (value: PlaceStyle) => {
+    void Haptics.selectionAsync();
+    setPlaceStyle((prev) => (prev === value ? null : value));
   };
 
   const toggleAfterHours = (value: AfterHoursTag) => {
@@ -639,18 +672,56 @@ export default function LiveHomeScreen() {
 
             <View style={styles.section}>
               <View style={styles.sectionHead}>
-                <AppText style={styles.sectionLabel}>📍 PLAN IN MIND?</AppText>
+                <AppText style={styles.sectionLabel}>📍 PLACE</AppText>
                 <AppText style={styles.sectionHint}>Optional · people say yes faster.</AppText>
               </View>
-              <TextInput
-                value={planIdea}
-                onChangeText={setPlanIdea}
-                placeholder="Rooftop drinks at Ponce, tacos on Edgewood…"
-                placeholderTextColor={colors.textSecondary}
-                maxLength={PLAN_IDEA_MAX}
-                returnKeyType="done"
-                style={styles.planInput}
-              />
+              <View style={styles.lateWrap}>
+                {PLACE_OPTIONS.map((o) => {
+                  const on = placeStyle === o.value;
+                  return (
+                    <Pressable
+                      key={o.value}
+                      onPress={() => pickPlace(o.value)}
+                      style={[styles.laterPill, on && styles.laterPillOn]}
+                    >
+                      <AppText style={[styles.laterPillText, on && styles.laterPillTextOn]}>
+                        {o.label}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {placeStyle === 'spot' ? (
+                spot ? (
+                  <SelectedPlaceCard
+                    place={{
+                      id: `spot-${spot}`,
+                      name: spot,
+                      address: null,
+                      area: null,
+                      lat: null,
+                      lng: null,
+                      distanceMiles: null,
+                      kind: null,
+                    }}
+                    onChange={() => setSpot(null)}
+                  />
+                ) : (
+                  <PlacePicker
+                    category={placeCategory}
+                    cuisine={wantsDinner ? (foodCuisines[0] ?? null) : null}
+                    allowManual={false}
+                    onPick={(p) => setSpot(p.name)}
+                  />
+                )
+              ) : null}
+            </View>
+
+            <View style={styles.section}>
+              <View style={styles.sectionHead}>
+                <AppText style={styles.sectionLabel}>🚗 GETTING THERE</AppText>
+                <AppText style={styles.sectionHint}>How far you’ll go.</AppText>
+              </View>
               <View style={styles.lateWrap}>
                 {TRAVEL_OPTIONS.map((o) => {
                   const on = travel === o.value;
@@ -934,16 +1005,16 @@ export default function LiveHomeScreen() {
                   onToggle={(value) => pickEnergy(value as TonightEnergy)}
                 />
                 <AppText variant="title" style={styles.sheetTitle}>
-                  Plan in mind
+                  Place
                 </AppText>
-                <TextInput
-                  value={planIdea}
-                  onChangeText={setPlanIdea}
-                  placeholder="Optional · a spot or idea"
-                  placeholderTextColor={colors.textSecondary}
-                  maxLength={PLAN_IDEA_MAX}
-                  returnKeyType="done"
-                  style={styles.planInput}
+                <OptionGrid
+                  options={PLACE_OPTIONS.map((o) => ({
+                    value: o.value,
+                    label: o.value === 'spot' && placeStyle === 'spot' && spot ? `📍 ${spot}` : o.label,
+                  }))}
+                  values={placeStyle ? [placeStyle] : []}
+                  multi={false}
+                  onToggle={(value) => pickPlace(value as PlaceStyle)}
                 />
                 <OptionGrid
                   options={TRAVEL_OPTIONS}
@@ -980,7 +1051,7 @@ export default function LiveHomeScreen() {
                         afterHours: afterHoursTags,
                         energy,
                         travel,
-                        planIdea: planIdea.trim() || null,
+                        planIdea,
                       };
                       setLiveSession({ ...liveSession, ...patch });
                       void syncLiveSessionPatch(patch);
@@ -1150,17 +1221,6 @@ const styles = ScaledSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   lateWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  planInput: {
-    minHeight: 48,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.14)',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    color: colors.text,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-  },
   latePillOn: {
     borderColor: '#A78BFA',
     backgroundColor: 'rgba(76,29,149,0.45)',

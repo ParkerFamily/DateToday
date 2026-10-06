@@ -64,10 +64,12 @@ export function PlacePicker({
   category,
   cuisine,
   onPick,
+  allowManual = true,
 }: {
   category: PlanCategory;
   cuisine?: string | null;
   onPick: (place: Place) => void;
+  allowManual?: boolean;
 }) {
   const [mode, setMode] = useState<Mode | null>(null);
   const [me, setMe] = useState<LatLng | null>(null);
@@ -125,7 +127,7 @@ export function PlacePicker({
         const places = await nearbyPlaces(here, category, cuisine);
         if (!alive) return;
         setResults(places);
-        if (!places.length) setError('Nothing showing up nearby. Try search or type it in.');
+        if (!places.length) setError(allowManual ? 'Nothing showing up nearby. Try search or type it in.' : 'Nothing showing up nearby. Try search.');
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : 'Couldn’t load places right now.');
       } finally {
@@ -135,7 +137,7 @@ export function PlacePicker({
     return () => {
       alive = false;
     };
-  }, [mode, category, cuisine, me]);
+  }, [mode, category, cuisine, me, allowManual]);
 
   useEffect(() => {
     if (mode !== 'search') return;
@@ -158,13 +160,13 @@ export function PlacePicker({
         .then((places) => {
           if (seq !== searchSeq.current) return;
           setResults(places);
-          if (!places.length) setError('No matches. Try another name, or type it in.');
+          if (!places.length) setError(allowManual ? 'No matches. Try another name, or type it in.' : 'No matches. Try another name.');
         })
         .catch((e) => seq === searchSeq.current && setError(e instanceof Error ? e.message : 'Search failed.'))
         .finally(() => seq === searchSeq.current && setLoading(false));
     }, 450);
     return () => clearTimeout(timer);
-  }, [mode, query, me]);
+  }, [mode, query, me, allowManual]);
 
   const pick = (place: Place) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -182,7 +184,9 @@ export function PlacePicker({
       <View style={styles.modes}>
         <ModeButton icon="navigate" label="Near me" on={mode === 'near'} onPress={() => choose('near')} />
         <ModeButton icon="search" label="Search" on={mode === 'search'} onPress={() => choose('search')} />
-        <ModeButton icon="create-outline" label="Type it" on={mode === 'manual'} onPress={() => choose('manual')} />
+        {allowManual ? (
+          <ModeButton icon="create-outline" label="Type it" on={mode === 'manual'} onPress={() => choose('manual')} />
+        ) : null}
       </View>
 
       {mode === 'search' ? (
@@ -242,7 +246,7 @@ export function PlacePicker({
           <ActivityIndicator color={colors.brandBright} size="small" />
           <AppText style={[styles.meta, styles.flex]}>
             {slow
-              ? 'Still looking — first searches in a new area take a few seconds. You can also type it in.'
+              ? 'Still looking — first searches in a new area take a few seconds.' + (allowManual ? ' You can also type it in.' : '')
               : mode === 'near'
                 ? 'Finding spots near you…'
                 : 'Searching…'}

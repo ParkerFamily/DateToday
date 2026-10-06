@@ -208,15 +208,17 @@ describe('applyDiscoverFilters', () => {
   it('matches tonight vibe: energy, plan in mind, getting there', () => {
     const people = [
       card('social', { energy: 'social', travel: 'can_travel', planIdea: 'Rooftop drinks' }),
-      card('chill', { energy: 'low_key', travel: 'nearby' }),
+      card('chill', { energy: 'low_key', travel: 'nearby', planIdea: 'Let them choose' }),
+      card('spot', { planIdea: 'I know a spot' }),
+      card('open', { planIdea: 'Find something nearby' }),
       card('blank'),
     ];
     const run = (over: Partial<DiscoverFilterValues>) =>
       ids(applyDiscoverFilters(people, f(over), { plus: true }));
-    expect(run({ energy: ['social'] })).toEqual(['social', 'blank']);
+    expect(run({ energy: ['social'] })).toEqual(['social', 'spot', 'open', 'blank']);
     expect(run({ energy: ['social'], matchAllFilters: true })).toEqual(['social']);
-    expect(run({ travel: ['nearby'] })).toEqual(['chill', 'blank']);
-    expect(run({ planInMind: true })).toEqual(['social']);
+    expect(run({ travel: ['nearby'] })).toEqual(['chill', 'spot', 'open', 'blank']);
+    expect(run({ planInMind: true })).toEqual(['social', 'spot']);
   });
 
   it('filters by profile traits for Plus only', () => {

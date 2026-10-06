@@ -464,7 +464,7 @@ export default function FiltersScreen() {
               <ToggleFilterRow
                 icon={{ name: 'map' }}
                 title="Plan already in mind"
-                body="Has a spot or idea picked out"
+                body="Already knows a spot"
                 value={filters.planInMind}
                 onChange={(v) => {
                   tap();

@@ -18,6 +18,36 @@ export const TRAVEL_OPTIONS: { value: TravelPref; label: string }[] = [
 
 export const PLAN_IDEA_MAX = 60;
 
+export type PlaceStyle = 'spot' | 'nearby' | 'choose';
+
+/** Tap-only stand-in for typing a plan; the label (or picked spot name) is stored as `planIdea`. */
+export const PLACE_OPTIONS: { value: PlaceStyle; label: string }[] = [
+  { value: 'spot', label: 'I know a spot' },
+  { value: 'nearby', label: 'Find something nearby' },
+  { value: 'choose', label: 'Let them choose' },
+];
+
+export function placePlanIdea(style: PlaceStyle | null, spot: string | null): string | null {
+  if (!style) return null;
+  if (style === 'spot' && spot) return cleanPlanIdea(spot);
+  return PLACE_OPTIONS.find((o) => o.value === style)?.label ?? null;
+}
+
+/** Older sessions stored free text; treat it as a spot they already know. */
+export function parsePlanIdea(value: unknown): { style: PlaceStyle | null; spot: string | null } {
+  const idea = cleanPlanIdea(value);
+  if (!idea) return { style: null, spot: null };
+  const match = PLACE_OPTIONS.find((o) => o.label === idea);
+  if (match) return { style: match.value, spot: null };
+  return { style: 'spot', spot: idea };
+}
+
+/** "Plan already in mind" means a spot, not an open-ended style. */
+export function hasSpotInMind(value: unknown): boolean {
+  const { style } = parsePlanIdea(value);
+  return style === 'spot';
+}
+
 export function energyLabel(value: TonightEnergy | null | undefined): string | null {
   const o = ENERGY_OPTIONS.find((e) => e.value === value);
   return o ? `${o.emoji} ${o.label}` : null;

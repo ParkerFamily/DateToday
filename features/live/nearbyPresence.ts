@@ -9,9 +9,14 @@ const REFRESH_MS = 20 * 60 * 1000;
 let lastWrite = 0;
 let removed = false;
 
-async function currentCoords(): Promise<{ latitude: number; longitude: number } | null> {
-  // Never prompts: people only show as "nearby" if they already shared location with the app.
-  const perm = await Location.getForegroundPermissionsAsync();
+async function currentCoords(allowPrompt: boolean): Promise<{ latitude: number; longitude: number } | null> {
+  let perm = await Location.getForegroundPermissionsAsync();
+  // Signed-in users who skipped onboarding (new install, existing account) were never asked, and iOS
+  // doesn't list Location in Settings until the app asks once. Ask only that once; never re-prompt.
+  if (perm.status === Location.PermissionStatus.UNDETERMINED && allowPrompt) {
+    perm = await Location.requestForegroundPermissionsAsync();
+  }
+  useSessionStore.getState().setLocationGranted(perm.status === 'granted');
   if (perm.status !== 'granted') return null;
   const last = await Location.getLastKnownPositionAsync({ maxAge: 30 * 60 * 1000 }).catch(() => null);
   if (last) return last.coords;
@@ -34,7 +39,7 @@ async function sync(force = false) {
     return;
   }
   if (!force && Date.now() - lastWrite < REFRESH_MS) return;
-  const coords = await currentCoords();
+  const coords = await currentCoords(force);
   if (!coords) return;
   lastWrite = Date.now();
   removed = false;

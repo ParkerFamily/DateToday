@@ -13,7 +13,7 @@ import {
   type FreeFor,
   type HowSoon,
 } from '@/constants/afterHours';
-import { ENERGY_OPTIONS, TRAIT_KEYS, TRAITS, TRAVEL_OPTIONS } from '@/constants/datingTraits';
+import { ENERGY_OPTIONS, hasSpotInMind, TRAIT_KEYS, TRAITS, TRAVEL_OPTIONS } from '@/constants/datingTraits';
 import { isBroadInterest, normalizeInterests, sharedInterests } from '@/constants/interests';
 import { foodLabel } from '@/constants/tonightVibe';
 import type { DiscoverFilterValues } from '@/store/discoverFilters';
@@ -136,7 +136,7 @@ export function applyDiscoverFilters(
     if (f.freeFor && !matchesFreeFor(c, f.freeFor, now)) return false;
     if (f.energy.length && !keep(c.energy, () => f.energy.includes(c.energy!))) return false;
     if (f.travel.length && !keep(c.travel, () => f.travel.includes(c.travel!))) return false;
-    if (f.planInMind && !c.planIdea?.trim()) return false;
+    if (f.planInMind && !hasSpotInMind(c.planIdea)) return false;
 
     // Interest filters are explicit asks, so people with no interests listed don't pass.
     if (wanted.length && !normalizeInterests(c.interests).some((i) => wanted.includes(i))) {
@@ -303,7 +303,7 @@ export function matchedFilterLabels(
     out.push(`${e.emoji} ${e.label}`);
   }
   if (plus && f.closeByMiles != null && c.distanceMiles <= f.closeByMiles) out.push(`📍 Under ${f.closeByMiles} mi`);
-  if (f.planInMind && c.planIdea?.trim()) out.push('📍 Has a plan');
+  if (f.planInMind && hasSpotInMind(c.planIdea)) out.push('📍 Has a plan');
   if (has(f.travel, c.travel)) out.push(TRAVEL_OPTIONS.find((o) => o.value === c.travel)!.label);
   const foods = plus ? f.foodFilter : f.foodFilter.slice(0, 1);
   for (const x of c.foodCuisines ?? []) if (foods.includes(x)) out.push(foodLabel(x));
