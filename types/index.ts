@@ -227,6 +227,7 @@ export interface DiscoveryCard extends ProfileTraits {
   age: number;
   neighborhoodLabel: string | null;
   distanceMiles: number;
+  hideDistance?: boolean;
   verificationStatus: VerificationStatus;
   datingIntention: DatingIntention | null;
   bio: string | null;

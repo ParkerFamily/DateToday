@@ -73,9 +73,15 @@ export const FilterBar = memo(function FilterBar() {
 
 const styles = ScaledSheet.create({
   wrap: {
-    backgroundColor: '#050506',
+    backgroundColor: 'rgba(5,5,6,0.95)',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
+    zIndex: 5,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
   row: {
     gap: 8,

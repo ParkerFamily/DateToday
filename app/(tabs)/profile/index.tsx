@@ -22,6 +22,7 @@ import { isPlusActive } from '@/lib/entitlements';
 import { syncVerificationStatus } from '@/features/verification/persistVerification';
 import { useSessionStore } from '@/store/session';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
+import { useContentLayout } from '@/lib/layout';
 import type { ProfileCompletionRequirements } from '@/types';
 import { ScaledSheet, rs } from '@/lib/scale';
 
@@ -46,6 +47,7 @@ const VERIFY_COPY: Record<string, { label: string; sub: string }> = {
 export default function ProfileTabScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { contentWidth, isWide } = useContentLayout();
   const profile = useSessionStore((s) => s.profile);
   const entitlements = useSessionStore((s) => s.entitlements);
   const { percent, requirements, readyForLive } = useProfileCompletion();
@@ -76,6 +78,7 @@ export default function ProfileTabScreen() {
           styles.content,
           livePad,
           { paddingBottom: Math.max(insets.bottom, 8) + 24 },
+          isWide && { width: contentWidth, alignSelf: 'center' },
         ]}
         showsVerticalScrollIndicator={false}
       >

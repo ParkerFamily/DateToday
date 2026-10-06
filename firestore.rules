@@ -73,8 +73,10 @@ service cloud.firestore {
       allow create: if isOwner(userId) && verificationNotForged() && entitlementsNotForged()
         && legalNameValid();
       allow update: if isOwner(userId) && verificationNotForged() && entitlementsNotForged()
-        && legalNameValid() && legalNameLocked();
-      allow delete: if isOwner(userId);
+        && legalNameValid() && legalNameLocked()
+        && (resource.data.get('phoneVerificationRequired', false) != true
+          || request.resource.data.get('phoneVerificationRequired', false) == true);
+      allow delete: if isOwner(userId) && resource.data.get('phoneVerificationRequired', false) != true;
 
       function legalNameValid() {
         return !('legalName' in request.resource.data)
@@ -170,6 +172,12 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
+    // Activation coordinates and cooldown timestamps are only readable/writable
+    // by the Admin SDK. Clients cannot forge or sweep these records.
+    match /liveActivations/{userId} {
+      allow read, write: if false;
+    }
+
     // Reply speed / recent plans / join date behind Discover status tags. Cloud Functions only.
     match /userStats/{userId} {
       allow read: if signedIn();
@@ -181,6 +189,14 @@ service cloud.firestore {
       allow read: if signedIn()
         && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
       allow write: if false;
+    }
+
+    // Unmatched pairs (unmatchUser) and trigger dedupe markers; Cloud Functions only.
+    match /unmatches/{pairId} {
+      allow read, write: if false;
+    }
+    match /processedEvents/{eventId} {
+      allow read, write: if false;
     }
 
     // Cached quiz match % per pair; read and written only by getCompatibility.
@@ -220,14 +236,20 @@ service cloud.firestore {
           && (
             (
               request.resource.data.type == 'text'
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'text', 'createdAt'])
               && request.resource.data.text is string
-              && request.resource.data.text.size() > 0
+              && request.resource.data.text.trim().size() > 0
               && request.resource.data.text.size() <= 2000
             )
             || (
               request.resource.data.type == 'date_proposal'
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'proposal', 'status', 'createdAt'])
               && request.resource.data.status == 'proposed'
               && request.resource.data.proposal is map
+              && request.resource.data.proposal.keys().hasOnly([
+                'activity', 'activityLabel', 'whenLabel', 'venueName', 'venueAddress',
+                'neighborhood', 'venueLat', 'venueLng', 'startsAt', 'note'
+              ])
             )
           );
 

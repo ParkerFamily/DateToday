@@ -31,9 +31,11 @@ export async function persistPromptVideoSlot(slot: 'about' | 'tonight', localUri
 
   let url: string;
   try {
+    console.log(`[DateToday] Starting ${slot} video upload from ${localUri.slice(0, 100)}...`);
     url = await uploadMedia(uid, localUri, `users/${uid}/videos/${slot}.mp4`, 'video/mp4');
+    console.log(`[DateToday] ${slot} video upload succeeded: ${url.slice(0, 100)}...`);
   } catch (error) {
-    console.warn(`[DateToday] ${slot} video upload failed`, error);
+    console.error(`[DateToday] ${slot} video upload failed:`, error);
     throw new Error(describeUploadError(error));
   }
 

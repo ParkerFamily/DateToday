@@ -68,18 +68,34 @@ export const useSessionStore = create<SessionState>((set) => ({
     set((s) => {
       // Same signed-in user (token refresh) — keep loaded profile.
       if (userId && userId === s.userId) return { userId, email };
-      // Sign-out or different account — drop prior profile so we never
-      // treat Auth-only / leftover session as "already set up".
+      // Sign-out — drop everything.
+      if (!userId) {
+        return {
+          ...initial,
+          userId: null,
+          email: null,
+          profileHydration: 'idle',
+        };
+      }
+      // Different account sign-in — reset state but mark as loading so
+      // AuthGate waits for hydration before routing decisions.
       return {
         ...initial,
         userId,
         email,
-        // New sign-in: AuthGate must wait until hydrate finishes.
-        profileHydration: userId ? 'loading' : 'idle',
+        profileHydration: 'loading',
       };
     }),
   setProfileHydration: (profileHydration) => set({ profileHydration }),
-  setProfile: (profile) => set({ profile }),
+  setProfile: (profile) => 
+    set((s) => {
+      // Defensive: don't clear a valid profile unless explicitly setting to null for a different user
+      if (!profile && s.profile && s.userId) {
+        console.warn('[DateToday] Attempted to clear profile while user is signed in');
+        return s;
+      }
+      return { profile };
+    }),
   setPreferences: (preferences) => set({ preferences }),
   setLiveSession: (liveSession) => set({ liveSession }),
   setEntitlements: (entitlements) => set({ entitlements }),

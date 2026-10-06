@@ -323,9 +323,23 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
 }
 export async function loadUserProfile(uid: string): Promise<SavedOnboarding | null> {
   assertFirebaseConfigured();
-  const snap = await getDoc(doc(getDb(), 'users', uid));
-  if (!snap.exists()) return null;
-  const d = snap.data();
+  console.log('[DateToday] Loading profile for user:', uid);
+  
+  try {
+    const snap = await getDoc(doc(getDb(), 'users', uid));
+    
+    if (!snap.exists()) {
+      console.log('[DateToday] No Firestore document found for user:', uid);
+      return null;
+    }
+    
+    const d = snap.data();
+    console.log('[DateToday] Loaded Firestore data:', {
+      displayName: d.displayName,
+      verificationStatus: d.verificationStatus,
+      mainPhotoUrl: d.mainPhotoUrl ? 'present' : 'missing',
+      onboardingComplete: d.onboardingComplete,
+    });
 
   const storedCompletion = (d.profileCompletion as Record<string, boolean>) ?? {};
   const dateOfBirth = typeof d.dateOfBirth === 'string' ? d.dateOfBirth : null;
@@ -417,6 +431,10 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
         d.termsVersion,
     ),
   };
+  } catch (error) {
+    console.error('[DateToday] Error loading user profile:', error);
+    return null;
+  }
 }
 
 function nowOrString(value: unknown): string {
