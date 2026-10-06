@@ -338,7 +338,15 @@ export default function LiveHomeScreen() {
       setPingResults(0, 0);
       setSheet('none');
     } catch (error) {
-      Alert.alert('Could not go live', friendlyError(error, 'Try again'));
+      const errorMessage = friendlyError(error, 'Could not go live right now');
+      Alert.alert(
+        'Could not go live',
+        errorMessage,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Try Again', onPress: () => void activateLive() },
+        ],
+      );
     } finally {
       setLoading(false);
     }
@@ -348,9 +356,12 @@ export default function LiveHomeScreen() {
     if (live || loading) return;
     if (!readyForLive) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      const missingText = missing.length > 0 
+        ? `Still needed:\n${missing.join('\n')}`
+        : 'Complete your profile first.';
       Alert.alert(
         'Finish setup to Go Live',
-        `Still needed:\n${missing.slice(0, 5).join('\n')}`,
+        missingText,
         [
           { text: 'OK', style: 'cancel' },
           { text: 'Finish profile', onPress: () => router.push('/(tabs)/profile') },
@@ -398,7 +409,15 @@ export default function LiveHomeScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       setLeaving(false);
-      Alert.alert('Could not go offline', friendlyError(error, 'Try again'));
+      const errorMessage = friendlyError(error, 'Could not go offline right now');
+      Alert.alert(
+        'Could not go offline',
+        errorMessage,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Try Again', onPress: () => void goOffline() },
+        ],
+      );
     }
   };
 

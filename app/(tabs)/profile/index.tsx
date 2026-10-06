@@ -64,6 +64,13 @@ export default function ProfileTabScreen() {
     [requirements],
   );
 
+  const missingStepsText = useMemo(() => {
+    if (openSteps.length === 0) return '';
+    if (openSteps.length === 1) return openSteps[0].label;
+    if (openSteps.length === 2) return `${openSteps[0].label} and ${openSteps[1].label}`;
+    return `${openSteps.length} more steps`;
+  }, [openSteps]);
+
   const verified = profile?.verificationStatus === 'verified';
   const verificationStatus = profile?.verificationStatus ?? 'unverified';
   const name = profile?.displayName ?? 'Your profile';
@@ -139,7 +146,9 @@ export default function ProfileTabScreen() {
           <AppText style={styles.readyNote}>
             {readyForLive
               ? 'Ready to go live tonight.'
-              : 'Finish a few steps to go live tonight.'}
+              : missingStepsText
+                ? `Still needed: ${missingStepsText}`
+                : 'Finish a few steps to go live tonight.'}
           </AppText>
         </View>
 
