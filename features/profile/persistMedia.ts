@@ -10,6 +10,21 @@ import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 
+/** Firestore writes wait for the server ack; a stalled connection must surface as an error, not a spinner. */
+const SAVE_TIMEOUT_MS = 20_000;
+
+function confirmed<T>(write: Promise<T>): Promise<T> {
+  return Promise.race([
+    write,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('Couldn’t reach the server to save it. Check your connection and try again.')),
+        SAVE_TIMEOUT_MS,
+      ),
+    ),
+  ]);
+}
+
 async function uploadMedia(
   uid: string,
   localUri: string,
@@ -54,8 +69,12 @@ export async function persistPromptVideoSlot(slot: 'about' | 'tonight', localUri
           tonightVideoUrl: url,
         };
 
-  await setDoc(doc(getDb(), 'users', uid), { ...fields, updatedAt: serverTimestamp() }, { merge: true });
-  await setDoc(doc(getDb(), 'profiles', uid), { ...fields, updatedAt: serverTimestamp() }, { merge: true });
+  await confirmed(
+    Promise.all([
+      setDoc(doc(getDb(), 'users', uid), { ...fields, updatedAt: serverTimestamp() }, { merge: true }),
+      setDoc(doc(getDb(), 'profiles', uid), { ...fields, updatedAt: serverTimestamp() }, { merge: true }),
+    ]),
+  );
   if (slot === 'about') draft.setAboutVideoUri(url);
   else draft.setTonightVideoUri(url);
 
@@ -71,8 +90,9 @@ export async function persistPromptVideoSlot(slot: 'about' | 'tonight', localUri
     });
   }
 
-  const { refreshLiveProfileFields } = await import('@/features/live/firestoreLive');
-  await refreshLiveProfileFields(fields).catch(() => undefined);
+  void import('@/features/live/firestoreLive')
+    .then(({ refreshLiveProfileFields }) => refreshLiveProfileFields(fields))
+    .catch(() => undefined);
 }
 
 /**
@@ -138,8 +158,12 @@ export async function persistPromptVideosToAccount(): Promise<void> {
     updatedAt: serverTimestamp(),
   };
 
-  await setDoc(doc(getDb(), 'users', uid), payload, { merge: true });
-  await setDoc(doc(getDb(), 'profiles', uid), payload, { merge: true });
+  await confirmed(
+    Promise.all([
+      setDoc(doc(getDb(), 'users', uid), payload, { merge: true }),
+      setDoc(doc(getDb(), 'profiles', uid), payload, { merge: true }),
+    ]),
+  );
 
   const profile = useSessionStore.getState().profile;
   if (profile) {

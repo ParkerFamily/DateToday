@@ -92,6 +92,37 @@ function blobFromUri(uri: string): Promise<Blob> {
   });
 }
 
+/** Cancel an attempt once no bytes have moved for this long, so a dead connection can't spin forever. */
+const UPLOAD_STALL_MS = 30_000;
+
+async function runUploadTask(
+  url: string,
+  fileUri: string,
+  options: FileSystem.FileSystemUploadOptions,
+): Promise<FileSystem.FileSystemUploadResult> {
+  let lastProgressAt = Date.now();
+  let stalled = false;
+  const task = FileSystem.createUploadTask(url, fileUri, options, () => {
+    lastProgressAt = Date.now();
+  });
+  const watchdog = setInterval(() => {
+    if (Date.now() - lastProgressAt < UPLOAD_STALL_MS) return;
+    stalled = true;
+    clearInterval(watchdog);
+    void task.cancelAsync().catch(() => undefined);
+  }, 2000);
+  try {
+    const result = await task.uploadAsync();
+    if (stalled || !result) throw new Error('Upload stalled (no network progress)');
+    return result;
+  } catch (error) {
+    if (stalled) throw new Error('Upload stalled (no network progress)');
+    throw error;
+  } finally {
+    clearInterval(watchdog);
+  }
+}
+
 function storageError(code: string, message: string, serverResponse?: string): Error {
   return Object.assign(new Error(message), { code, customData: { serverResponse } });
 }
@@ -119,9 +150,11 @@ async function uploadFileNative(storagePath: string, fileUri: string, contentTyp
     const last = attempt >= MAX_UPLOAD_ATTEMPTS;
     let result: FileSystem.FileSystemUploadResult;
     try {
-      result = await FileSystem.uploadAsync(url, fileUri, {
+      result = await runUploadTask(url, fileUri, {
         httpMethod: 'POST',
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        // iOS background sessions are scheduled by the OS and can sit idle indefinitely.
+        sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
         headers: {
           Authorization: `Firebase ${await user.getIdToken()}`,
           'Content-Type': contentType,
