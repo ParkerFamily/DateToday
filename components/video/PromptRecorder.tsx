@@ -5,8 +5,8 @@ import { VIDEO_DURATION } from '@/constants/videoPrompts';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { useFocusEffect, useIsFocused } from 'expo-router';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { useIsFocused } from 'expo-router';
+import { TapToPlayVideo } from '@/components/video/TapToPlayVideo';
 import * as FileSystem from 'expo-file-system/legacy';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
@@ -113,25 +113,6 @@ const Camera = memo(function Camera({
   );
 });
 
-function LoopingPreview({ uri }: { uri: string }) {
-  const player = useVideoPlayer(uri, (instance) => {
-    instance.loop = true;
-  });
-  // Screens stay mounted under the next one in the stack — only play while this one is visible.
-  useFocusEffect(
-    useCallback(() => {
-      try {
-        player.play();
-      } catch {}
-      return () => {
-        try {
-          player.pause();
-        } catch {}
-      };
-    }, [player]),
-  );
-  return <VideoView player={player} style={styles.fill} contentFit="cover" nativeControls={false} />;
-}
 
 export function PromptRecorder({
   promptText,
@@ -355,7 +336,7 @@ export function PromptRecorder({
   if (phase === 'review' && uri) {
     return (
       <View style={styles.stage}>
-        <LoopingPreview uri={uri} />
+        <TapToPlayVideo uri={uri} style={styles.fill} />
         <LinearScrim />
         <View style={styles.overlayTop}>
           <AppText style={styles.eyebrow}>{eyebrow}</AppText>

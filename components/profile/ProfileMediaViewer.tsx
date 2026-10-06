@@ -9,6 +9,7 @@ import {
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui/AppText';
+import { PlayBadge, TapToPlayVideo } from '@/components/video/TapToPlayVideo';
 import { colors, spacing } from '@/constants/theme';
 import { ScaledSheet } from '@/lib/scale';
 
@@ -22,6 +23,16 @@ export type MediaViewerItem =
       eyebrow?: string | null;
     };
 
+function Caption({ caption, eyebrow }: { caption?: string | null; eyebrow?: string | null }) {
+  if (!eyebrow && !caption) return null;
+  return (
+    <View style={styles.captionBlock} pointerEvents="none">
+      {eyebrow ? <AppText style={styles.captionEyebrow}>{eyebrow}</AppText> : null}
+      {caption ? <AppText style={styles.captionText}>“{caption}”</AppText> : null}
+    </View>
+  );
+}
+
 function CaptionedVideo({
   uri,
   caption,
@@ -31,25 +42,30 @@ function CaptionedVideo({
   caption?: string | null;
   eyebrow?: string | null;
 }) {
-  const player = useVideoPlayer(uri, (instance) => {
-    instance.loop = true;
-    instance.play();
-  });
-
   return (
     <View style={styles.mediaFill}>
-      <VideoView
-        player={player}
-        style={styles.mediaFill}
-        contentFit="cover"
-        nativeControls
-      />
-      {(eyebrow || caption) && (
-        <View style={styles.captionBlock} pointerEvents="none">
-          {eyebrow ? <AppText style={styles.captionEyebrow}>{eyebrow}</AppText> : null}
-          {caption ? <AppText style={styles.captionText}>“{caption}”</AppText> : null}
-        </View>
-      )}
+      <TapToPlayVideo uri={uri} style={styles.mediaFill} />
+      <Caption caption={caption} eyebrow={eyebrow} />
+    </View>
+  );
+}
+
+/** Paused first frame for inline tiles; tapping the tile opens the full-screen viewer. */
+function VideoPoster({
+  uri,
+  caption,
+  eyebrow,
+}: {
+  uri: string;
+  caption?: string | null;
+  eyebrow?: string | null;
+}) {
+  const player = useVideoPlayer(uri);
+  return (
+    <View style={styles.mediaFill} pointerEvents="none">
+      <VideoView player={player} style={styles.mediaFill} contentFit="cover" nativeControls={false} />
+      <PlayBadge />
+      <Caption caption={caption} eyebrow={eyebrow} />
     </View>
   );
 }
@@ -98,7 +114,7 @@ export function ProfileMediaViewer({
               <Image source={{ uri: item.uri }} style={styles.mediaFill} resizeMode="contain" />
             </View>
           ) : item?.type === 'video' ? (
-            <CaptionedVideo uri={item.uri} caption={item.caption} eyebrow={item.eyebrow} />
+            <CaptionedVideo key={item.uri} uri={item.uri} caption={item.caption} eyebrow={item.eyebrow} />
           ) : null}
         </View>
 
@@ -160,7 +176,7 @@ export function PromptVideoTile({
 
   return (
     <Pressable onPress={onPress} style={styles.tile}>
-      <CaptionedVideo uri={uri} caption={caption} eyebrow={eyebrow} />
+      <VideoPoster uri={uri} caption={caption} eyebrow={eyebrow} />
       <View style={styles.tilePlayHint}>
         <AppText style={styles.tilePlayLabel}>Preview</AppText>
       </View>
