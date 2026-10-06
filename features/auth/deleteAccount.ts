@@ -115,8 +115,9 @@ export async function reauthenticateForDeletion(password?: string): Promise<void
 }
 
 /**
- * Call Firebase Function `deleteAccount` when deployed.
- * Falls back to client deletion so in-app App Store deletion remains available.
+ * Call Firebase Function `deleteAccount`. The server is the only path that can remove matches,
+ * hearts, live cards and push tokens, so a failure is surfaced (and retried) instead of falling
+ * back to a partial client delete that leaves ghost matches behind. The server is idempotent.
  */
 export async function requestServerAccountDeletion(
   idToken: string,
@@ -128,31 +129,34 @@ export async function requestServerAccountDeletion(
   }
 
   const url = `https://us-central1-${projectId}.cloudfunctions.net/deleteAccount`;
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({ data: {} }),
-    });
-    if (!res.ok) {
-      await performAccountDeletionClient();
-      return { ok: true, mode: 'client_fallback' };
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ data: {} }),
+      });
+      if (res.ok) {
+        useOnboardingDraft.getState().reset();
+        usePrivacyControls.getState().reset();
+        analytics.track('account_deleted', { mode: 'server' });
+        const { markSignedOut } = await import('@/features/auth/api');
+        await markSignedOut();
+        await getFirebaseAuth().signOut().catch(() => undefined);
+        return { ok: true, mode: 'server' };
+      }
+      lastError = new Error(`Delete failed (${res.status})`);
+    } catch (error) {
+      lastError = error;
     }
-    useOnboardingDraft.getState().reset();
-    usePrivacyControls.getState().reset();
-    analytics.track('account_deleted', { mode: 'server' });
-    // Sign out locally; Auth user should already be deleted server-side.
-    const { markSignedOut } = await import('@/features/auth/api');
-    await markSignedOut();
-    await getFirebaseAuth().signOut().catch(() => undefined);
-    return { ok: true, mode: 'server' };
-  } catch {
-    await performAccountDeletionClient();
-    return { ok: true, mode: 'client_fallback' };
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 1500));
   }
+  console.warn('[DateToday] account deletion failed', lastError);
+  throw new Error('We couldn’t finish deleting your account. Check your connection and try again.');
 }
 
 export function getIdToken(): Promise<string> {

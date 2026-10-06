@@ -362,7 +362,10 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       if (isBackendConfigured()) {
         void registerPushTokenAsync({ prompt: true });
         const result = await sendInterest(card.userId);
-        if (result.mutual && result.matchId) {
+        if (result.mutual && result.matchId && !result.created) {
+          markHandled(card.userId);
+          router.push({ pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } });
+        } else if (result.mutual && result.matchId) {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           openMatch(card, result.matchId);
         } else {

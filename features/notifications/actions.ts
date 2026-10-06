@@ -3,10 +3,7 @@ import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import { functionsUrl } from '@/features/matches/api';
 import { dismissNotificationsForMatch } from '@/features/notifications/push';
-import { isPlusActive } from '@/lib/entitlements';
 import { getFirebaseAuth } from '@/lib/firebase/client';
-import { canMessageMatch, recordMessagedMatch } from '@/lib/usage/dailyLimits';
-import { useSessionStore } from '@/store/session';
 
 /** Must match CATEGORY_FOR_TYPE in functions/index.js. No ":" or "-" allowed in category ids. */
 export const MESSAGE_CATEGORY = 'message';
@@ -20,7 +17,14 @@ export function isNotificationAction(response: Notifications.NotificationRespons
   return response?.actionIdentifier === REPLY_ACTION || response?.actionIdentifier === MARK_READ_ACTION;
 }
 
-async function callNotificationAction(body: { matchId: string; text?: string }) {
+/** Stable id per (notification, reply text) so a retried reply can't post twice. */
+function replyMessageId(notificationId: string, text: string): string {
+  let h = 5381;
+  for (const ch of `${notificationId}|${text}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0;
+  return `nr_${notificationId.replace(/[^A-Za-z0-9]/g, '').slice(-24)}_${h.toString(36)}`;
+}
+
+async function callNotificationAction(body: { matchId: string; text?: string; clientMessageId?: string }) {
   const auth = getFirebaseAuth();
   await auth.authStateReady();
   const user = auth.currentUser;
@@ -40,9 +44,8 @@ async function notifyReplyProblem(matchId: string, title: string, body: string) 
       title,
       body,
       data: { type: 'message', matchId, url: `/chat/${matchId}` },
-      ...(Platform.OS === 'android' ? { channelId: 'messages' } : {}),
     },
-    trigger: null,
+    trigger: Platform.OS === 'android' ? { channelId: 'messages' } : null,
   }).catch(() => undefined);
 }
 
@@ -58,7 +61,7 @@ function releaseBackgroundTime() {
 /** Handles Reply / Mark as read without opening the app. Returns true if the response was an action. */
 export async function handleNotificationAction(response: Notifications.NotificationResponse) {
   if (!isNotificationAction(response)) return false;
-  const key = `${response.notification.request.identifier}:${response.actionIdentifier}`;
+  const key = `${response.notification.request.identifier}:${response.actionIdentifier}:${response.userText ?? ''}`;
   if (handled.has(key)) return true;
   handled.add(key);
   try {
@@ -76,22 +79,16 @@ async function performNotificationAction(response: Notifications.NotificationRes
   const text = response.actionIdentifier === REPLY_ACTION ? (response.userText ?? '').trim() : '';
   if (response.actionIdentifier === REPLY_ACTION && !text) return;
 
+  // A reply answers their message, so it's never limited by the free daily allowance.
   try {
-    const entitlements = useSessionStore.getState().entitlements;
-    if (text) {
-      const gate = await canMessageMatch(entitlements, matchId);
-      if (!gate.ok) {
-        await dismissNotificationsForMatch(matchId);
-        await notifyReplyProblem(
-          matchId,
-          'Reply not sent',
-          'Free includes chatting with 1 person a day. Tap to message them with DateToday+.',
-        );
-        return;
-      }
+    const body = text.slice(0, 2000);
+    const clientMessageId = body ? replyMessageId(response.notification.request.identifier, body) : undefined;
+    try {
+      await callNotificationAction({ matchId, text: body || undefined, clientMessageId });
+    } catch {
+      await new Promise((r) => setTimeout(r, 1500));
+      await callNotificationAction({ matchId, text: body || undefined, clientMessageId });
     }
-    await callNotificationAction({ matchId, text: text.slice(0, 2000) || undefined });
-    if (text && !isPlusActive(entitlements)) await recordMessagedMatch(matchId);
     await dismissNotificationsForMatch(matchId);
   } catch {
     await dismissNotificationsForMatch(matchId);

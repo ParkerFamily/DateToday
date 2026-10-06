@@ -28,6 +28,17 @@ export function setActiveChat(matchId: string | null) {
   activeChatMatchId = matchId;
 }
 
+/** Only clear if it's still ours; switching chats can run the old screen's cleanup after the new one's focus. */
+export function clearActiveChat(matchId: string) {
+  if (activeChatMatchId === matchId) activeChatMatchId = null;
+}
+
+/** App icon badge = unread chats. Silently no-ops where badges aren't supported. */
+export function syncAppBadge(count: number) {
+  if (Platform.OS === 'web') return;
+  void Notifications.setBadgeCountAsync(Math.max(0, count)).catch(() => undefined);
+}
+
 export function configureNotificationHandler() {
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {

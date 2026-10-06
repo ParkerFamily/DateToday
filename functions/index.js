@@ -101,35 +101,36 @@ async function deletePrefix(bucket, prefix) {
   await Promise.all(files.map((f) => f.delete().catch(() => undefined)));
 }
 
+/** BulkWriter has no 500-write batch cap, so a popular account's likes can't break deletion. */
 async function deleteByField(db, collectionName, field, uid) {
   const snap = await db.collection(collectionName).where(field, '==', uid).get();
   if (snap.empty) return;
-  const batch = db.batch();
-  snap.docs.forEach((d) => batch.delete(d.ref));
-  await batch.commit();
+  const writer = db.bulkWriter();
+  snap.docs.forEach((d) => writer.delete(d.ref));
+  await writer.close();
 }
 
 async function anonymizeReports(db, uid) {
   const asReporter = await db.collection('reports').where('reporterId', '==', uid).get();
   const asReported = await db.collection('reports').where('reportedId', '==', uid).get();
   if (asReporter.empty && asReported.empty) return;
-  const batch = db.batch();
+  const writer = db.bulkWriter();
   asReporter.docs.forEach((d) =>
-    batch.update(d.ref, {
+    writer.update(d.ref, {
       reporterId: 'deleted_user',
       anonymizedAt: new Date().toISOString(),
     }),
   );
   asReported.docs.forEach((d) =>
-    batch.update(d.ref, {
+    writer.update(d.ref, {
       reportedId: 'deleted_user',
       anonymizedAt: new Date().toISOString(),
     }),
   );
-  await batch.commit();
+  await writer.close();
 }
 
-exports.deleteAccount = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
+exports.deleteAccount = onRequest({ cors: true, invoker: 'public', timeoutSeconds: 540, memory: '512MiB' }, async (req, res) => {
   try {
     if (req.method !== 'POST') {
       res.status(405).send('Method not allowed');
@@ -146,37 +147,49 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public' }, async (req,
     const uid = decoded.uid;
     const db = getFirestore();
     const bucket = getStorage().bucket();
+    const gone = (p) => p.catch(() => undefined);
 
-    await deletePrefix(bucket, `users/${uid}/`);
-    await deleteByField(db, 'blocks', 'blockerId', uid);
-    await deleteByField(db, 'blocks', 'blockedId', uid);
-    await db.collection('hiddenUsers').doc(uid).delete().catch(() => undefined);
-    const hiddenBy = await db.collection('hiddenUsers').where('uids', 'array-contains', uid).get();
-    await Promise.all(
-      hiddenBy.docs.map((d) => d.ref.update({ uids: FieldValue.arrayRemove(uid) })),
-    );
-    await anonymizeReports(db, uid);
+    // Pull every public surface first, so a failure partway through never leaves a discoverable
+    // account. Every step is idempotent; a retry with the same session finishes the job.
+    await Promise.all([
+      gone(db.collection('profiles').doc(uid).delete()),
+      gone(db.collection('liveSessions').doc(uid).delete()),
+      gone(db.collection('nearbyProfiles').doc(uid).delete()),
+    ]);
     await deleteByField(db, 'pushTokens', 'uid', uid);
     await deleteByField(db, 'pushTickets', 'uid', uid);
-    await db.collection('notificationPrefs').doc(uid).delete().catch(() => undefined);
-    await db.collection('promoLog').doc(uid).delete().catch(() => undefined);
+
+    const matches = await db.collection('matches').where('userIds', 'array-contains', uid).get();
+    for (const d of matches.docs) await db.recursiveDelete(d.ref);
     await deleteByField(db, 'interests', 'fromUid', uid);
     await deleteByField(db, 'interests', 'toUid', uid);
-    const matches = await db.collection('matches').where('userIds', 'array-contains', uid).get();
-    await Promise.all(matches.docs.map((d) => db.recursiveDelete(d.ref)));
     const compat = await db.collection('compatibility').where('userIds', 'array-contains', uid).get();
     await Promise.all(compat.docs.map((d) => d.ref.delete()));
-    await db.collection('liveSessions').doc(uid).delete().catch(() => undefined);
-    await db.collection('users').doc(uid).delete().catch(() => undefined);
-    await db.collection('profiles').doc(uid).delete().catch(() => undefined);
-    await db.collection('userStats').doc(uid).delete().catch(() => undefined);
-    await db.collection('nearbyProfiles').doc(uid).delete().catch(() => undefined);
+
+    await deletePrefix(bucket, `users/${uid}/`);
+    await anonymizeReports(db, uid);
+    await Promise.all(
+      ['notificationPrefs', 'promoLog', 'userStats', 'emailOtps', 'users'].map((c) =>
+        gone(db.collection(c).doc(uid).delete()),
+      ),
+    );
+
+    // Blocks go last: removing them earlier would make a half-deleted account visible again
+    // to everyone who blocked it.
+    await deleteByField(db, 'blocks', 'blockerId', uid);
+    await deleteByField(db, 'blocks', 'blockedId', uid);
+    await gone(db.collection('hiddenUsers').doc(uid).delete());
+    const hiddenBy = await db.collection('hiddenUsers').where('uids', 'array-contains', uid).get();
+    await Promise.all(hiddenBy.docs.map((d) => d.ref.update({ uids: FieldValue.arrayRemove(uid) })));
+
     await db.collection('deleted_users').doc(uid).set({
       uid,
       deletedAt: new Date().toISOString(),
       deletionSource: 'cloud_function',
     });
-    await getAuth().deleteUser(uid);
+    await getAuth().deleteUser(uid).catch((e) => {
+      if (!e || e.code !== 'auth/user-not-found') throw e;
+    });
 
     res.json({ result: { ok: true } });
   } catch (error) {
@@ -683,7 +696,49 @@ async function sendExpoMessages(db, uid, type, entries) {
  * unless they turned that type off. Never throws — a failed push must not
  * fail the user action that caused it.
  */
-async function pushToUser(db, uid, { title, body, data }, options = {}) {
+/** Seconds a push may wait for an offline phone. Chat must survive a phone that's off overnight. */
+const TTL_FOR_TYPE = {
+  message: 7 * 24 * 60 * 60,
+  match: 7 * 24 * 60 * 60,
+  date_proposal: 7 * 24 * 60 * 60,
+  date_accepted: 7 * 24 * 60 * 60,
+  date_declined: 7 * 24 * 60 * 60,
+  interest: 2 * 24 * 60 * 60,
+};
+const DEFAULT_TTL = 12 * 60 * 60;
+
+/** Sum of unread chats for the app icon badge. */
+async function unreadTotal(db, uid) {
+  try {
+    const snap = await db.collection('matches').where('userIds', 'array-contains', uid).select('unread').get();
+    return snap.docs.reduce((sum, d) => sum + Math.max(0, Number((d.get('unread') || {})[uid]) || 0), 0);
+  } catch (e) {
+    console.warn('unreadTotal failed', uid, e && e.message);
+    return null;
+  }
+}
+
+async function isHiddenFrom(db, uid, otherUid) {
+  const snap = await db.collection('hiddenUsers').doc(uid).get();
+  return snap.exists && (snap.get('uids') || []).includes(otherUid);
+}
+
+/**
+ * Firestore triggers are at-least-once; a duplicate delivery must not double-count unread or
+ * re-send a push. Read the marker with the transaction's other reads, then call markEvent.
+ */
+function eventMarker(db, eventId) {
+  return db.collection('processedEvents').doc(eventId);
+}
+
+function markEvent(tx, ref) {
+  tx.create(ref, {
+    at: FieldValue.serverTimestamp(),
+    expireAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  });
+}
+
+async function pushToUser(db, uid, { title, body, data, badge }, options = {}) {
   const type = (data && data.type) || 'system';
   try {
     const prefKey = PREF_FOR_TYPE[type];
@@ -712,8 +767,8 @@ async function pushToUser(db, uid, { title, body, data }, options = {}) {
         channelId: CHANNEL_FOR_TYPE[type] || 'system',
         ...(CATEGORY_FOR_TYPE[type] ? { categoryId: CATEGORY_FOR_TYPE[type] } : {}),
         priority: 'high',
-        // "Tonight" notifications are useless days later.
-        ttl: 12 * 60 * 60,
+        ttl: TTL_FOR_TYPE[type] || DEFAULT_TTL,
+        ...(typeof badge === 'number' && badge >= 0 ? { badge } : {}),
       },
     }));
 
@@ -768,11 +823,17 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
     ]);
 
     const outcome = await db.runTransaction(async (tx) => {
-      const [existing, reverse, match] = await Promise.all([
+      const [existing, reverse, match, blockMine, blockTheirs, unmatched] = await Promise.all([
         tx.get(interestRef),
         tx.get(reverseRef),
         tx.get(matchRef),
+        tx.get(db.collection('blocks').doc(`${fromUid}_${toUid}`)),
+        tx.get(db.collection('blocks').doc(`${toUid}_${fromUid}`)),
+        tx.get(db.collection('unmatches').doc(matchId)),
       ]);
+      if (blockMine.exists || blockTheirs.exists || unmatched.exists) {
+        throw Object.assign(new Error('You can’t interact with this person.'), { status: 403 });
+      }
       if (!existing.exists) {
         tx.set(interestRef, {
           fromUid,
@@ -814,6 +875,7 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
 
     res.json({
       mutual: outcome.mutual,
+      created: outcome.createdMatch,
       matchId: outcome.mutual ? matchId : null,
       other: outcome.mutual ? { uid: toUid, ...them } : null,
     });
@@ -931,9 +993,12 @@ exports.blockUser = onRequest({ cors: true }, async (req, res) => {
     );
     batch.delete(db.collection('interests').doc(`${uid}_${targetUid}`));
     batch.delete(db.collection('interests').doc(`${targetUid}_${uid}`));
+    // Deleting the match doc with the block makes the rules' membership check fail immediately,
+    // so no message can slip through while the subcollections are being removed.
+    batch.delete(matchRef);
     await batch.commit();
 
-    await db.recursiveDelete(matchRef);
+    await db.recursiveDelete(matchRef).catch((e) => console.warn('block: message cleanup failed', matchId, e && e.message));
 
     res.json({ ok: true, matchId });
   } catch (error) {
@@ -990,6 +1055,86 @@ exports.unblockUser = onRequest({ cors: true }, async (req, res) => {
       error: error instanceof Error ? error.message : 'Could not unblock.',
     });
   }
+});
+
+/**
+ * Unmatch: ends the match for both people without a block. Deletes the chat and both hearts,
+ * hides them from each other, and sendInterest refuses the pair so they can't rematch.
+ * The other person isn't notified. Body: { matchId }
+ */
+exports.unmatchUser = onRequest({ cors: true }, async (req, res) => {
+  try {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    const decoded = await requireUser(req);
+    const uid = decoded.uid;
+    const matchId = typeof req.body?.matchId === 'string' ? req.body.matchId.trim() : '';
+    if (!matchId || matchId.includes('/')) {
+      res.status(400).json({ error: 'Invalid match.' });
+      return;
+    }
+
+    const db = getFirestore();
+    const matchRef = db.collection('matches').doc(matchId);
+    const matchSnap = await matchRef.get();
+    const userIds = matchSnap.exists ? matchSnap.data().userIds || [] : [];
+    if (!userIds.includes(uid)) {
+      // Already gone (or never theirs) — treat as done so retries are harmless.
+      res.json({ ok: true, matchId });
+      return;
+    }
+    const otherUid = userIds.find((u) => u !== uid);
+
+    const batch = db.batch();
+    batch.set(db.collection('unmatches').doc(matchId), {
+      userIds,
+      by: uid,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    if (otherUid) {
+      batch.delete(db.collection('interests').doc(`${uid}_${otherUid}`));
+      batch.delete(db.collection('interests').doc(`${otherUid}_${uid}`));
+      batch.set(
+        db.collection('hiddenUsers').doc(uid),
+        { uids: FieldValue.arrayUnion(otherUid), updatedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      );
+      batch.set(
+        db.collection('hiddenUsers').doc(otherUid),
+        { uids: FieldValue.arrayUnion(uid), updatedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      );
+    }
+    batch.delete(matchRef);
+    await batch.commit();
+
+    await db.recursiveDelete(matchRef).catch((e) => console.warn('unmatch: message cleanup failed', matchId, e && e.message));
+    res.json({ ok: true, matchId });
+  } catch (error) {
+    console.error(error);
+    res.status(error.status || 500).json({ error: 'Couldn’t unmatch. Try again.' });
+  }
+});
+
+/** Keep the name/photo cached on each match (inbox, chat header, push titles) in sync with the profile. */
+exports.onProfileCardChanged = onDocumentUpdated('profiles/{uid}', async (event) => {
+  const before = event.data && event.data.before.data();
+  const after = event.data && event.data.after.data();
+  if (!before || !after) return;
+  if (before.displayName === after.displayName && before.mainPhotoUrl === after.mainPhotoUrl) return;
+  const { uid } = event.params;
+  const db = getFirestore();
+  const matches = await db.collection('matches').where('userIds', 'array-contains', uid).get();
+  if (matches.empty) return;
+  const writer = db.bulkWriter();
+  const card = {
+    displayName: after.displayName || 'Someone',
+    mainPhotoUrl: after.mainPhotoUrl || null,
+  };
+  matches.docs.forEach((d) => writer.update(d.ref, { [`users.${uid}`]: card }));
+  await writer.close();
 });
 
 const PROMO_CAP_MS = 20 * 60 * 60 * 1000;
@@ -1102,14 +1247,23 @@ exports.notificationAction = onRequest({ cors: true }, async (req, res) => {
       res.status(404).json({ error: 'This chat is no longer available.' });
       return;
     }
+    const otherUid = (matchSnap.data().userIds || []).find((u) => u !== uid);
+    if (text && otherUid && (await isHiddenFrom(db, uid, otherUid))) {
+      res.status(404).json({ error: 'This chat is no longer available.' });
+      return;
+    }
 
     if (text) {
-      await matchRef.collection('messages').add({
-        senderId: uid,
-        type: 'text',
-        text,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      const payload = { senderId: uid, type: 'text', text, createdAt: FieldValue.serverTimestamp() };
+      const clientId = typeof req.body?.clientMessageId === 'string' ? req.body.clientMessageId : '';
+      if (/^[A-Za-z0-9_-]{8,64}$/.test(clientId)) {
+        // A retried reply (lost response) must not post twice.
+        await matchRef.collection('messages').doc(clientId).create(payload).catch((e) => {
+          if (e && e.code !== 6) throw e;
+        });
+      } else {
+        await matchRef.collection('messages').add(payload);
+      }
     }
 
     const receiptsOn = userSnap.exists
@@ -1204,39 +1358,57 @@ exports.onMatchMessageCreated = onDocumentCreated(
     const { matchId, messageId } = event.params;
     const db = getFirestore();
     const matchRef = db.collection('matches').doc(matchId);
-    const matchSnap = await matchRef.get();
-    if (!matchSnap.exists) return;
-    const match = matchSnap.data();
     const senderId = msg.senderId;
-    const otherId = (match.userIds || []).find((u) => u !== senderId);
-    if (!otherId) return;
-
     const isProposal = msg.type === 'date_proposal';
-    const preview = isProposal
+    const preview = (isProposal
       ? `Date idea: ${proposalSummary(msg.proposal)}`
-      : String(msg.text || '').slice(0, 140);
+      : String(msg.text || '')
+    ).slice(0, 140);
+    const sentAt = msg.createdAt && msg.createdAt.toMillis ? msg.createdAt : Timestamp.now();
 
-    await matchRef.update({
-      lastMessage: { text: preview, senderId, type: msg.type || 'text', messageId },
-      lastActivityAt: FieldValue.serverTimestamp(),
-      [`unread.${otherId}`]: FieldValue.increment(1),
+    const outcome = await db.runTransaction(async (tx) => {
+      const marker = eventMarker(db, event.id);
+      const [markSnap, matchSnap] = await Promise.all([tx.get(marker), tx.get(matchRef)]);
+      if (markSnap.exists || !matchSnap.exists) return null;
+      const match = matchSnap.data();
+      const otherId = (match.userIds || []).find((u) => u !== senderId);
+      if (!otherId || !(match.userIds || []).includes(senderId)) return null;
+
+      // Triggers can run out of order; never let an older message replace a newer preview.
+      const current = match.lastMessage;
+      const currentMs = current && current.createdAt && current.createdAt.toMillis ? current.createdAt.toMillis() : 0;
+      const update = { [`unread.${otherId}`]: FieldValue.increment(1) };
+      if (sentAt.toMillis() >= currentMs) {
+        update.lastMessage = { text: preview, senderId, type: msg.type || 'text', messageId, createdAt: sentAt };
+        update.lastActivityAt = sentAt;
+      }
+      markEvent(tx, marker);
+      tx.update(matchRef, update);
+      return { match, otherId };
     });
+    if (!outcome) return;
+    const { match, otherId } = outcome;
 
     await recordReplySpeed(db, matchRef, messageId, msg, otherId).catch((e) =>
       console.warn('recordReplySpeed failed', e && e.message),
     );
 
+    if (await isHiddenFrom(db, otherId, senderId)) return;
+
     const senderName = match.users?.[senderId]?.displayName || 'Your match';
+    const badge = await unreadTotal(db, otherId);
     await pushToUser(db, otherId, isProposal
       ? {
           title: `${senderName} wants to plan a date`,
-          body: proposalSummary(msg.proposal),
+          body: proposalSummary(msg.proposal).slice(0, 140),
           data: { type: 'date_proposal', matchId, url: `/chat/${matchId}` },
+          badge,
         }
       : {
           title: senderName,
           body: preview,
           data: { type: 'message', matchId, url: `/chat/${matchId}` },
+          badge,
         });
   },
 );
@@ -1254,35 +1426,41 @@ exports.onMatchMessageUpdated = onDocumentUpdated(
     const { matchId, messageId } = event.params;
     const db = getFirestore();
     const matchRef = db.collection('matches').doc(matchId);
-    const matchSnap = await matchRef.get();
-    if (!matchSnap.exists) return;
-    const match = matchSnap.data();
     const proposerId = after.senderId;
     const responderId = after.respondedBy;
-    const responderName = match.users?.[responderId]?.displayName || 'Your match';
-    const summary = proposalSummary(after.proposal);
+    const summary = proposalSummary(after.proposal).slice(0, 140);
     const accepted = after.status === 'accepted';
 
-    await matchRef.update({
-      lastMessage: {
-        text: accepted ? `It’s a date: ${summary}` : 'Date idea declined',
-        senderId: responderId,
-        type: 'date_response',
-        messageId,
-      },
-      lastActivityAt: FieldValue.serverTimestamp(),
-      [`unread.${proposerId}`]: FieldValue.increment(1),
-      ...(accepted
-        ? {
-            nextDate: {
-              ...after.proposal,
-              messageId,
-              proposerId,
-              acceptedAt: FieldValue.serverTimestamp(),
-            },
-          }
-        : {}),
+    const match = await db.runTransaction(async (tx) => {
+      const marker = eventMarker(db, event.id);
+      const [markSnap, matchSnap] = await Promise.all([tx.get(marker), tx.get(matchRef)]);
+      if (markSnap.exists || !matchSnap.exists) return null;
+      markEvent(tx, marker);
+      tx.update(matchRef, {
+        lastMessage: {
+          text: accepted ? `It’s a date: ${summary}` : 'Date idea declined',
+          senderId: responderId,
+          type: 'date_response',
+          messageId,
+          createdAt: Timestamp.now(),
+        },
+        lastActivityAt: FieldValue.serverTimestamp(),
+        [`unread.${proposerId}`]: FieldValue.increment(1),
+        ...(accepted
+          ? {
+              nextDate: {
+                ...after.proposal,
+                messageId,
+                proposerId,
+                acceptedAt: FieldValue.serverTimestamp(),
+              },
+            }
+          : {}),
+      });
+      return matchSnap.data();
     });
+    if (!match) return;
+    const responderName = match.users?.[responderId]?.displayName || 'Your match';
 
     if (accepted) {
       const stamp = { lastPlanAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() };
@@ -1297,6 +1475,7 @@ exports.onMatchMessageUpdated = onDocumentUpdated(
       title: accepted ? `${responderName} said yes!` : `${responderName} passed on that plan`,
       body: accepted ? `It’s a date: ${summary}` : 'Suggest another time or place in the chat.',
       data: { type: accepted ? 'date_accepted' : 'date_declined', matchId, url: `/chat/${matchId}` },
+      badge: await unreadTotal(db, proposerId),
     });
   },
 );

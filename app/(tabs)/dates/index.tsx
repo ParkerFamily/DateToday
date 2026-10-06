@@ -9,7 +9,7 @@ import { useMatchesStore, useVisibleMatches } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TypingDots } from '@/components/chat/TypingDots';
@@ -28,11 +28,24 @@ function timeAgo(date: Date | null): string {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+/** Only the top few rows keep a live typing listener; each one is a Firestore subscription. */
+const LIVE_TYPING_ROWS = 8;
+/** A date stays "upcoming" until a few hours after it starts. */
+const DATE_GRACE_MS = 6 * 60 * 60 * 1000;
+
+function isUpcomingDate(match: MatchDoc, now: number): boolean {
+  if (!match.nextDate) return false;
+  const starts = match.nextDate.startsAt ? Date.parse(match.nextDate.startsAt) : NaN;
+  return !Number.isFinite(starts) || starts > now - DATE_GRACE_MS;
+}
+
 function Avatar({ uri, size: sizeProp }: { uri: string | null | undefined; size: number }) {
   const size = rs(sizeProp);
   const style = { width: size, height: size, borderRadius: size / 2 };
-  return uri ? (
-    <Image source={{ uri }} style={[styles.avatar, style]} />
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [uri]);
+  return uri && !broken ? (
+    <Image source={{ uri }} style={[styles.avatar, style]} onError={() => setBroken(true)} />
   ) : (
     <View style={[styles.avatar, styles.avatarEmpty, style]}>
       <Ionicons name="person" size={size * 0.45} color={colors.textSecondary} />
@@ -40,10 +53,10 @@ function Avatar({ uri, size: sizeProp }: { uri: string | null | undefined; size:
   );
 }
 
-function NewMatchItem({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
+function NewMatchItem({ match, uid, live, onPress }: { match: MatchDoc; uid: string; live: boolean; onPress: () => void }) {
   const theirId = otherUserId(match, uid);
   const other = match.users[theirId];
-  const { typing } = useTheirChatState(match.id, theirId);
+  const { typing } = useTheirChatState(match.id, live ? theirId : '');
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.newItem, pressed && styles.pressed]}>
       <View style={styles.newRing}>
@@ -70,10 +83,11 @@ function TypingLine() {
   );
 }
 
-function DateRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
+function DateRow({ match, uid, live, onPress }: { match: MatchDoc; uid: string; live: boolean; onPress: () => void }) {
   const theirId = otherUserId(match, uid);
   const other = match.users[theirId];
-  const { typing } = useTheirChatState(match.id, theirId);
+  const { typing } = useTheirChatState(match.id, live ? theirId : '');
+  const unread = match.unread[uid] ?? 0;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.dateCard, pressed && styles.pressed]}>
       <Avatar uri={other?.mainPhotoUrl} size={52} />
@@ -88,17 +102,24 @@ function DateRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPres
           </AppText>
         )}
       </View>
-      <Ionicons name="chevron-forward" size={rs(18)} color={colors.textSecondary} />
+      {unread > 0 ? (
+        <View style={styles.unread}>
+          <AppText style={styles.unreadText}>{unread > 99 ? '99+' : unread}</AppText>
+        </View>
+      ) : (
+        <Ionicons name="chevron-forward" size={rs(18)} color={colors.textSecondary} />
+      )}
     </Pressable>
   );
 }
 
-function ThreadRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPress: () => void }) {
+function ThreadRow({ match, uid, live, onPress }: { match: MatchDoc; uid: string; live: boolean; onPress: () => void }) {
   const theirId = otherUserId(match, uid);
   const other = match.users[theirId];
-  const { typing } = useTheirChatState(match.id, theirId);
+  const { typing } = useTheirChatState(match.id, live ? theirId : '');
   const unread = match.unread[uid] ?? 0;
   const mine = match.lastMessage?.senderId === uid;
+  const yourTurn = !mine && unread === 0 && Boolean(match.lastMessage);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.thread, pressed && styles.pressed]}>
       <Avatar uri={other?.mainPhotoUrl} size={56} />
@@ -116,13 +137,17 @@ function ThreadRow({ match, uid, onPress }: { match: MatchDoc; uid: string; onPr
             </View>
           ) : (
             <AppText style={[styles.preview, unread > 0 && styles.previewUnread]} numberOfLines={1}>
-              {mine && match.lastMessage?.type === 'text' ? 'You: ' : ''}
+              {mine ? 'You: ' : ''}
               {match.lastMessage?.text}
             </AppText>
           )}
           {unread > 0 ? (
             <View style={styles.unread}>
               <AppText style={styles.unreadText}>{unread > 99 ? '99+' : unread}</AppText>
+            </View>
+          ) : yourTurn ? (
+            <View style={styles.yourTurn}>
+              <AppText style={styles.yourTurnText}>Your turn</AppText>
             </View>
           ) : null}
         </View>
@@ -147,9 +172,11 @@ export default function MatchesScreen() {
   const openChat = (matchId: string) => router.push(`/chat/${matchId}`);
 
   const rows = useMemo<Row[]>(() => {
-    const withDate = matches.filter((m) => m.nextDate);
-    const fresh = matches.filter((m) => !m.lastMessage);
-    const threads = matches.filter((m) => m.lastMessage);
+    const now = Date.now();
+    const withDate = matches.filter((m) => isUpcomingDate(m, now));
+    const dated = new Set(withDate.map((m) => m.id));
+    const fresh = matches.filter((m) => !m.lastMessage && !dated.has(m.id));
+    const threads = matches.filter((m) => m.lastMessage && !dated.has(m.id));
     const out: Row[] = [];
     if (withDate.length) {
       out.push({ type: 'section', key: 's-dates', title: 'UPCOMING DATES' });
@@ -207,7 +234,12 @@ export default function MatchesScreen() {
             keyExtractor={(row) => row.key}
             contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 8) + 24 }}
             showsVerticalScrollIndicator={false}
-            renderItem={({ item: row }) => {
+            ListHeaderComponent={
+              error ? (
+                <AppText style={styles.reconnecting}>Reconnecting… new messages will appear in a moment.</AppText>
+              ) : null
+            }
+            renderItem={({ item: row, index }) => {
               if (row.type === 'section') return <BlockLabel>{row.title}</BlockLabel>;
 
               if (row.type === 'new') {
@@ -217,18 +249,25 @@ export default function MatchesScreen() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.newRow}
                   >
-                    {row.matches.map((m) => (
-                      <NewMatchItem key={m.id} match={m} uid={uid} onPress={() => openChat(m.id)} />
+                    {row.matches.map((m, i) => (
+                      <NewMatchItem
+                        key={m.id}
+                        match={m}
+                        uid={uid}
+                        live={i < LIVE_TYPING_ROWS}
+                        onPress={() => openChat(m.id)}
+                      />
                     ))}
                   </ScrollView>
                 );
               }
 
               const m = row.match;
+              const live = index < LIVE_TYPING_ROWS + 3;
               if (row.type === 'date') {
-                return <DateRow match={m} uid={uid} onPress={() => openChat(m.id)} />;
+                return <DateRow match={m} uid={uid} live={live} onPress={() => openChat(m.id)} />;
               }
-              return <ThreadRow match={m} uid={uid} onPress={() => openChat(m.id)} />;
+              return <ThreadRow match={m} uid={uid} live={live} onPress={() => openChat(m.id)} />;
             }}
           />
         )}
@@ -337,4 +376,15 @@ const styles = ScaledSheet.create({
     backgroundColor: colors.brandBright,
   },
   unreadText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  yourTurn: {
+    paddingHorizontal: 8,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.brandBright,
+  },
+  yourTurnText: { color: colors.brandBright, fontSize: 11, fontWeight: '800' },
+  reconnecting: { color: colors.textSecondary, fontSize: 12, textAlign: 'center', marginBottom: spacing.sm },
 });

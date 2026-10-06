@@ -5,7 +5,7 @@ import {
   type Auth,
   type Persistence,
 } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, type Firestore } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
@@ -91,7 +91,19 @@ export function getFirebaseAuth(): Auth {
 }
 
 export function getDb(): Firestore {
-  if (!db) db = getFirestore(getFirebaseApp());
+  if (db) return db;
+  const firebaseApp = getFirebaseApp();
+  try {
+    // RN's XHR doesn't stream reliably (esp. Android), so the default WebChannel stream can stall:
+    // listeners stop updating and writes sit in the local queue, never reaching the server.
+    db = initializeFirestore(
+      firebaseApp,
+      Platform.OS === 'web' ? {} : { experimentalForceLongPolling: true },
+    );
+  } catch {
+    // Already initialized (Fast Refresh / hot reload)
+    db = getFirestore(firebaseApp);
+  }
   return db;
 }
 

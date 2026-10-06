@@ -154,14 +154,14 @@ export async function refreshBlockedUsers(): Promise<void> {
 }
 
 /** Keeps the store's hidden set in sync: people I blocked + people who blocked me. */
-export function subscribeHiddenUsers(uid: string) {
+export function subscribeHiddenUsers(uid: string, onError?: (error: Error) => void) {
   return onSnapshot(
     doc(getDb(), 'hiddenUsers', uid),
     (snap) => {
       const uids = snap.data()?.uids;
       useBlocksStore.getState().setHidden(Array.isArray(uids) ? uids.map(String) : []);
     },
-    () => undefined,
+    (error) => onError?.(error),
   );
 }
 

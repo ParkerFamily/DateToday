@@ -37,10 +37,11 @@ const MIN_PROBLEM_DETAILS = 20;
 
 export default function ReportScreen() {
   const router = useRouter();
-  const { userId, name, block } = useLocalSearchParams<{
+  const { userId, name, block, matchId } = useLocalSearchParams<{
     userId?: string;
     name?: string;
     block?: string;
+    matchId?: string;
   }>();
   const blockFirst = block === '1';
   const [reason, setReason] = useState<string[]>([]);
@@ -83,6 +84,7 @@ export default function ReportScreen() {
         details,
         alsoBlock: alsoBlock && reportedId !== APP_PROBLEM_ID,
         displayName,
+        ...(typeof matchId === 'string' && matchId ? { matchId, contentType: 'message' as const } : {}),
       });
       Alert.alert(
         'Thanks',

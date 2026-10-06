@@ -105,12 +105,12 @@ const validActivationBody = (overrides = {}) => ({
   ...overrides,
 });
 
-test('activation rejects forged coordinates, unsupported radii, and sessions over three hours', () => {
+test('activation rejects forged coordinates, unsupported radii, and sessions over the maximum length', () => {
   assert.match(validActivationInput({ ...validActivationBody(), latitude: 91 }, NOW).error, /latitude/i);
   assert.match(validActivationInput(validActivationBody({ radiusMiles: 7 }), NOW).error, /radius/i);
   assert.match(validActivationInput(validActivationBody({
     expiresAt: new Date(NOW + MAX_SESSION_MS + 1).toISOString(),
-  }), NOW).error, /three hours/i);
+  }), NOW).error, /later tonight/i);
 });
 
 test('only Admin-issued activations can be used as location beacons', () => {

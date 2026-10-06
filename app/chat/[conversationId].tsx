@@ -27,7 +27,7 @@ import { confirmBlockAndReport } from '@/features/safety/blockFlow';
 import { canStartPlan } from '@/features/live/planGate';
 import { useBlocksStore } from '@/store/blocks';
 import { usePrivacyControls } from '@/store/privacyControls';
-import { canMessageMatch, recordMessagedMatch } from '@/lib/usage/dailyLimits';
+import { canMessageMatch, isOngoingConversation, recordMessagedMatch } from '@/lib/usage/dailyLimits';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { isPlusActive } from '@/lib/entitlements';
 import {
@@ -35,24 +35,48 @@ import {
   otherUserId,
   proposalSummary,
   respondToDate,
-  sendMatchMessage,
   setTyping,
   subscribeMatch,
   subscribeMessages,
+  unmatch,
   type MatchDoc,
   type MatchMessage,
 } from '@/features/matches/api';
+import {
+  flushOutbox,
+  removeFromOutbox,
+  retryOutboxMessage,
+  sendTextMessage,
+  useOutbox,
+} from '@/features/matches/outbox';
 import { useTheirChatState } from '@/features/matches/useTheirChatState';
 import { TypingDots } from '@/components/chat/TypingDots';
-import { dismissNotificationsForMatch, setActiveChat } from '@/features/notifications/push';
+import { clearActiveChat, dismissNotificationsForMatch, setActiveChat } from '@/features/notifications/push';
 import { ScaledSheet, rs } from '@/lib/scale';
 
 type ListItem =
   | { kind: 'message'; message: MatchMessage }
+  | { kind: 'separator'; id: string; label: string }
   | { kind: 'nudge'; id: string };
 
-function markRead(matchId: string) {
-  return markMatchRead(matchId, usePrivacyControls.getState().readReceipts);
+/** A time header starts a new day or follows a gap of an hour or more. */
+const SEPARATOR_GAP_MS = 60 * 60 * 1000;
+
+function separatorLabel(at: Date, now = new Date()): string {
+  const time = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const day = new Date(at);
+  day.setHours(0, 0, 0, 0);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((today.getTime() - day.getTime()) / 86400000);
+  if (days <= 0) return `Today ${time}`;
+  if (days === 1) return `Yesterday ${time}`;
+  if (days < 7) return `${at.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+  return `${at.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
+}
+
+function markRead(matchId: string, clearUnread = true) {
+  return markMatchRead(matchId, usePrivacyControls.getState().readReceipts, clearUnread);
 }
 
 const TYPING_PING_MS = 3000;
@@ -103,7 +127,8 @@ function useTypingSender(matchId: string) {
 }
 
 function receiptLabel(message: MatchMessage, theirReadMs: number): string {
-  if (!message.createdAt) return 'Sending…';
+  if (message.failed) return '';
+  if (message.pending || !message.createdAt) return 'Sending…';
   if (theirReadMs && theirReadMs >= message.createdAt.getTime()) return 'Seen';
   return 'Sent';
 }
@@ -160,8 +185,6 @@ const Composer = memo(function Composer({
         placeholder="Message…"
         placeholderTextColor={colors.textSecondary}
         style={styles.input}
-        onSubmitEditing={submit}
-        returnKeyType="send"
         maxLength={2000}
         multiline
       />
@@ -197,6 +220,7 @@ const MessageRow = memo(function MessageRow({
   responding,
   onRespond,
   onPlan,
+  onRetry,
 }: {
   message: MatchMessage;
   mine: boolean;
@@ -205,9 +229,12 @@ const MessageRow = memo(function MessageRow({
   responding: boolean;
   onRespond: (message: MatchMessage, status: 'accepted' | 'declined') => Promise<void>;
   onPlan: () => void;
+  onRetry: (message: MatchMessage) => void;
 }) {
   if (message.type === 'date_proposal') {
     const p = message.proposal;
+    const startsMs = p?.startsAt ? Date.parse(p.startsAt) : NaN;
+    const expired = Number.isFinite(startsMs) && startsMs < Date.now() - 60 * 60 * 1000;
     return (
       <View style={[styles.proposal, mine ? styles.proposalMine : styles.proposalTheirs]}>
         <AppText style={styles.proposalEyebrow}>
@@ -227,7 +254,9 @@ const MessageRow = memo(function MessageRow({
             <AppText style={styles.proposalDirections}>Directions ›</AppText>
           </Pressable>
         ) : null}
-        {message.status === 'proposed' ? (
+        {message.status === 'proposed' && expired ? (
+          <AppText style={[styles.proposalStatus, styles.proposalDeclined]}>This plan’s time has passed</AppText>
+        ) : message.status === 'proposed' ? (
           mine ? (
             <AppText style={styles.proposalStatus}>Waiting for {theirName}…</AppText>
           ) : (
@@ -259,10 +288,16 @@ const MessageRow = memo(function MessageRow({
 
   return (
     <View>
-      <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
+      <View style={[styles.bubble, mine ? styles.mine : styles.theirs, message.failed && styles.bubbleFailed]}>
         <AppText style={mine ? styles.mineText : undefined}>{message.text}</AppText>
       </View>
-      {receipt ? <AppText style={styles.receipt}>{receipt}</AppText> : null}
+      {message.failed ? (
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => onRetry(message)}>
+          <AppText style={styles.failedLabel}>Not delivered · Tap to retry</AppText>
+        </Pressable>
+      ) : receipt ? (
+        <AppText style={styles.receipt}>{receipt}</AppText>
+      ) : null}
     </View>
   );
 },
@@ -271,12 +306,14 @@ const MessageRow = memo(function MessageRow({
   a.message.id === b.message.id &&
   a.message.text === b.message.text &&
   a.message.status === b.message.status &&
+  a.message.failed === b.message.failed &&
   a.mine === b.mine &&
   a.theirName === b.theirName &&
   a.receipt === b.receipt &&
   a.responding === b.responding &&
   a.onRespond === b.onRespond &&
-  a.onPlan === b.onPlan);
+  a.onPlan === b.onPlan &&
+  a.onRetry === b.onRetry);
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -287,26 +324,61 @@ export default function ChatScreen() {
   const userId = useSessionStore((s) => s.userId) ?? '';
   const entitlements = useSessionStore((s) => s.entitlements);
   const listRef = useRef<FlatList<ListItem>>(null);
+  const nearBottomRef = useRef(true);
 
   const [match, setMatch] = useState<MatchDoc | null>(null);
   const [matchState, setMatchState] = useState<'loading' | 'ready' | 'missing'>('loading');
-  const [messages, setMessages] = useState<MatchMessage[]>([]);
+  const [serverMessages, setServerMessages] = useState<MatchMessage[]>([]);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [messageLocked, setMessageLocked] = useState(false);
   const focusedRef = useRef(false);
+  const outboxItems = useOutbox((s) => s.items);
+
+  // Server messages plus anything still in the outbox, so an unconfirmed message never disappears.
+  const messages = useMemo<MatchMessage[]>(() => {
+    const queued = outboxItems.filter((o) => o.matchId === matchId);
+    if (!queued.length) return serverMessages;
+    const failed = new Set(queued.filter((o) => o.failed).map((o) => o.id));
+    const onServer = new Set(serverMessages.map((m) => m.id));
+    const merged = serverMessages.map((m) => (m.pending && failed.has(m.id) ? { ...m, failed: true } : m));
+    const local: MatchMessage[] = queued
+      .filter((o) => !onServer.has(o.id))
+      .map((o) => ({
+        id: o.id,
+        senderId: o.senderId,
+        type: 'text',
+        text: o.text,
+        createdAt: new Date(o.queuedAt),
+        pending: true,
+        failed: Boolean(o.failed),
+      }));
+    return local.length ? [...merged, ...local] : merged;
+  }, [serverMessages, outboxItems, matchId]);
+
+  useEffect(() => {
+    for (const o of outboxItems) {
+      if (o.matchId !== matchId) continue;
+      if (serverMessages.some((m) => m.id === o.id && !m.pending)) removeFromOutbox(o.id);
+    }
+  }, [serverMessages, outboxItems, matchId]);
+
+  const ongoing = useMemo(() => isOngoingConversation(serverMessages, userId), [serverMessages, userId]);
+  const ongoingRef = useRef(ongoing);
+  ongoingRef.current = ongoing;
 
   useFocusEffect(
     useCallback(() => {
       if (!matchId) return;
       let alive = true;
-      void canMessageMatch(entitlements, matchId).then((gate) => {
+      void canMessageMatch(entitlements, matchId, { ongoing }).then((gate) => {
         if (alive) setMessageLocked(!gate.ok);
       });
       return () => {
         alive = false;
       };
-    }, [matchId, entitlements]),
+    }, [matchId, entitlements, ongoing]),
   );
 
   const theirId = match ? otherUserId(match, userId) : '';
@@ -323,16 +395,45 @@ export default function ChatScreen() {
       setMatchState('missing');
       return;
     }
-    const unsubMatch = subscribeMatch(
-      matchId,
-      (m) => {
-        setMatch(m);
-        setMatchState(m ? 'ready' : 'missing');
-      },
-      () => setMatchState('missing'),
-    );
-    const unsubMessages = subscribeMessages(matchId, setMessages);
+    // A listener that errors stops for good, so transient failures resubscribe instead of
+    // leaving the chat silently frozen.
+    let alive = true;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let unsubMatch = () => {};
+    let unsubMessages = () => {};
+    const retryLater = (fn: () => void) => {
+      if (alive) timers.push(setTimeout(() => alive && fn(), 3000));
+    };
+    const listenMatch = () => {
+      unsubMatch = subscribeMatch(
+        matchId,
+        (m) => {
+          setMatch(m);
+          setMatchState(m ? 'ready' : 'missing');
+        },
+        (error) => {
+          if ((error as { code?: string }).code === 'permission-denied') setMatchState('missing');
+          else retryLater(listenMatch);
+        },
+      );
+    };
+    const listenMessages = () => {
+      unsubMessages = subscribeMessages(
+        matchId,
+        (rows) => {
+          setServerMessages(rows);
+          setMessagesLoaded(true);
+        },
+        (error) => {
+          if ((error as { code?: string }).code !== 'permission-denied') retryLater(listenMessages);
+        },
+      );
+    };
+    listenMatch();
+    listenMessages();
     return () => {
+      alive = false;
+      timers.forEach(clearTimeout);
       unsubMatch();
       unsubMessages();
     };
@@ -345,16 +446,18 @@ export default function ChatScreen() {
       if (matchId) {
         if (AppState.currentState === 'active') void markRead(matchId);
         void dismissNotificationsForMatch(matchId);
+        void flushOutbox(matchId);
       }
       const sub = AppState.addEventListener('change', (next) => {
         if (next === 'active' && matchId) {
           void markRead(matchId);
           void dismissNotificationsForMatch(matchId);
+          void flushOutbox(matchId);
         }
       });
       return () => {
         focusedRef.current = false;
-        setActiveChat(null);
+        clearActiveChat(matchId);
         sub.remove();
         stopTyping();
       };
@@ -371,7 +474,7 @@ export default function ChatScreen() {
   useEffect(() => {
     // Only while actually looking at the chat, so "Seen" is never sent from a backgrounded screen.
     if (!focusedRef.current || AppState.currentState !== 'active' || !matchId) return;
-    if (myUnread > 0 || lastTheirsAt > 0) void markRead(matchId);
+    if (myUnread > 0 || lastTheirsAt > 0) void markRead(matchId, myUnread > 0);
   }, [myUnread, lastTheirsAt, matchId]);
 
   const lastMineId = useMemo(() => {
@@ -382,12 +485,23 @@ export default function ChatScreen() {
   }, [messages, userId]);
 
   const openers = useMemo(() => icebreakersFor({ food: '', name: theirName }), [theirName]);
-  const showIcebreakers = matchState === 'ready' && messages.length === 0;
+  // Wait for the first snapshot so openers don't flash over an existing conversation.
+  const showIcebreakers = matchState === 'ready' && messagesLoaded && messages.length === 0;
   const mySentCount = messages.filter((m) => m.senderId === userId && m.type === 'text').length;
   const hasProposal = messages.some((m) => m.type === 'date_proposal');
 
   const items = useMemo<ListItem[]>(() => {
-    const list: ListItem[] = messages.map((message) => ({ kind: 'message', message }));
+    const list: ListItem[] = [];
+    let prevMs = 0;
+    for (const message of messages) {
+      const at = message.createdAt;
+      const ms = at?.getTime() ?? 0;
+      if (at && (!prevMs || ms - prevMs >= SEPARATOR_GAP_MS || new Date(prevMs).toDateString() !== at.toDateString())) {
+        list.push({ kind: 'separator', id: `sep_${message.id}`, label: separatorLabel(at) });
+      }
+      if (ms) prevMs = ms;
+      list.push({ kind: 'message', message });
+    }
     if (mySentCount >= 3 && !hasProposal && !nudgeDismissed) {
       list.push({ kind: 'nudge', id: 'nudge' });
     }
@@ -403,37 +517,69 @@ export default function ChatScreen() {
   entitlementsRef.current = entitlements;
   const lastSentRef = useRef<{ text: string; at: number }>({ text: '', at: 0 });
 
-  /** Resolves false when the message didn't go out, so the composer can restore it. */
+  /**
+   * Resolves false when the message wasn't queued, so the composer can restore it. Once queued it
+   * lives in the outbox until the server has it; delivery problems show on the bubble with a retry.
+   */
   const sendBody = useCallback(
     async (body: string): Promise<boolean> => {
       const text = body.trim();
       if (!text || !matchId) return false;
-      // Repeated taps on a busy device can fire the same send several times.
+      // A double tap on an icebreaker can fire the same send twice.
       const now = Date.now();
-      if (lastSentRef.current.text === text && now - lastSentRef.current.at < 2500) return true;
+      if (lastSentRef.current.text === text && now - lastSentRef.current.at < 1000) return true;
       lastSentRef.current = { text, at: now };
       stopTyping();
 
       const ent = entitlementsRef.current;
-      const gate = await canMessageMatch(ent, matchId);
+      const gate = await canMessageMatch(ent, matchId, { ongoing: ongoingRef.current });
       if (!gate.ok) {
         lastSentRef.current = { text: '', at: 0 };
         setMessageLocked(true);
         openUpgrade(router, 'message');
         return false;
       }
-      try {
-        await sendMatchMessage(matchId, text);
-        if (!isPlusActive(ent)) await recordMessagedMatch(matchId);
-        return true;
-      } catch (error) {
+      nearBottomRef.current = true;
+      const queued = await sendTextMessage(matchId, text);
+      if (!queued) {
         lastSentRef.current = { text: '', at: 0 };
-        Alert.alert('Message not sent', friendlyError(error, 'Try again.'));
+        Alert.alert('Message not sent', 'You’re signed out. Log in again and retry.');
         return false;
       }
+      if (!isPlusActive(ent)) await recordMessagedMatch(matchId);
+      return true;
     },
     [matchId, router, stopTyping],
   );
+
+  const retryMessage = useCallback((message: MatchMessage) => {
+    void retryOutboxMessage(message.id).catch(() => undefined);
+  }, []);
+
+  const confirmUnmatch = () => {
+    Alert.alert(
+      `Unmatch ${theirName}?`,
+      'They’ll disappear from your matches and this chat will be deleted for both of you. They won’t be notified.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unmatch',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                await unmatch(matchId);
+                void dismissNotificationsForMatch(matchId);
+                goBack();
+              } catch (error) {
+                Alert.alert('Couldn’t unmatch', friendlyError(error, 'Try again.'));
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
 
   const themPhoto = them?.mainPhotoUrl ?? '';
   const openPlan = useCallback(() => {
@@ -480,9 +626,37 @@ export default function ChatScreen() {
     [matchId, router, theirName],
   );
 
+  // Follow the conversation only while the reader is at the bottom; someone scrolled up reading
+  // history gets a "New messages" pill instead of being yanked down. Only a new message animates.
+  const scrolledCountRef = useRef(0);
+  const [newBelow, setNewBelow] = useState(false);
+  const itemCount = items.length;
+  const lastIsMine = messages.length > 0 && messages[messages.length - 1].senderId === userId;
   const scrollToEnd = useCallback(() => {
+    const grew = scrolledCountRef.current > 0 && itemCount > scrolledCountRef.current;
+    scrolledCountRef.current = itemCount;
+    if (nearBottomRef.current || (grew && lastIsMine)) {
+      listRef.current?.scrollToEnd({ animated: grew });
+    } else if (grew) {
+      setNewBelow(true);
+    }
+  }, [itemCount, lastIsMine]);
+
+  const onListScroll = useCallback(
+    (e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const near = contentSize.height - (contentOffset.y + layoutMeasurement.height) < 120;
+      nearBottomRef.current = near;
+      if (near) setNewBelow(false);
+    },
+    [],
+  );
+
+  const jumpToLatest = () => {
+    nearBottomRef.current = true;
+    setNewBelow(false);
     listRef.current?.scrollToEnd({ animated: true });
-  }, []);
+  };
 
   const theirReadMs = theirLastReadAt?.getTime() ?? 0;
   const dismissNudge = useCallback(() => setNudgeDismissed(true), []);
@@ -492,26 +666,38 @@ export default function ChatScreen() {
       if (item.kind === 'nudge') {
         return <NudgeCard onPlan={openPlan} onDismiss={dismissNudge} />;
       }
+      if (item.kind === 'separator') {
+        return <AppText style={styles.separator}>{item.label}</AppText>;
+      }
       const message = item.message;
-      const showReceipt = receiptsOn && message.id === lastMineId;
+      const mine = message.senderId === userId;
+      // "Sending…" shows on any of my unconfirmed messages; Sent/Seen only on the latest.
+      const receipt =
+        mine && message.pending && !message.failed
+          ? 'Sending…'
+          : receiptsOn && message.id === lastMineId
+            ? receiptLabel(message, theirReadMs)
+            : null;
       return (
         <MessageRow
           message={message}
-          mine={message.senderId === userId}
+          mine={mine}
           theirName={theirName}
-          receipt={showReceipt ? receiptLabel(message, theirReadMs) : null}
+          receipt={receipt || null}
           responding={respondingId === message.id}
           onRespond={respond}
           onPlan={openPlan}
+          onRetry={retryMessage}
         />
       );
     },
-    [openPlan, dismissNudge, receiptsOn, lastMineId, userId, theirName, theirReadMs, respondingId, respond],
+    [openPlan, dismissNudge, receiptsOn, lastMineId, userId, theirName, theirReadMs, respondingId, respond, retryMessage],
   );
 
   const openChatMenu = () => {
     Alert.alert(theirName, undefined, [
       { text: 'View profile', onPress: openProfile },
+      { text: 'Unmatch', style: 'destructive', onPress: confirmUnmatch },
       {
         text: 'Block & report',
         style: 'destructive',
@@ -522,7 +708,7 @@ export default function ChatScreen() {
         onPress: () =>
           router.push({
             pathname: '/safety/report',
-            params: { userId: theirId, name: theirName },
+            params: { userId: theirId, name: theirName, matchId },
           }),
       },
       { text: 'Cancel', style: 'cancel' },
@@ -624,6 +810,8 @@ export default function ChatScreen() {
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
           onContentSizeChange={scrollToEnd}
+          onScroll={onListScroll}
+          scrollEventThrottle={64}
           ListHeaderComponent={
             showIcebreakers ? (
               <View style={styles.ice}>
@@ -657,6 +845,17 @@ export default function ChatScreen() {
             ) : null
           }
         />
+
+        {newBelow ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Jump to new messages"
+            onPress={jumpToLatest}
+            style={({ pressed }) => [styles.newBelow, pressed && styles.pressed]}
+          >
+            <AppText style={styles.newBelowText}>New messages ↓</AppText>
+          </Pressable>
+        ) : null}
 
         {messageLocked ? (
           <Pressable
@@ -827,6 +1026,34 @@ const styles = ScaledSheet.create({
     borderWidth: 1,
   },
   mineText: { color: colors.text },
+  bubbleFailed: { opacity: 0.6 },
+  failedLabel: {
+    alignSelf: 'flex-end',
+    color: '#FF6B6B',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 3,
+    marginRight: 4,
+  },
+  separator: {
+    alignSelf: 'center',
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    marginTop: spacing.sm,
+    marginBottom: 2,
+  },
+  newBelow: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: 96,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    backgroundColor: colors.brand,
+  },
+  newBelowText: { color: colors.text, fontSize: 13, fontWeight: '800' },
   receipt: {
     alignSelf: 'flex-end',
     color: colors.textSecondary,

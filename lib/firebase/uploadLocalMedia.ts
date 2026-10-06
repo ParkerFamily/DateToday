@@ -1,7 +1,7 @@
+import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
-import { getFirebaseStorage } from '@/lib/firebase/client';
-import { Platform } from 'react-native';
+import { getFirebaseAuth, getFirebaseStorage } from '@/lib/firebase/client';
 
 /** True when the URI is already a hosted http(s) URL. */
 export function isRemoteMediaUrl(uri: string | null | undefined): boolean {
@@ -39,7 +39,9 @@ export function describeUploadError(error: unknown): string {
       break;
     default:
       friendly = /read (local )?media/i.test(message)
-        ? 'Could not read that file from your phone. If it is in iCloud, open it in Photos first.'
+        ? Platform.OS === 'ios'
+          ? 'Could not read that file from your phone. If it is in iCloud, open it in Photos first.'
+          : 'Could not read that file from your phone. Record or pick it again.'
         : 'Check your connection and try again.';
   }
 
@@ -90,11 +92,62 @@ function blobFromUri(uri: string): Promise<Blob> {
   });
 }
 
+function storageError(code: string, message: string, serverResponse?: string): Error {
+  return Object.assign(new Error(message), { code, customData: { serverResponse } });
+}
+
+/**
+ * Streams the file from disk natively. Reading a whole video into a JS Blob via XHR fails on
+ * some Android devices ("Failed to read local media file"), so native never goes through JS memory.
+ */
+async function uploadFileNative(storagePath: string, fileUri: string, contentType: string): Promise<void> {
+  const info = await FileSystem.getInfoAsync(fileUri);
+  if (!info.exists || !info.size) {
+    throw new Error('Failed to read local media file (missing or empty)');
+  }
+
+  const bucket = getFirebaseStorage().app.options.storageBucket;
+  if (!bucket) throw new Error('Firebase Storage bucket is not configured.');
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw storageError('storage/unauthenticated', 'Not signed in');
+
+  const url = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(
+    bucket,
+  )}/o?uploadType=media&name=${encodeURIComponent(storagePath)}`;
+
+  for (let attempt = 1; ; attempt++) {
+    const last = attempt >= MAX_UPLOAD_ATTEMPTS;
+    let result: FileSystem.FileSystemUploadResult;
+    try {
+      result = await FileSystem.uploadAsync(url, fileUri, {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: {
+          Authorization: `Firebase ${await user.getIdToken()}`,
+          'Content-Type': contentType,
+        },
+      });
+    } catch (error) {
+      if (last) throw storageError('storage/retry-limit-exceeded', error instanceof Error ? error.message : String(error));
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+      continue;
+    }
+
+    if (result.status >= 200 && result.status < 300) return;
+    const body = result.body?.slice(0, 200);
+    if (result.status === 401) throw storageError('storage/unauthenticated', `HTTP 401`, body);
+    if (result.status === 403) throw storageError('storage/unauthorized', `HTTP 403`, body);
+    const transient = result.status === 408 || result.status === 429 || result.status >= 500;
+    if (!transient || last) throw storageError('storage/unknown', `HTTP ${result.status}`, body);
+    await new Promise((r) => setTimeout(r, 1500 * attempt));
+  }
+}
+
 /**
  * Upload a local picker URI to Firebase Storage and return the download URL.
  *
- * Android Photo Picker often returns `content://…`. `fetch(content://)` fails on
- * Hermes, so we copy into the app cache first, then read via XHR → blob.
+ * Android Photo Picker often returns `content://…`, which native uploads can't read,
+ * so we copy into the app cache first.
  */
 export async function uploadLocalMedia(
   storagePath: string,
@@ -147,17 +200,20 @@ export async function uploadLocalMedia(
   }
 
   const objectRef = ref(getFirebaseStorage(), storagePath);
+  if (Platform.OS !== 'web') {
+    try {
+      await uploadFileNative(storagePath, fileUri, contentType);
+    } finally {
+      if (shouldCleanup) await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => undefined);
+    }
+    return getDownloadURL(objectRef);
+  }
+
   let blob: Blob;
-  
   try {
     blob = await blobFromUri(fileUri);
   } catch (error) {
-    // Clean up temp file if we created one
-    if (shouldCleanup) {
-      try {
-        await FileSystem.deleteAsync(fileUri, { idempotent: true });
-      } catch {}
-    }
+    if (shouldCleanup) await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => undefined);
     throw error;
   }
 

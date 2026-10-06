@@ -1,7 +1,9 @@
 const RADII = new Set([5, 10, 15, 25, 50]);
 const MAX_SCAN = 1000;
-const MAX_SESSION_MS = 3 * 60 * 60 * 1000;
-const REACTIVATION_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+// Must match maxLiveExpiresAt() in the app (utils/time.ts).
+const MAX_SESSION_MS = 12 * 60 * 60 * 1000;
+// Stops rapid relocation (location triangulation) without locking people out after ending Live.
+const REACTIVATION_COOLDOWN_MS = 2 * 60 * 1000;
 const ACTIVATION_ISSUER = 'activateLive-v1';
 
 function timestamp(value) {
@@ -74,7 +76,7 @@ function validActivationInput(body, now) {
   if (!coordinates) return { error: 'Valid latitude and longitude are required.' };
   if (!RADII.has(body?.radiusMiles)) return { error: 'Choose a supported Live radius.' };
   if (!Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + MAX_SESSION_MS)
-    return { error: 'Live expiry must be in the next three hours.' };
+    return { error: 'Pick a time later tonight to stay Live until.' };
   const activities = Array.isArray(body?.activities)
     ? body.activities.filter(value => typeof value === 'string').slice(0, 8)
     : [];
@@ -163,7 +165,7 @@ async function activateLive(req, res, dependencies = {}) {
     });
     if (result.forbidden) return res.status(403).json({ error: 'Complete your profile and verify your phone to go Live.' });
     if (result.retryAt) return res.status(429).json({
-      error: 'Live location can only be changed once every three hours.',
+      error: 'You just went Live. Try again in a couple of minutes.',
       retryAt: new Date(result.retryAt).toISOString(),
     });
     res.set('Cache-Control', 'private, no-store');

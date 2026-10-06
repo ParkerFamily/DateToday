@@ -163,6 +163,10 @@ export default function PublicProfileScreen() {
     try {
       void registerPushTokenAsync({ prompt: true });
       const result = await sendInterest(String(userId));
+      if (result.mutual && result.matchId && !result.created) {
+        router.replace({ pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } });
+        return;
+      }
       if (result.mutual && result.matchId) {
         router.replace({
           pathname: '/mutual',

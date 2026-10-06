@@ -52,10 +52,16 @@ export type MatchMessage = {
   status?: 'proposed' | 'accepted' | 'declined';
   respondedBy?: string;
   createdAt: Date | null;
+  /** Still only on this device; the server hasn't confirmed it yet. */
+  pending?: boolean;
+  /** Gave up waiting for the server; the bubble offers a retry. */
+  failed?: boolean;
 };
 
 export type InterestResult = {
   mutual: boolean;
+  /** True only when this heart created the match (so the celebration shows once). */
+  created: boolean;
   matchId: string | null;
   other: ({ uid: string } & MatchUser) | null;
 };
@@ -82,23 +88,46 @@ export async function sendInterest(toUid: string): Promise<InterestResult> {
   });
   const json = (await res.json().catch(() => ({}))) as Partial<InterestResult> & { error?: string };
   if (!res.ok) throw new Error(json.error || 'Couldn’t send that. Try again.');
-  return { mutual: Boolean(json.mutual), matchId: json.matchId ?? null, other: json.other ?? null };
+  return {
+    mutual: Boolean(json.mutual),
+    // Older servers didn't send `created`; fall back to the previous behavior.
+    created: typeof json.created === 'boolean' ? json.created : Boolean(json.mutual),
+    matchId: json.matchId ?? null,
+    other: json.other ?? null,
+  };
 }
 
 /** People I've already hearted (so the Live feed doesn't show them again). */
 export function subscribeSentInterests(uid: string, onChange: (toUids: Set<string>) => void) {
   const q = query(collection(getDb(), 'interests'), where('fromUid', '==', uid));
-  return onSnapshot(
-    q,
-    (snap) => onChange(new Set(snap.docs.map((d) => String(d.data().toUid ?? '')))),
-    () => undefined,
-  );
+  let alive = true;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let unsub = () => {};
+  const listen = () => {
+    unsub = onSnapshot(
+      q,
+      (snap) => onChange(new Set(snap.docs.map((d) => String(d.data().toUid ?? '')))),
+      () => {
+        if (alive) retry = setTimeout(() => alive && listen(), 5000);
+      },
+    );
+  };
+  listen();
+  return () => {
+    alive = false;
+    if (retry) clearTimeout(retry);
+    unsub();
+  };
 }
 
 export type ReceivedInterest = { fromUid: string; createdAt: Date | null };
 
 /** People who hearted me (newest first). */
-export function subscribeReceivedInterests(uid: string, onChange: (rows: ReceivedInterest[]) => void) {
+export function subscribeReceivedInterests(
+  uid: string,
+  onChange: (rows: ReceivedInterest[]) => void,
+  onError?: (error: Error) => void,
+) {
   const q = query(collection(getDb(), 'interests'), where('toUid', '==', uid));
   return onSnapshot(
     q,
@@ -110,7 +139,8 @@ export function subscribeReceivedInterests(uid: string, onChange: (rows: Receive
       rows.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
       onChange(rows);
     },
-    () => onChange([]),
+    // Keep the last known likes on a transient error instead of flashing "No likes yet".
+    (error) => onError?.(error),
   );
 }
 
@@ -121,7 +151,8 @@ export type PublicCard = {
   verificationStatus: string;
 };
 
-export async function fetchPublicCard(uid: string): Promise<PublicCard | null> {
+/** null = profile deleted; undefined = couldn't load right now (retry later). */
+export async function fetchPublicCard(uid: string): Promise<PublicCard | null | undefined> {
   try {
     const snap = await getDoc(doc(getDb(), 'profiles', uid));
     if (!snap.exists()) return null;
@@ -133,7 +164,7 @@ export async function fetchPublicCard(uid: string): Promise<PublicCard | null> {
       verificationStatus: String(d.verificationStatus ?? 'unverified'),
     };
   } catch {
-    return null;
+    return undefined;
   }
 }
 
@@ -199,6 +230,7 @@ export function subscribeMessages(
   );
   return onSnapshot(
     q,
+    { includeMetadataChanges: true },
     (snap) =>
       onChange(
         snap.docs.map((d) => {
@@ -212,6 +244,7 @@ export function subscribeMessages(
             status: data.status as MatchMessage['status'],
             respondedBy: data.respondedBy as string | undefined,
             createdAt: toDate(data.createdAt),
+            pending: d.metadata.hasPendingWrites,
           };
         }),
       ),
@@ -225,15 +258,20 @@ function requireUid() {
   return uid;
 }
 
-export async function sendMatchMessage(matchId: string, text: string) {
-  const body = text.trim().slice(0, 2000);
-  if (!body) return;
-  await addDoc(collection(getDb(), 'matches', matchId, 'messages'), {
-    senderId: requireUid(),
-    type: 'text',
-    text: body,
-    createdAt: serverTimestamp(),
+/** End the match for both people (no block). The chat and both hearts are deleted. */
+export async function unmatch(matchId: string): Promise<void> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Sign in first.');
+  const token = await user.getIdToken();
+  const res = await fetch(functionsUrl('unmatchUser'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ matchId }),
   });
+  if (!res.ok) {
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(json.error || 'Couldn’t unmatch. Try again.');
+  }
 }
 
 function cleanProposal(p: DateProposal): DateProposal {
@@ -263,11 +301,13 @@ export async function respondToDate(matchId: string, messageId: string, status: 
   });
 }
 
-export async function markMatchRead(matchId: string, shareReceipt = true) {
+export async function markMatchRead(matchId: string, shareReceipt = true, clearUnread = true) {
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return;
   await Promise.all([
-    updateDoc(doc(getDb(), 'matches', matchId), { [`unread.${uid}`]: 0 }).catch(() => undefined),
+    clearUnread
+      ? updateDoc(doc(getDb(), 'matches', matchId), { [`unread.${uid}`]: 0 }).catch(() => undefined)
+      : undefined,
     shareReceipt
       ? setDoc(
           doc(getDb(), 'matches', matchId, 'members', uid),

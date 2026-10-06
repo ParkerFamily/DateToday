@@ -75,18 +75,34 @@ export function canMatchToday(
   return matchesCreatedToday(matches) < limit ? { ok: true } : { ok: false, limit };
 }
 
-/** Free: message one person a day — unlimited messages within that conversation. */
+/**
+ * Free: start one new conversation a day — unlimited messages within it. Replying (they wrote
+ * first) or continuing a conversation from an earlier day is never limited.
+ */
 export async function canMessageMatch(
   entitlements: EntitlementState,
   matchId: string,
+  opts: { ongoing?: boolean } = {},
 ): Promise<LimitCheck> {
   const limit = conversationAllowance(entitlements);
-  if (limit === 'unlimited') return { ok: true };
+  if (limit === 'unlimited' || opts.ongoing) return { ok: true };
   const usage = await read();
   if (usage.messagedMatchIds.includes(matchId) || usage.messagedMatchIds.length < limit) {
     return { ok: true };
   }
   return { ok: false, limit };
+}
+
+/** True when the other person has written, or the conversation started before today. */
+export function isOngoingConversation(
+  messages: readonly { senderId: string; createdAt: Date | null }[],
+  myUid: string,
+  now = new Date(),
+): boolean {
+  const since = startOfToday(now);
+  return messages.some(
+    (m) => m.senderId !== myUid || (m.createdAt != null && m.createdAt.getTime() < since),
+  );
 }
 
 export async function recordMessagedMatch(matchId: string): Promise<void> {
