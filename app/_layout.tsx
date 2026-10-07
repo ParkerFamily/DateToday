@@ -179,7 +179,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         try {
           const Location = await import('expo-location');
           const perm = await Location.getForegroundPermissionsAsync();
-          useSessionStore.getState().setLocationGranted(perm.status === 'granted');
+          const granted = perm.status === 'granted';
+          useSessionStore.getState().setLocationGranted(granted);
+          // Update Firestore profileCompletion.location if needed
+          const { updateLocationCompletion } = await import('@/features/profile/updateLocationCompletion');
+          await updateLocationCompletion(granted);
         } catch {
           // Location check failed, skip
         }

@@ -35,7 +35,11 @@ async function currentCoords(allowPrompt: boolean): Promise<{ latitude: number; 
   if (perm.status === Location.PermissionStatus.UNDETERMINED && allowPrompt) {
     perm = await Location.requestForegroundPermissionsAsync();
   }
-  useSessionStore.getState().setLocationGranted(perm.status === 'granted');
+  const granted = perm.status === 'granted';
+  useSessionStore.getState().setLocationGranted(granted);
+  // Update Firestore profileCompletion.location if needed
+  const { updateLocationCompletion } = await import('@/features/profile/updateLocationCompletion');
+  await updateLocationCompletion(granted);
   if (perm.status !== 'granted') return null;
   const last = await Location.getLastKnownPositionAsync({ maxAge: 30 * 60 * 1000 }).catch(() => null);
   if (last) return last.coords;

@@ -31,14 +31,21 @@ export async function ensureLocationPermissionAsked(): Promise<void> {
   try {
     const { status } = await Location.getForegroundPermissionsAsync();
     
+    let granted = false;
     // Only request if never asked before (iOS won't show in Settings until we ask)
     if (status === Location.PermissionStatus.UNDETERMINED) {
       const result = await Location.requestForegroundPermissionsAsync();
-      useSessionStore.getState().setLocationGranted(result.status === 'granted');
+      granted = result.status === 'granted';
+      useSessionStore.getState().setLocationGranted(granted);
     } else {
       // Update store with current status
-      useSessionStore.getState().setLocationGranted(status === 'granted');
+      granted = status === 'granted';
+      useSessionStore.getState().setLocationGranted(granted);
     }
+    
+    // Update Firestore profileCompletion.location if needed
+    const { updateLocationCompletion } = await import('@/features/profile/updateLocationCompletion');
+    await updateLocationCompletion(granted);
   } catch (error) {
     // Silently fail - location is optional and we'll ask again later if needed
     console.log('[Location] Could not request permission on post-auth:', error);

@@ -21,7 +21,11 @@ export default function LocationSettingsScreen() {
     const p = await Location.getForegroundPermissionsAsync().catch(() => null);
     if (!p) return;
     setPerm({ status: p.status, canAskAgain: p.canAskAgain });
-    setLocationGranted(p.status === 'granted');
+    const granted = p.status === 'granted';
+    setLocationGranted(granted);
+    // Update Firestore profileCompletion.location if needed
+    const { updateLocationCompletion } = await import('@/features/profile/updateLocationCompletion');
+    await updateLocationCompletion(granted);
   }, [setLocationGranted]);
 
   // Re-read when coming back from the system Settings app.
