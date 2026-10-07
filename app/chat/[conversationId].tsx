@@ -53,6 +53,7 @@ import { useTheirChatState } from '@/features/matches/useTheirChatState';
 import { TypingDots } from '@/components/chat/TypingDots';
 import { clearActiveChat, dismissNotificationsForMatch, setActiveChat } from '@/features/notifications/push';
 import { ScaledSheet, rs } from '@/lib/scale';
+import { addDateToCalendar } from '@/features/dates/calendar';
 
 type ListItem =
   | { kind: 'message'; message: MatchMessage }
@@ -144,6 +145,25 @@ function openDirections(p: NonNullable<MatchMessage['proposal']>) {
   );
 }
 
+function AddToCalendarLink({ matchId, messageId }: { matchId: string; messageId: string }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      hitSlop={8}
+      disabled={busy}
+      onPress={() => {
+        setBusy(true);
+        void addDateToCalendar(matchId, messageId).finally(() => setBusy(false));
+      }}
+    >
+      <AppText style={[styles.proposalDirections, busy && styles.proposalLinkBusy]}>
+        {busy ? 'Adding…' : 'Add to calendar ›'}
+      </AppText>
+    </Pressable>
+  );
+}
+
 /** Owns the draft so typing never re-renders the message list. Clears on the first tap. */
 const Composer = memo(function Composer({
   bottomPad,
@@ -213,6 +233,7 @@ const NudgeCard = memo(function NudgeCard({
 });
 
 const MessageRow = memo(function MessageRow({
+  matchId,
   message,
   mine,
   theirName,
@@ -222,6 +243,7 @@ const MessageRow = memo(function MessageRow({
   onPlan,
   onRetry,
 }: {
+  matchId: string;
   message: MatchMessage;
   mine: boolean;
   theirName: string;
@@ -249,10 +271,18 @@ const MessageRow = memo(function MessageRow({
         <AppText style={styles.proposalMeta}>
           {[p?.activityLabel, p?.whenLabel].filter(Boolean).join(' · ')}
         </AppText>
-        {p && typeof p.venueLat === 'number' && typeof p.venueLng === 'number' ? (
-          <Pressable hitSlop={8} onPress={() => openDirections(p)}>
-            <AppText style={styles.proposalDirections}>Directions ›</AppText>
-          </Pressable>
+        {(p && typeof p.venueLat === 'number' && typeof p.venueLng === 'number') ||
+        (message.status === 'accepted' && !expired && !message.pending) ? (
+          <View style={styles.proposalLinks}>
+            {p && typeof p.venueLat === 'number' && typeof p.venueLng === 'number' ? (
+              <Pressable hitSlop={8} onPress={() => openDirections(p)}>
+                <AppText style={styles.proposalDirections}>Directions ›</AppText>
+              </Pressable>
+            ) : null}
+            {message.status === 'accepted' && !expired && !message.pending ? (
+              <AddToCalendarLink matchId={matchId} messageId={message.id} />
+            ) : null}
+          </View>
         ) : null}
         {message.status === 'proposed' && expired ? (
           <AppText style={[styles.proposalStatus, styles.proposalDeclined]}>This plan’s time has passed</AppText>
@@ -614,6 +644,7 @@ export default function ChatScreen() {
               when: message.proposal?.whenLabel ?? '',
               activity: message.proposal?.activityLabel ?? '',
               conversationId: matchId,
+              messageId: message.id,
             },
           });
         }
@@ -680,6 +711,7 @@ export default function ChatScreen() {
             : null;
       return (
         <MessageRow
+          matchId={matchId}
           message={message}
           mine={mine}
           theirName={theirName}
@@ -691,7 +723,7 @@ export default function ChatScreen() {
         />
       );
     },
-    [openPlan, dismissNudge, receiptsOn, lastMineId, userId, theirName, theirReadMs, respondingId, respond, retryMessage],
+    [openPlan, dismissNudge, receiptsOn, lastMineId, userId, theirName, theirReadMs, respondingId, respond, retryMessage, matchId],
   );
 
   const openChatMenu = () => {
@@ -1004,6 +1036,8 @@ const styles = ScaledSheet.create({
   proposalVenue: { color: colors.text, fontSize: 22, fontWeight: '800' },
   proposalMeta: { color: colors.textSecondary, fontSize: 15 },
   proposalDirections: { color: colors.brandBright, fontSize: 14, fontWeight: '800', marginTop: 2 },
+  proposalLinks: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.lg, rowGap: 4 },
+  proposalLinkBusy: { opacity: 0.6 },
   proposalActions: { gap: 8, marginTop: 6 },
   proposalStatus: { color: colors.brandBright, fontWeight: '700' },
   proposalDeclined: { color: colors.textSecondary },

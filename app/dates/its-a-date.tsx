@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +10,7 @@ import { flowCopy } from '@/constants/flow';
 import { colors, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { ScaledSheet } from '@/lib/scale';
+import { addDateToCalendar } from '@/features/dates/calendar';
 
 /**
  * Celebration after a plan is accepted.
@@ -27,7 +28,9 @@ export default function ItsADateScreen() {
     when?: string;
     activity?: string;
     conversationId?: string;
+    messageId?: string;
   }>();
+  const [addingToCalendar, setAddingToCalendar] = useState(false);
 
   const name = params.name ?? 'them';
   const venue = params.venue ?? 'Tonight';
@@ -56,6 +59,23 @@ export default function ItsADateScreen() {
           <AppText style={styles.pair}>You + {name}</AppText>
           <AppText style={styles.venue}>{venue}</AppText>
           <AppText style={styles.time}>{when}</AppText>
+          {params.conversationId && params.messageId ? (
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={10}
+              disabled={addingToCalendar}
+              onPress={() => {
+                setAddingToCalendar(true);
+                void addDateToCalendar(String(params.conversationId), String(params.messageId)).finally(() =>
+                  setAddingToCalendar(false),
+                );
+              }}
+            >
+              <AppText style={[styles.calendar, addingToCalendar && styles.calendarBusy]}>
+                {addingToCalendar ? 'Adding…' : '📅  Add to calendar'}
+              </AppText>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.actions}>
@@ -130,6 +150,13 @@ const styles = ScaledSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  calendar: {
+    color: colors.brandBright,
+    fontSize: 15,
+    fontWeight: '800',
+    marginTop: spacing.sm,
+  },
+  calendarBusy: { opacity: 0.6 },
   actions: {
     gap: spacing.sm,
   },

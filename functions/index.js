@@ -15,6 +15,7 @@ const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestor
 const { getStorage } = require('firebase-admin/storage');
 const { activateLive, nearbyLive } = require('./nearbyLive');
 const liveEngagement = require('./liveEngagement');
+const calendar = require('./calendar');
 
 initializeApp();
 
@@ -2185,6 +2186,17 @@ exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req,
     res.status(error.status || 502).json({ error: 'Couldn’t load places right now.' });
   }
 });
+
+/** Accepted plan → links to add it to Apple Calendar (.ics) or Google Calendar. */
+exports.createCalendarLink = onRequest({ cors: true }, (req, res) =>
+  calendar.createCalendarLink(req, res, {
+    db: getFirestore(),
+    requireUser,
+    publicUrl: 'https://us-central1-datetoday-e1331.cloudfunctions.net/calendarEvent',
+  }),
+);
+
+exports.calendarEvent = onRequest({ cors: true }, (req, res) => calendar.calendarEvent(req, res, { db: getFirestore() }));
 
 /** A device was newly signed in to an account → alert that account's other devices. */
 exports.onPushTokenWritten = onDocumentWritten('pushTokens/{tokenId}', async (event) => {
