@@ -90,7 +90,8 @@ async function ensureUserDoc(
       lastSignInAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    if (displayName) payload.displayName = displayName;
+    // Only set displayName for NEW users - don't overwrite existing users' chosen names
+    if (displayName && extras?.isNewUser) payload.displayName = displayName;
     if (extras?.photoURL) payload.photoURL = extras.photoURL;
     if (extras?.isNewUser) {
       payload.createdAt = serverTimestamp();
