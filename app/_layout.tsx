@@ -175,6 +175,15 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        // Sync location permission state on startup
+        try {
+          const Location = await import('expo-location');
+          const perm = await Location.getForegroundPermissionsAsync();
+          useSessionStore.getState().setLocationGranted(perm.status === 'granted');
+        } catch {
+          // Location check failed, skip
+        }
+
         // Wait for AsyncStorage auth restore — do NOT trust currentUser alone.
         const user = await restoreAuthUser();
         if (!mounted) return;
