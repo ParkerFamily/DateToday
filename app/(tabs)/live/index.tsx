@@ -230,7 +230,9 @@ export default function LiveHomeScreen() {
   };
 
   const activateLive = async () => {
+    console.log('[DEBUG] activateLive called');
     if (!readyForLive) {
+      console.log('[DEBUG] Profile not ready:', missing);
       Alert.alert(
         'Finish setup to Go Live',
         missing.slice(0, 4).join('\n') || 'Complete your profile first.',
@@ -245,19 +247,25 @@ export default function LiveHomeScreen() {
       return;
     }
     try {
+      console.log('[DEBUG] Starting Go Live flow');
       setLoading(true);
       const { expiresAt, label } = buildExpiration(untilPick.value, laterTonightHour);
+      console.log('[DEBUG] Built expiration:', label);
 
       let latitude = 33.7838;
       let longitude = -84.383;
 
+      console.log('[DEBUG] Requesting location permission');
       const { status } = await Location.requestForegroundPermissionsAsync();
+      console.log('[DEBUG] Location permission status:', status);
       if (status === 'granted') {
+        console.log('[DEBUG] Getting current position');
         const position = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
         latitude = position.coords.latitude;
         longitude = position.coords.longitude;
+        console.log('[DEBUG] Got location:', latitude, longitude);
       } else if (isBackendConfigured()) {
         // Never go live at a made-up spot — people nearby would see the wrong distance.
         Alert.alert(
@@ -273,6 +281,7 @@ export default function LiveHomeScreen() {
 
       // Firebase is primary — always publish a real beacon (no silent local-only pool).
       if (isBackendConfigured()) {
+        console.log('[DEBUG] Calling startLiveSession via Firebase');
         const session = await startLiveSession({
           latitude,
           longitude,
@@ -288,6 +297,7 @@ export default function LiveHomeScreen() {
           travel,
           planIdea,
         });
+        console.log('[DEBUG] startLiveSession succeeded:', session.id);
         setLiveSession({ ...session, isBoosted: false, boostedAt: null });
         setPingResults(0, 0);
         setSheet('none');
@@ -338,16 +348,18 @@ export default function LiveHomeScreen() {
       setPingResults(0, 0);
       setSheet('none');
     } catch (error) {
+      console.error('[DEBUG] Go Live failed:', error);
       const errorMessage = friendlyError(error, 'Could not go live right now');
       Alert.alert(
         'Could not go live',
-        errorMessage,
+        `${errorMessage}\n\nCheck console for details.`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Try Again', onPress: () => void activateLive() },
         ],
       );
     } finally {
+      console.log('[DEBUG] Go Live flow finished, setLoading(false)');
       setLoading(false);
     }
   };

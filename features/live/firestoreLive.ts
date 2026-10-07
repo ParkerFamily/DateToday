@@ -190,15 +190,22 @@ export async function removeNearbyPresence(): Promise<void> {
  * Denormalizes public profile fields so Ping can read without private users/{uid}.
  */
 export async function publishLiveSession(input: PublishLiveInput): Promise<LiveSession> {
+  console.log('[DEBUG] publishLiveSession started');
   const auth = getFirebaseAuth();
   const uid = auth.currentUser?.uid;
-  if (!uid) throw new Error('Sign in to Go Live.');
+  if (!uid) {
+    console.error('[DEBUG] No user signed in');
+    throw new Error('Sign in to Go Live.');
+  }
+  console.log('[DEBUG] User ID:', uid);
 
+  console.log('[DEBUG] Fetching user profile from Firestore');
   const userSnap = await withTimeout(
     getDoc(doc(getDb(), 'users', uid)),
     10000,
     'Fetch your profile'
   );
+  console.log('[DEBUG] User profile fetched, exists:', userSnap.exists());
   const u = (userSnap.data() ?? {}) as Record<string, unknown>;
   const nowIso = new Date().toISOString();
   const lat = approxCoord(input.latitude);
@@ -240,11 +247,13 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     updatedAt: serverTimestamp(),
   };
 
+  console.log('[DEBUG] Writing to liveSessions collection');
   await withTimeout(
     setDoc(doc(getDb(), 'liveSessions', uid), payload, { merge: true }),
     15000,
     'Go live'
   );
+  console.log('[DEBUG] Successfully wrote to liveSessions');
   analytics.track('go_live_completed');
   void publishNearbyPresence({ latitude: input.latitude, longitude: input.longitude }).catch(() => undefined);
 
