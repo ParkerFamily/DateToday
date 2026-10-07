@@ -101,7 +101,15 @@ describe('applyDiscoverFilters', () => {
     });
 
     it('counts past-midnight people as free for the rest of the night', () => {
+      expect(ids(applyDiscoverFilters(night, f({ freeFor: 'night' }), { plus: true, now: at(20) }))).toEqual([
+        'late',
+        'midnight',
+      ]);
+    });
+
+    it('Rest of the night is After Hours, so it does nothing without DateToday+', () => {
       expect(ids(applyDiscoverFilters(night, f({ freeFor: 'night' }), { plus: false, now: at(20) }))).toEqual([
+        'early',
         'late',
         'midnight',
       ]);

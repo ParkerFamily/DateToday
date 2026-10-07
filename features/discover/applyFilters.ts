@@ -72,6 +72,11 @@ export function freeUntilOf(c: Pick<DiscoveryCard, 'freeUntil' | 'liveUntil'>): 
 }
 
 /** How much time they have once they're free (from now, or from their "free later" hour). */
+/** "Rest of the night" means free past midnight — that's After Hours, so DateToday+ only. */
+export function effectiveFreeFor(f: Pick<DiscoverFilterValues, 'freeFor'>, plus: boolean): FreeFor | null {
+  return f.freeFor === 'night' && !plus ? null : f.freeFor;
+}
+
 export function matchesFreeFor(c: DiscoveryCard, freeFor: FreeFor, now: Date = new Date()): boolean {
   const free = freeUntilOf(c);
   if (isNearbyOnly(c) || !free) return false;
@@ -106,6 +111,7 @@ export function applyDiscoverFilters(
   { plus, myInterests, now = new Date() }: Opts,
 ): DiscoveryCard[] {
   const strict = plus && f.matchAllFilters;
+  const freeFor = effectiveFreeFor(f, plus);
   const nowMs = now.getTime();
   const afterHours = isAfterHours(now);
   const outLateHour = OUT_LATE_OPTIONS.find((o) => o.value === f.outLate)?.hour;
@@ -139,7 +145,7 @@ export function applyDiscoverFilters(
 
     const nearbyOnly = isNearbyOnly(c);
     if (f.howSoon && !matchesHowSoon(c, f.howSoon, now)) return false;
-    if (f.freeFor && !matchesFreeFor(c, f.freeFor, now)) return false;
+    if (freeFor && !matchesFreeFor(c, freeFor, now)) return false;
     if (f.energy.length && !keep(c.energy, () => f.energy.includes(c.energy!))) return false;
     if (f.travel.length && !keep(c.travel, () => f.travel.includes(c.travel!))) return false;
     if (f.planInMind && !hasSpotInMind(c.planIdea)) return false;
@@ -213,8 +219,9 @@ export function activeFilterLabels(f: DiscoverFilterValues, { plus, now = new Da
     const label = HOW_SOON_OPTIONS.find((o) => o.value === f.howSoon)?.label;
     if (label) out.push(`⏱ ${label}`);
   }
-  if (f.freeFor) {
-    const label = FREE_FOR_OPTIONS.find((o) => o.value === f.freeFor)?.label;
+  const freeFor = effectiveFreeFor(f, plus);
+  if (freeFor) {
+    const label = FREE_FOR_OPTIONS.find((o) => o.value === freeFor)?.label;
     if (label) out.push(`Free ${label.toLowerCase()}`);
   }
   if (f.planInMind) out.push('📍 Plan in mind');
@@ -300,8 +307,9 @@ export function matchedFilterLabels(
   if (f.howSoon && matchesHowSoon(c, f.howSoon, now)) {
     out.push(`⏱ ${HOW_SOON_OPTIONS.find((o) => o.value === f.howSoon)?.label}`);
   }
-  if (f.freeFor && matchesFreeFor(c, f.freeFor, now)) {
-    out.push(`Free ${FREE_FOR_OPTIONS.find((o) => o.value === f.freeFor)?.label.toLowerCase()}`);
+  const freeFor = effectiveFreeFor(f, plus);
+  if (freeFor && matchesFreeFor(c, freeFor, now)) {
+    out.push(`Free ${FREE_FOR_OPTIONS.find((o) => o.value === freeFor)?.label.toLowerCase()}`);
   }
   for (const a of c.activities) if (f.vibeFilter.includes(a)) out.push(activityLabel(a));
   if (has(f.energy, c.energy)) {

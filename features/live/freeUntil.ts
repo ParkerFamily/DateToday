@@ -1,19 +1,24 @@
-import { LIVE_ENDING_WARN_MS, NIGHTLY_RESET_HOUR } from '@/constants/liveConfig';
+import { LIVE_ENDING_WARN_MS, NIGHTLY_RESET_HOUR, nextNightlyReset } from '@/constants/liveConfig';
 import { clampLiveExpiration } from '@/utils/time';
 
 /** Free Until: availability tonight. Independent of how long the Live session lasts. */
 export type FreeUntilOption = { value: string; label: string; expiresAt: Date };
 
-/** "12 AM+" means free until 2 AM. */
-const ENDS = [
+/**
+ * "12 AM+" means free until 2 AM. From 11 PM it reads "2 AM" and 3 AM / 4 AM join it,
+ * so late choices are always real, on-the-hour times.
+ */
+const ENDS: { value: string; hour: number; label: string; lateLabel?: string; late?: boolean }[] = [
   { value: '21', hour: 21, label: '9 PM' },
   { value: '22', hour: 22, label: '10 PM' },
   { value: '23', hour: 23, label: '11 PM' },
-  { value: 'late', hour: 26, label: '12 AM+' },
-] as const;
+  { value: 'late', hour: 26, label: '12 AM+', lateLabel: '2 AM' },
+  { value: '27', hour: 27, label: '3 AM', late: true },
+  { value: '28', hour: 28, label: '4 AM', late: true },
+];
+const LATE_CHOICES_FROM_HOUR = 23;
 
 const MIN_LIVE_MS = 30 * 60 * 1000;
-const FALLBACK_MS = 2 * 60 * 60 * 1000;
 
 /** Ask "Still free tonight?" this long after going live (or the last "keep me live"). */
 export const RECONFIRM_AFTER_MS = 3 * 60 * 60 * 1000;
@@ -29,31 +34,31 @@ export function freeUntilOptions(now: Date = new Date(), startHour: number | nul
   evening.setHours(0, 0, 0, 0);
   if (now.getHours() < NIGHTLY_RESET_HOUR) evening.setDate(evening.getDate() - 1);
 
+  const lateNight = now.getHours() < NIGHTLY_RESET_HOUR || now.getHours() >= LATE_CHOICES_FROM_HOUR;
   const out: FreeUntilOption[] = [];
   for (const end of ENDS) {
+    if (end.late && !lateNight) continue;
+    if (end.hour >= 24 + NIGHTLY_RESET_HOUR) continue;
     if (startHour != null && end.hour <= startHour) continue;
     const at = new Date(evening);
     at.setHours(end.hour, 0, 0, 0);
     if (at.getTime() - now.getTime() < MIN_LIVE_MS) continue;
-    out.push({ value: end.value, label: end.label, expiresAt: clampLiveExpiration(at, now) });
+    const label = lateNight && end.lateLabel ? end.lateLabel : end.label;
+    out.push({ value: end.value, label, expiresAt: clampLiveExpiration(at, now) });
   }
   if (out.length) return out;
 
-  const at = new Date(now.getTime() + FALLBACK_MS);
-  return [
-    {
-      value: 'late',
-      label: at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
-      expiresAt: at,
-    },
-  ];
+  // Only the last stretch before the nightly reset is left: free until close, on the hour.
+  const close = nextNightlyReset(now);
+  return [{ value: 'close', label: close.toLocaleTimeString([], { hour: 'numeric' }), expiresAt: close }];
 }
 
 export function pickFreeUntil(options: FreeUntilOption[], value: string | null): FreeUntilOption {
   return (
     options.find((o) => o.value === value) ??
     options.find((o) => o.value === '23') ??
-    options[options.length - 1]
+    options.find((o) => o.value === 'late') ??
+    options[0]
   );
 }
 

@@ -38,6 +38,7 @@ import {
   LIFESTYLE_OPTIONS,
   activeFilterLabels,
   applyDiscoverFilters,
+  effectiveFreeFor,
   formatHeight,
 } from '@/features/discover/applyFilters';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
@@ -218,7 +219,8 @@ export default function FiltersScreen() {
 
   // Collapsed-row summaries. Plus-only values read as "Any" for free users, matching what's applied.
   const howSoonLabel = HOW_SOON_OPTIONS.find((o) => o.value === filters.howSoon)?.label ?? null;
-  const freeForLabel = FREE_FOR_OPTIONS.find((o) => o.value === filters.freeFor)?.label ?? null;
+  const freeFor = effectiveFreeFor(filters, plus);
+  const freeForLabel = FREE_FOR_OPTIONS.find((o) => o.value === freeFor)?.label ?? null;
   const downForLabels = pick(DOWN_FOR_OPTIONS, filters.vibeFilter);
   const energyLabels = pick(ENERGY_OPTIONS, filters.energy);
   const travelLabels = pick(TRAVEL_OPTIONS, filters.travel);
@@ -378,9 +380,12 @@ export default function FiltersScreen() {
                 {...rowOpen('freeFor')}
               >
                 {chips(
-                  FREE_FOR_OPTIONS,
-                  (v) => filters.freeFor === v,
-                  (v) => free(() => filters.patch({ freeFor: filters.freeFor === v ? null : (v as typeof filters.freeFor) })),
+                  FREE_FOR_OPTIONS.map((o) => (o.value === 'night' && !plus ? { ...o, label: `${o.label} ✨` } : o)),
+                  (v) => freeFor === v,
+                  (v) => {
+                    const set = () => filters.patch({ freeFor: freeFor === v ? null : (v as typeof filters.freeFor) });
+                    return v === 'night' ? plusOnly(set) : free(set);
+                  },
                 )}
               </FilterRow>
             </FilterGroup>

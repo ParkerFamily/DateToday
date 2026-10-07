@@ -14,16 +14,27 @@ describe('freeUntilOptions', () => {
     expect(values(at(21, 45))).toEqual(['23', 'late']);
   });
 
-  it('treats after midnight as the same night', () => {
+  it('treats after midnight as the same night, with real late hours', () => {
     const opts = freeUntilOptions(at(0, 30, 27));
-    expect(opts.map((o) => o.value)).toEqual(['late']);
+    expect(opts.map((o) => o.label)).toEqual(['2 AM', '3 AM', '4 AM']);
     expect(opts[0].expiresAt.getHours()).toBe(2);
+    expect(values(at(23, 45))).toEqual(['late', '27', '28']);
   });
 
-  it('falls back to a short window when the night is over', () => {
-    const opts = freeUntilOptions(at(1, 45, 27));
+  it('never invents odd times late at night', () => {
+    const opts = freeUntilOptions(at(2, 59, 27));
+    expect(opts.map((o) => o.label)).toEqual(['4 AM']);
+    expect(pickFreeUntil(opts, null).expiresAt.getTime()).toBe(at(4, 0, 27).getTime());
+  });
+
+  it('falls back to the nightly reset on the hour when the night is over', () => {
+    const opts = freeUntilOptions(at(4, 40, 27));
     expect(opts).toHaveLength(1);
-    expect(opts[0].expiresAt.getTime()).toBe(at(3, 45, 27).getTime());
+    expect(opts[0].expiresAt.getTime()).toBe(at(5, 0, 27).getTime());
+  });
+
+  it('defaults to the earliest late choice once 2 AM has passed', () => {
+    expect(pickFreeUntil(freeUntilOptions(at(1, 40, 27)), null).value).toBe('27');
   });
 
   it('never ends before a free-later start', () => {
