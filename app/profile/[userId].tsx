@@ -27,7 +27,7 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { useMatchesStore } from '@/store/matches';
 import { useBlocksStore } from '@/store/blocks';
-import { sendInterest } from '@/features/matches/api';
+import { isMatchLimitError, sendInterest } from '@/features/matches/api';
 import { confirmBlockAndReport } from '@/features/safety/blockFlow';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { getDb } from '@/lib/firebase/client';
@@ -180,6 +180,10 @@ export default function PublicProfileScreen() {
       }
       setInterestSent(true);
     } catch (error) {
+      if (isMatchLimitError(error)) {
+        openUpgrade(router, 'match');
+        return;
+      }
       Alert.alert('Couldn’t send interest', friendlyError(error, 'Try again.'));
     } finally {
       setSendingInterest(false);

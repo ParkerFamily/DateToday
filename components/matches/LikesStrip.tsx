@@ -1,47 +1,39 @@
-import { useMemo } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { AppText } from '@/components/ui/AppText';
 import { colors, radii, spacing } from '@/constants/theme';
-import { splitLikes, usePublicCards } from '@/features/matches/likes';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { canSeeAllReceivedPings } from '@/lib/entitlements';
 import { ScaledSheet, rs } from '@/lib/scale';
 import { usePendingLikes } from '@/store/matches';
-import { useSessionStore } from '@/store/session';
 
 const MAX_LOCKED_TILES = 8;
 
 /** "Likes you" row for the Matches tab: free users see one like, the rest are blurred behind DateToday+. */
 export function LikesStrip() {
   const router = useRouter();
-  const entitlements = useSessionStore((s) => s.entitlements);
-  const unlocked = canSeeAllReceivedPings(entitlements);
-  const received = usePendingLikes();
-  const pending = useMemo(() => received ?? [], [received]);
-  const uids = useMemo(() => pending.map((r) => r.fromUid), [pending]);
-  const cards = usePublicCards(uids);
-
-  const all = pending.filter((r) => cards[r.fromUid] !== null);
-  const { visible, locked } = splitLikes(all, unlocked);
-  const lockedTiles = locked.slice(0, MAX_LOCKED_TILES);
-  const overflow = locked.length - lockedTiles.length;
+  const likes = usePendingLikes();
   const upgrade = () => openUpgrade(router, 'likes');
 
-  if (received === null) return null;
+  if (likes === null) return null;
+
+  const visible = likes.revealed;
+  const lockedCount = Math.max(0, likes.total - visible.length);
+  const lockedTiles = likes.locked.slice(0, Math.min(MAX_LOCKED_TILES, lockedCount));
+  const overflow = lockedCount - lockedTiles.length;
+  const total = likes.total;
 
   return (
     <View style={styles.wrap}>
       <Pressable onPress={() => router.push('/likes')} style={styles.headerRow} hitSlop={8}>
         <AppText style={styles.label}>
-          LIKES YOU{all.length ? ` · ${all.length}` : ''}
+          LIKES YOU{total ? ` · ${total}` : ''}
         </AppText>
-        {all.length ? <AppText style={styles.seeAll}>See all</AppText> : null}
+        {total ? <AppText style={styles.seeAll}>See all</AppText> : null}
       </Pressable>
 
-      {all.length === 0 ? (
+      {total === 0 ? (
         <Pressable
           onPress={() => router.navigate('/(tabs)/live')}
           style={({ pressed }) => [styles.emptyRow, pressed && styles.pressed]}
@@ -56,21 +48,20 @@ export function LikesStrip() {
       ) : (
         <>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-            {visible.map((r) => {
-              const card = cards[r.fromUid];
+            {visible.map((card) => {
               return (
                 <Pressable
-                  key={r.fromUid}
+                  key={card.uid}
                   style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
                   onPress={() =>
                     router.push({
                       pathname: '/profile/[userId]',
-                      params: { userId: r.fromUid, name: card?.displayName ?? '' },
+                      params: { userId: card.uid, name: card.displayName },
                     })
                   }
                 >
                   <View style={[styles.ring, styles.ringOpen]}>
-                    {card?.mainPhotoUrl ? (
+                    {card.mainPhotoUrl ? (
                       <Image 
                         source={{ uri: card.mainPhotoUrl }} 
                         style={styles.avatar}
@@ -87,30 +78,23 @@ export function LikesStrip() {
                     </View>
                   </View>
                   <AppText style={styles.name} numberOfLines={1}>
-                    {card?.displayName ?? '…'}
+                    {card.displayName}
                   </AppText>
                 </Pressable>
               );
             })}
 
-            {lockedTiles.map((r) => {
-              const card = cards[r.fromUid];
+            {lockedTiles.map((tile, i) => {
               return (
                 <Pressable
-                  key={r.fromUid}
+                  key={`locked-${i}`}
                   style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
                   onPress={upgrade}
                   accessibilityLabel="Hidden like. Unlock with DateToday+"
                 >
                   <View style={[styles.ring, styles.ringLocked]}>
-                    {card?.mainPhotoUrl ? (
-                      <Image 
-                        source={{ uri: card.mainPhotoUrl }} 
-                        style={styles.avatar} 
-                        blurRadius={40}
-                        cachePolicy="memory-disk"
-                        transition={150}
-                      />
+                    {tile.blur ? (
+                      <Image source={{ uri: tile.blur }} style={styles.avatar} blurRadius={6} transition={150} />
                     ) : (
                       <View style={[styles.avatar, styles.avatarEmpty]} />
                     )}
@@ -139,11 +123,11 @@ export function LikesStrip() {
             ) : null}
           </ScrollView>
 
-          {locked.length > 0 ? (
+          {lockedCount > 0 ? (
             <Pressable onPress={upgrade} style={({ pressed }) => [styles.unlock, pressed && styles.pressed]}>
               <Ionicons name="lock-open" size={rs(16)} color="#fff" />
               <AppText style={styles.unlockText}>
-                See all {all.length} who liked you with DateToday+
+                See all {total} who liked you with DateToday+
               </AppText>
               <Ionicons name="chevron-forward" size={rs(16)} color="#fff" />
             </Pressable>

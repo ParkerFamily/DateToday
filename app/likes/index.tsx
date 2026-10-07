@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -7,11 +6,9 @@ import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, radii, spacing } from '@/constants/theme';
-import { canSeeAllReceivedPings } from '@/lib/entitlements';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { FREE_LIKES_PREVIEW as FREE_PREVIEW, splitLikes, usePublicCards } from '@/features/matches/likes';
+import { FREE_LIKES_PREVIEW as FREE_PREVIEW } from '@/features/matches/likes';
 import { usePendingLikes } from '@/store/matches';
-import { useSessionStore } from '@/store/session';
 import { ScaledSheet } from '@/lib/scale';
 
 /**
@@ -20,30 +17,24 @@ import { ScaledSheet } from '@/lib/scale';
  */
 export default function LikesScreen() {
   const router = useRouter();
-  const entitlements = useSessionStore((s) => s.entitlements);
-  const unlocked = canSeeAllReceivedPings(entitlements);
-  const received = usePendingLikes();
-  const pending = useMemo(() => received ?? [], [received]);
-  const uids = useMemo(() => pending.map((r) => r.fromUid), [pending]);
-  const cards = usePublicCards(uids);
-
-  const all = pending.filter((r) => cards[r.fromUid] !== null);
-  const { visible, locked } = splitLikes(all, unlocked);
-  const lockedCount = locked.length;
+  const likes = usePendingLikes();
+  const visible = likes?.revealed ?? [];
+  const lockedCount = likes ? Math.max(0, likes.total - visible.length) : 0;
+  const locked = (likes?.locked ?? []).slice(0, Math.min(6, lockedCount));
 
   return (
     <Screen padded={false}>
       <ScrollView contentContainerStyle={styles.content}>
         <SettingsHeader title="Liked you" />
         <AppText style={styles.sub}>
-          {unlocked
+          {likes?.plus
             ? 'Everyone who tapped Interested on you. Like them back to match.'
             : `Free shows ${FREE_PREVIEW}. Unlock the full list with DateToday+.`}
         </AppText>
 
-        {received === null ? (
+        {likes === null ? (
           <ActivityIndicator color={colors.brandBright} style={{ marginTop: spacing.xl }} />
-        ) : visible.length === 0 ? (
+        ) : likes.total === 0 ? (
           <View style={styles.emptyWrap}>
             <AppText style={styles.emptyTitle}>No likes yet</AppText>
             <AppText variant="secondary" style={styles.empty}>
@@ -52,20 +43,19 @@ export default function LikesScreen() {
             <Button label="Go to Live" onPress={() => router.navigate('/(tabs)/live')} />
           </View>
         ) : (
-          visible.map((r) => {
-            const card = cards[r.fromUid];
+          visible.map((card) => {
             return (
               <Pressable
-                key={r.fromUid}
+                key={card.uid}
                 style={styles.row}
                 onPress={() =>
                   router.push({
                     pathname: '/profile/[userId]',
-                    params: { userId: r.fromUid, name: card?.displayName ?? '' },
+                    params: { userId: card.uid, name: card.displayName },
                   })
                 }
               >
-                {card?.mainPhotoUrl ? (
+                {card.mainPhotoUrl ? (
                   <Image 
                     source={{ uri: card.mainPhotoUrl }} 
                     style={styles.avatar}
@@ -76,7 +66,7 @@ export default function LikesScreen() {
                   <View style={[styles.avatar, styles.avatarPh]} />
                 )}
                 <View style={styles.meta}>
-                  <AppText style={styles.name}>{card?.displayName ?? '…'}</AppText>
+                  <AppText style={styles.name}>{card.displayName}</AppText>
                   <AppText variant="secondary">Tap to see their profile and like back</AppText>
                 </View>
                 <AppText style={styles.chev}>›</AppText>
@@ -87,23 +77,16 @@ export default function LikesScreen() {
 
         {lockedCount > 0 ? (
           <>
-            {locked.slice(0, 6).map((r) => {
-              const card = cards[r.fromUid];
+            {locked.map((tile, i) => {
               return (
                 <Pressable
-                  key={r.fromUid}
+                  key={`locked-${i}`}
                   style={styles.row}
                   onPress={() => openUpgrade(router, 'likes')}
                   accessibilityLabel="Hidden like — unlock with DateToday+"
                 >
-                  {card?.mainPhotoUrl ? (
-                    <Image 
-                      source={{ uri: card.mainPhotoUrl }} 
-                      style={styles.avatar} 
-                      blurRadius={40}
-                      cachePolicy="memory-disk"
-                      transition={150}
-                    />
+                  {tile.blur ? (
+                    <Image source={{ uri: tile.blur }} style={styles.avatar} blurRadius={6} transition={150} />
                   ) : (
                     <View style={[styles.avatar, styles.avatarPh]} />
                   )}

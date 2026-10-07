@@ -85,10 +85,12 @@ export async function sendInterest(toUid: string): Promise<InterestResult> {
   const res = await fetch(functionsUrl('sendInterest'), {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ toUid }),
+    body: JSON.stringify({ toUid, tzOffsetMinutes: new Date().getTimezoneOffset() }),
   });
-  const json = (await res.json().catch(() => ({}))) as Partial<InterestResult> & { error?: string };
-  if (!res.ok) throw new Error(json.error || 'Couldn’t send that. Try again.');
+  const json = (await res.json().catch(() => ({}))) as Partial<InterestResult> & { error?: string; code?: string };
+  if (!res.ok) {
+    throw Object.assign(new Error(json.error || 'Couldn’t send that. Try again.'), { code: json.code ?? null });
+  }
   return {
     mutual: Boolean(json.mutual),
     // Older servers didn't send `created`; fall back to the previous behavior.
@@ -125,30 +127,52 @@ export function subscribeSentInterests(uid: string, onChange: (toUids: Set<strin
   };
 }
 
-export type ReceivedInterest = { fromUid: string; createdAt: Date | null };
+export function isMatchLimitError(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === 'match_limit';
+}
 
-/** People who hearted me (newest first). */
-export function subscribeReceivedInterests(
-  uid: string,
-  onChange: (rows: ReceivedInterest[]) => void,
-  onError?: (error: Error) => void,
-) {
-  const q = query(
-    collection(getDb(), 'interests'), 
-    where('toUid', '==', uid),
-    limit(500)
-  );
+export type RevealedLike = {
+  uid: string;
+  displayName: string;
+  mainPhotoUrl: string | null;
+  verificationStatus: string;
+  likedAt: string | null;
+};
+
+/**
+ * "Likes you", as the server allows this member to see it. Locked likes carry only a tiny blurred
+ * thumbnail (data URI) — no uid, name or photo URL.
+ */
+export type LikesFeed = {
+  plus: boolean;
+  total: number;
+  revealed: RevealedLike[];
+  locked: { blur: string | null }[];
+};
+
+/** `fresh` re-checks DateToday+ with the store (after a purchase or restore). */
+export async function fetchLikes(fresh = false): Promise<LikesFeed> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Sign in first.');
+  const token = await user.getIdToken();
+  const res = await fetch(`${functionsUrl('getLikes')}${fresh ? '?fresh=1' : ''}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const json = (await res.json().catch(() => ({}))) as Partial<LikesFeed> & { error?: string };
+  if (!res.ok) throw new Error(json.error || 'Couldn’t load your likes right now.');
+  return {
+    plus: Boolean(json.plus),
+    total: Number(json.total) || 0,
+    revealed: Array.isArray(json.revealed) ? json.revealed : [],
+    locked: Array.isArray(json.locked) ? json.locked : [],
+  };
+}
+
+/** Fires whenever someone new likes me or a like turns into a match (and once on subscribe). */
+export function subscribeLikeInbox(uid: string, onChange: () => void, onError?: (error: Error) => void) {
   return onSnapshot(
-    q,
-    (snap) => {
-      const rows = snap.docs.map((d) => {
-        const data = d.data({ serverTimestamps: 'estimate' });
-        return { fromUid: String(data.fromUid ?? ''), createdAt: toDate(data.createdAt) };
-      });
-      rows.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
-      onChange(rows);
-    },
-    // Keep the last known likes on a transient error instead of flashing "No likes yet".
+    doc(getDb(), 'likeInbox', uid),
+    () => onChange(),
     (error) => onError?.(error),
   );
 }

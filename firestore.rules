@@ -196,10 +196,26 @@ service cloud.firestore {
     }
 
     // Hearts. Written only by the sendInterest Cloud Function (mutual check + push).
+    // Only the sender reads a heart. Who liked you is served by getLikes, which hides likers'
+    // identities from free members.
     match /interests/{interestId} {
-      allow read: if signedIn()
-        && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow read: if signedIn() && resource.data.fromUid == request.auth.uid;
       allow write: if false;
+    }
+
+    // Bumped by sendInterest so the app knows to refetch getLikes. No identities inside.
+    match /likeInbox/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+
+    // Server-verified DateToday+ (RevenueCat) cache; blurred like thumbnails. Functions only.
+    match /entitlements/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+    match /likeBlurs/{userId} {
+      allow read, write: if false;
     }
 
     // Unmatched pairs (unmatchUser) and trigger dedupe markers; Cloud Functions only.

@@ -104,8 +104,8 @@ export function useLiveActivitySync() {
   const liveSession = useSessionStore((s) => s.liveSession);
   const datePlannedTonight = useSessionStore((s) => s.datePlannedTonight);
   const neighborhood = useSessionStore((s) => s.profile?.neighborhoodLabel ?? null);
-  const likesLoaded = useMatchesStore((s) => s.likedMe !== null);
-  const pendingLikes = usePendingLikes()?.length ?? 0;
+  const likesLoaded = useMatchesStore((s) => s.likes !== null);
+  const pendingLikes = usePendingLikes()?.total ?? 0;
   const unread = useUnreadMatchCount();
   const restored = useLiveSessionRestored(uid);
   const [tick, setTick] = useState(0);

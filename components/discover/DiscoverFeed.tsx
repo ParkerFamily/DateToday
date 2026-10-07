@@ -51,7 +51,7 @@ import {
   subscribeActiveLiveSessions,
   updateMyLiveSession,
 } from '@/features/live/firestoreLive';
-import { sendInterest, subscribeSentInterests } from '@/features/matches/api';
+import { isMatchLimitError, sendInterest, subscribeSentInterests } from '@/features/matches/api';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { useHiddenUserMap } from '@/store/blocks';
 import { useDiscoverFilters } from '@/store/discoverFilters';
@@ -480,6 +480,10 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         showInterestSentThenAdvance(card.userId);
       }
     } catch (error) {
+      if (isMatchLimitError(error)) {
+        openUpgrade(router, 'match');
+        return;
+      }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert(
         'Could not send interest',

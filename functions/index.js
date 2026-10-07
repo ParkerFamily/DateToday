@@ -16,6 +16,7 @@ const { getStorage } = require('firebase-admin/storage');
 const { activateLive, nearbyLive } = require('./nearbyLive');
 const liveEngagement = require('./liveEngagement');
 const calendar = require('./calendar');
+const likes = require('./likes');
 
 initializeApp();
 
@@ -846,6 +847,25 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
     const matchId = pairId(fromUid, toUid);
     const matchRef = db.collection('matches').doc(matchId);
 
+    // Free: one new match a day. Only a heart that completes a match counts.
+    const [reverseNow, matchNow] = await Promise.all([reverseRef.get(), matchRef.get()]);
+    if (reverseNow.exists && !matchNow.exists && !(await likes.isPlusUser(db, fromUid))) {
+      const tz = Number(req.body && req.body.tzOffsetMinutes);
+      const since = Number.isFinite(tz) ? likes.localDayStart(Date.now(), tz) : Date.now() - 24 * 3600 * 1000;
+      const mine = await db.collection('matches').where('userIds', 'array-contains', fromUid).limit(500).get();
+      const today = mine.docs.filter((d) => {
+        const at = d.data().createdAt;
+        return at && typeof at.toMillis === 'function' && at.toMillis() >= since;
+      }).length;
+      if (today >= 1) {
+        res.status(403).json({
+          error: 'Free includes 1 new match a day. Get DateToday+ for unlimited matches.',
+          code: 'match_limit',
+        });
+        return;
+      }
+    }
+
     const [me, them] = await Promise.all([
       publicProfile(db, fromUid),
       publicProfile(db, toUid),
@@ -888,6 +908,14 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
       return { mutual, createdMatch, firstHeart: !existing.exists };
     });
 
+    // Tells each person's app to refetch "Likes you" (the list itself is served by getLikes).
+    const bumpInbox = (uid) =>
+      db.collection('likeInbox').doc(uid)
+        .set({ version: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        .catch(() => undefined);
+    if (outcome.createdMatch) await Promise.all([bumpInbox(fromUid), bumpInbox(toUid)]);
+    else if (outcome.firstHeart) await bumpInbox(toUid);
+
     if (outcome.createdMatch) {
       await pushToUser(db, toUid, {
         title: 'It’s a match!',
@@ -913,6 +941,29 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
     res.status(error.status || 500).json({
       error: error instanceof Error ? error.message : 'Could not send interest.',
     });
+  }
+});
+
+/**
+ * "Likes you" for the signed-in member. DateToday+ (verified with RevenueCat) gets everyone;
+ * free gets the oldest like plus blurred, identity-free thumbnails for the rest.
+ * Query: ?fresh=1 re-checks the subscription (after a purchase or restore).
+ */
+exports.getLikes = onRequest({ cors: true, memory: '512MiB' }, async (req, res) => {
+  try {
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    const { uid } = await requireUser(req);
+    const db = getFirestore();
+    const fresh = req.query && (req.query.fresh === '1' || req.query.fresh === 'true');
+    const [plus, rows] = await Promise.all([likes.isPlusUser(db, uid, { fresh }), likes.pendingLikes(db, uid)]);
+    res.set('Cache-Control', 'private, no-store');
+    res.json(await likes.buildLikes(db, rows, plus));
+  } catch (error) {
+    console.error('getLikes failed', error && error.message);
+    res.status(error.status || 500).json({ error: 'Couldn’t load your likes right now.' });
   }
 });
 
