@@ -90,10 +90,10 @@ async function ensureUserDoc(
       lastSignInAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    // Only set displayName for NEW users - don't overwrite existing users' chosen names
-    if (displayName && extras?.isNewUser) payload.displayName = displayName;
-    if (extras?.photoURL) payload.photoURL = extras.photoURL;
+    // Only set displayName and photoURL for NEW users - never overwrite existing users' chosen profile data
     if (extras?.isNewUser) {
+      if (displayName) payload.displayName = displayName;
+      if (extras.photoURL) payload.photoURL = extras.photoURL;
       payload.createdAt = serverTimestamp();
       payload.verificationStatus = 'unverified';
     }
