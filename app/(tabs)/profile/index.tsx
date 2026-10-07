@@ -154,38 +154,15 @@ export default function ProfileTabScreen() {
           <AppText style={styles.readyNote}>
             {readyForLive
               ? 'Ready to go live tonight.'
-              : missingStepsText
-                ? `Still needed: ${missingStepsText}`
+              : openSteps.length > 0
+                ? `Missing ${openSteps.length} ${openSteps.length === 1 ? 'step' : 'steps'}: ${openSteps.map(s => s.label).join(', ')}`
                 : 'Finish a few steps to go live tonight.'}
           </AppText>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={profile?.bio?.trim() ? 'Edit bio' : 'Add a bio'}
-          onPress={() => router.push({ pathname: '/settings/edit-profile', params: { open: 'bio' } })}
-          style={({ pressed }) => [styles.bioCard, pressed && { opacity: 0.85 }]}
-        >
-          <View style={styles.strengthTop}>
-            <AppText style={styles.strengthTitle}>Bio</AppText>
-            <AppText style={styles.bioEdit}>{profile?.bio?.trim() ? 'Edit' : 'Add'} ›</AppText>
-          </View>
-          {vibeLabel(profile?.datingIntention) ? (
-            <AppText style={styles.bioVibe}>{vibeLabel(profile?.datingIntention)}</AppText>
-          ) : null}
-          <AppText
-            style={profile?.bio?.trim() ? styles.bioText : styles.bioEmpty}
-            numberOfLines={4}
-          >
-            {profile?.bio?.trim() || 'Write a line or two about you — people read this before they tap ♥.'}
-          </AppText>
-        </Pressable>
-
-        <QuizPromoCard />
-
         {showSteps || !verified ? (
           <View style={styles.finish}>
-            <BlockLabel>Finish profile</BlockLabel>
+            <BlockLabel>COMPLETE YOUR PROFILE</BlockLabel>
             {!verified ? (
               <Pressable
                 style={styles.checkRow}
@@ -228,6 +205,29 @@ export default function ProfileTabScreen() {
             />
           </View>
         ) : null}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={profile?.bio?.trim() ? 'Edit bio' : 'Add a bio'}
+          onPress={() => router.push({ pathname: '/settings/edit-profile', params: { open: 'bio' } })}
+          style={({ pressed }) => [styles.bioCard, pressed && { opacity: 0.85 }]}
+        >
+          <View style={styles.strengthTop}>
+            <AppText style={styles.strengthTitle}>Bio</AppText>
+            <AppText style={styles.bioEdit}>{profile?.bio?.trim() ? 'Edit' : 'Add'} ›</AppText>
+          </View>
+          {vibeLabel(profile?.datingIntention) ? (
+            <AppText style={styles.bioVibe}>{vibeLabel(profile?.datingIntention)}</AppText>
+          ) : null}
+          <AppText
+            style={profile?.bio?.trim() ? styles.bioText : styles.bioEmpty}
+            numberOfLines={4}
+          >
+            {profile?.bio?.trim() || 'Write a line or two about you — people read this before they tap ♥.'}
+          </AppText>
+        </Pressable>
+
+        <QuizPromoCard />
 
         <View style={styles.block}>
           <BlockLabel>Account</BlockLabel>
