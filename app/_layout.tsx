@@ -175,15 +175,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Sync location permission state on startup
+        // Sync location permission state on startup (just the session state, not Firestore yet)
         try {
           const Location = await import('expo-location');
           const perm = await Location.getForegroundPermissionsAsync();
-          const granted = perm.status === 'granted';
-          useSessionStore.getState().setLocationGranted(granted);
-          // Update Firestore profileCompletion.location if needed
-          const { updateLocationCompletion } = await import('@/features/profile/updateLocationCompletion');
-          await updateLocationCompletion(granted);
+          useSessionStore.getState().setLocationGranted(perm.status === 'granted');
         } catch {
           // Location check failed, skip
         }
@@ -194,6 +190,16 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
         if (user) {
           await hydrateSignedInUser(user.uid, user.email ?? null);
+          
+          // NOW update Firestore location completion after profile is loaded
+          try {
+            const Location = await import('expo-location');
+            const perm = await Location.getForegroundPermissionsAsync();
+            const { updateLocationCompletion } = await import('@/features/profile/updateLocationCompletion');
+            await updateLocationCompletion(perm.status === 'granted');
+          } catch {
+            // Location update failed, skip
+          }
           // Purchases must never wipe auth — skip entirely on Android (IAP deferred).
           if (Platform.OS !== 'android') {
             try {
