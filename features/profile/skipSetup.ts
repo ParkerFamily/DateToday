@@ -22,8 +22,8 @@ type DraftSnapshot = Pick<
   | 'verificationStatus'
   | 'locationEnabled'
   | 'legalConsentAccepted'
-> &
-  Partial<Pick<OnboardingDraft, 'legalName'>>;
+  | 'legalName'
+>;
 
 /**
  * Enter the app early without finishing setup.
@@ -33,10 +33,13 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
   profile: Profile;
   preferences: DatingPreferences;
 }> {
-  const legalName = draft.legalName?.trim().slice(0, 80) || '';
+  const legalName = draft.legalName.trim().slice(0, 80);
+  if (legalName.length < 2) {
+    throw new Error('Legal name is required — it must match your government ID.');
+  }
   const name = draft.displayName.trim() || firstName(legalName);
   if (name.length < 2) {
-    throw new Error('Add your name first — it must match your government ID.');
+    throw new Error('Display name is required.');
   }
 
   assertFirebaseConfigured();
@@ -99,9 +102,7 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
   };
 
   await setDoc(doc(getDb(), 'users', uid), payload, { merge: true });
-  if (legalName) {
-    await setDoc(doc(getDb(), 'users', uid), { legalName }, { merge: true }).catch(() => {});
-  }
+  await setDoc(doc(getDb(), 'users', uid), { legalName }, { merge: true }).catch(() => {});
   await setDoc(
     doc(getDb(), 'profiles', uid),
     {
@@ -119,7 +120,7 @@ export async function skipSetupToApp(draft: DraftSnapshot): Promise<{
   const profile: Profile = {
     userId: uid,
     displayName: name,
-    legalName: legalName || null,
+    legalName,
     bio: null,
     dateOfBirth: draft.dateOfBirth || null,
     genderId: draft.gender,

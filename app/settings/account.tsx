@@ -13,19 +13,17 @@ import { ScaledSheet } from '@/lib/scale';
 export default function AccountInformationScreen() {
   const router = useRouter();
   const email = useSessionStore((s) => s.email);
-  const sessionUserId = useSessionStore((s) => s.userId);
 
-  const { displayEmail, providerIds, uid } = useMemo(() => {
+  const { displayEmail, providerIds } = useMemo(() => {
     if (!isBackendConfigured()) {
-      return { displayEmail: email, providerIds: [] as string[], uid: sessionUserId };
+      return { displayEmail: email, providerIds: [] as string[] };
     }
     const user = getFirebaseAuth().currentUser;
     return {
       displayEmail: user?.email ?? email,
       providerIds: user?.providerData.map((p) => p.providerId) ?? [],
-      uid: user?.uid ?? sessionUserId,
     };
-  }, [email, sessionUserId]);
+  }, [email]);
 
   return (
     <Screen padded={false}>
@@ -39,11 +37,6 @@ export default function AccountInformationScreen() {
           <SettingsRow
             label="Email"
             detail={displayEmail ?? 'Not available'}
-            onPress={() => undefined}
-          />
-          <SettingsRow
-            label="User ID"
-            detail={uid ?? '—'}
             onPress={() => undefined}
           />
           <SettingsRow
