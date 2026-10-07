@@ -30,6 +30,7 @@ import {
   View,
 } from 'react-native';
 import { ScaledSheet } from '@/lib/scale';
+import { rememberPickSlot, useRecoverPickedImage } from '@/lib/pendingImagePick';
 
 const MAX_PHOTOS = 3;
 
@@ -138,9 +139,18 @@ export default function MediaSettingsScreen() {
     }
   };
 
+  useRecoverPickedImage((uri, slot) => {
+    const target = slot != null && slot < MAX_PHOTOS ? slot : Math.min(photos.length, MAX_PHOTOS - 1);
+    setBusySlot(target);
+    void uploadPhoto(target, uri)
+      .catch(() => Alert.alert('Could not update photo'))
+      .finally(() => setBusySlot(null));
+  });
+
   const pickPhoto = async (slot: number) => {
     try {
       setBusySlot(slot);
+      rememberPickSlot(slot);
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,

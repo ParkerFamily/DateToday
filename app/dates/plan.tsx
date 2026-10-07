@@ -41,6 +41,7 @@ import {
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
+import { androidGlow } from '@/lib/glow';
 
 const KINDS: { value: PlanCategory; emoji: string; label: string; blurb: string }[] = [
   { value: 'drinks', emoji: '🍸', label: 'Drinks', blurb: 'Casual & easy' },
@@ -527,6 +528,7 @@ const styles = ScaledSheet.create({
     shadowOpacity: 0.45,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 4 },
+    ...androidGlow(colors.brandBright, 0.45, 14, 4),
     elevation: 8,
   },
   kindEmoji: { fontSize: 28, lineHeight: 34, marginBottom: 4 },
@@ -582,6 +584,7 @@ const styles = ScaledSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
+    ...androidGlow(colors.brandBright, 0.5, 10, 3),
     elevation: 6,
   },
   disabled: { opacity: 0.35 },

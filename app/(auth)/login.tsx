@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Screen } from '@/components/ui/Screen';
@@ -30,6 +32,7 @@ import { ScaledSheet } from '@/lib/scale';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const setAuth = useSessionStore((s) => s.setAuth);
   const setProfile = useSessionStore((s) => s.setProfile);
   const setPreferences = useSessionStore((s) => s.setPreferences);
@@ -101,6 +104,8 @@ export default function LoginScreen() {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior="padding"
+        // Android: KeyboardAvoidingView measures from its parent, which starts below the status bar.
+        keyboardVerticalOffset={Platform.OS === 'android' ? insets.top : 0}
       >
         <ScrollView
           contentContainerStyle={styles.scroll}

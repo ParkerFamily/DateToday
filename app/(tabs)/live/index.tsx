@@ -36,6 +36,7 @@ import { allowedRadiusPresets, canUseAdvancedFilters, isPlusActive } from '@/lib
 import { env, isBackendConfigured } from '@/lib/env';
 import { friendlyError } from '@/lib/errors';
 import { rs, ScaledSheet } from '@/lib/scale';
+import { androidGlow } from '@/lib/glow';
 import { endLiveSession, startLiveSession } from '@/services/api';
 import { useDiscoverFilters } from '@/store/discoverFilters';
 import { useSessionStore } from '@/store/session';
@@ -1158,6 +1159,7 @@ const styles = ScaledSheet.create({
     shadowOpacity: 0.55,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 0 },
+    ...androidGlow(colors.brandBright, 0.55, 12),
   },
   planCardLabel: {
     color: colors.text,
@@ -1223,6 +1225,7 @@ const styles = ScaledSheet.create({
     shadowOpacity: 0.45,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 0 },
+    ...androidGlow(colors.brandBright, 0.45, 10),
   },
   lateWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   latePillOn: {

@@ -10,6 +10,7 @@ import { useRouter } from 'expo-router';
 import { memo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { ScaledSheet, rs } from '@/lib/scale';
+import { androidGlow } from '@/lib/glow';
 
 const SUGGESTIONS = ['Age', 'Verified', 'Tonight’s plan', 'Intent ✦', 'Height ✦'];
 
@@ -96,6 +97,7 @@ const styles = ScaledSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 0 },
+    ...androidGlow(colors.brandBright, 0.5, 10),
   },
   mainGrad: {
     flexDirection: 'row',

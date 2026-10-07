@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, type ViewProps } from 'react-native';
+import { Platform, View, type ViewProps } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing } from '@/constants/theme';
 import { ScaledSheet } from '@/lib/scale';
@@ -9,11 +9,18 @@ interface ScreenProps extends ViewProps {
   edges?: ('top' | 'right' | 'bottom' | 'left')[];
 }
 
+type Edge = NonNullable<ScreenProps['edges']>[number];
+
+// Android is edge-to-edge, so content would otherwise run under the system nav bar. Screens that pass
+// `edges` explicitly handle the bottom themselves (tab bar, composer, sticky footers).
+const DEFAULT_EDGES: Edge[] =
+  Platform.OS === 'android' ? ['top', 'left', 'right', 'bottom'] : ['top', 'left', 'right'];
+
 export function Screen({
   children,
   style,
   padded = true,
-  edges = ['top', 'left', 'right'],
+  edges = DEFAULT_EDGES,
   ...rest
 }: ScreenProps) {
   return (

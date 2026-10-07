@@ -324,7 +324,7 @@ export default function FiltersScreen() {
   );
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <View style={styles.top}>
           <View style={styles.flex}>

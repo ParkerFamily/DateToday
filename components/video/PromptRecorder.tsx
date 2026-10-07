@@ -9,7 +9,7 @@ import { useIsFocused } from 'expo-router';
 import { TapToPlayVideo } from '@/components/video/TapToPlayVideo';
 import * as FileSystem from 'expo-file-system/legacy';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { ScaledSheet, rs } from '@/lib/scale';
 
 type Phase = 'permission' | 'ready' | 'countdown' | 'recording' | 'review';
@@ -361,7 +361,10 @@ export function PromptRecorder({
 
   return (
     <View style={styles.stage}>
-      {permitted ? (
+      {permitted && Platform.OS === 'android' && !focused ? (
+        // `active` is iOS-only; unmounting is the only way to release the camera on Android.
+        <View style={[styles.fill, styles.camFallback]} />
+      ) : permitted ? (
         <Camera
           cameraRef={cameraRef}
           active={focused}

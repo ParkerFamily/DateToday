@@ -77,6 +77,7 @@ import {
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
+import { androidGlow } from '@/lib/glow';
 import { energyLabel, TRAVEL_OPTIONS } from '@/constants/datingTraits';
 import { MediaCarousel, type CarouselItem } from '@/components/discover/MediaCarousel';
 
@@ -1374,6 +1375,7 @@ const styles = ScaledSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 0 },
+    ...androidGlow(colors.brandBright, 0.8, 12),
   },
   tonightBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
   topBadges: { alignItems: 'flex-end', gap: 6 },

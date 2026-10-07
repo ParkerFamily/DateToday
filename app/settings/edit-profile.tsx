@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -797,7 +798,7 @@ export default function EditProfileScreen() {
         </Section>
       </ScrollView>
 
-      <Modal visible={sheet != null} animationType="slide" transparent onRequestClose={() => setSheet(null)}>
+      <SheetHost visible={sheet != null} onClose={() => setSheet(null)}>
         <KeyboardAvoidingView style={styles.sheetRoot} behavior="padding">
           <Pressable style={styles.sheetBackdrop} onPress={() => setSheet(null)} />
           <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
@@ -1026,12 +1027,56 @@ export default function EditProfileScreen() {
           ) : null}
           </View>
         </KeyboardAvoidingView>
-      </Modal>
+      </SheetHost>
     </Screen>
   );
 }
 
+/**
+ * Android Modals are separate edge-to-edge windows that never get React Native keyboard events,
+ * so the keyboard would cover the sheet's inputs. Render in-screen there; iOS keeps the Modal.
+ */
+function SheetHost({
+  visible,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const insets = useSafeAreaInsets();
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !visible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeRef.current();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible]);
+
+  if (Platform.OS !== 'android') {
+    return (
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+        {children}
+      </Modal>
+    );
+  }
+  if (!visible) return null;
+  return <View style={[styles.androidSheetHost, { top: -insets.top, bottom: -insets.bottom }]}>{children}</View>;
+}
+
 const styles = ScaledSheet.create({
+  androidSheetHost: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 50,
+    elevation: 50,
+  },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',

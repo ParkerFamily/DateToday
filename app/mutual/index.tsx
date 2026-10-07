@@ -26,6 +26,7 @@ import type { FoodCuisine, TonightActivity } from '@/types';
 import { useSessionStore } from '@/store/session';
 import { canStartPlan } from '@/features/live/planGate';
 import { ScaledSheet } from '@/lib/scale';
+import { androidGlow } from '@/lib/glow';
 import { repairStorageUrl } from '@/utils/photoUrl';
 
 function CollideRing({
@@ -298,6 +299,7 @@ const styles = ScaledSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 0 },
+    ...androidGlow(colors.brandBright, 0.35, 16, 0, 48),
   },
   face: {
     width: 96,

@@ -11,12 +11,14 @@ import { useState } from 'react';
 import { Alert, Pressable, View } from 'react-native';
 import { Image } from 'expo-image';
 import { ScaledSheet, rs } from '@/lib/scale';
+import { useRecoverPickedImage } from '@/lib/pendingImagePick';
 
 export default function PhotoScreen() {
   const router = useRouter();
   const mainPhotoUri = useOnboardingDraft((s) => s.mainPhotoUri);
   const setMainPhotoUri = useOnboardingDraft((s) => s.setMainPhotoUri);
   const [busy, setBusy] = useState(false);
+  useRecoverPickedImage((uri) => setMainPhotoUri(uri));
 
   const pick = async () => {
     try {

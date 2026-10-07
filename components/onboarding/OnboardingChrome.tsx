@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { DtIconHero, type DtIconMode } from '@/components/onboarding/DtIconHero';
@@ -79,6 +80,7 @@ export function OnboardingChrome({
   still = false,
 }: OnboardingChromeProps) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const ringSize = iconSize ?? (compact ? 64 : 88);
 
   const handleBack = () => {
@@ -103,7 +105,8 @@ export function OnboardingChrome({
       <KeyboardAvoidingView
         style={styles.flex}
         behavior="padding"
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
+        // Android: KeyboardAvoidingView measures from its parent, which starts below the status bar.
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : insets.top}
       >
         <View style={[styles.root, compact && styles.rootCompact]}>
           {showBack ? (
