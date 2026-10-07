@@ -167,6 +167,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const [sentTo, setSentTo] = useState<Set<string>>(() => new Set());
   const [interestedLoading, setInterestedLoading] = useState(false);
   const [interestFlash, setInterestFlash] = useState(false);
+  const [scrollH, setScrollH] = useState(0);
+  const [actionBarH, setActionBarH] = useState(0);
   /** Preview: first ♥ is one-way interest; second ♥ simulates mutual match */
   const interestsSentRef = useRef(0);
   const uid = useSessionStore((s) => s.userId);
@@ -709,7 +711,16 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   }
 
   const heroH = Math.min(layoutHeight * 0.68, rs(620));
+  // Media ends right above the fixed X / heart so the name + distance are never covered.
+  const mediaH =
+    scrollH > 0 && actionBarH > 0
+      ? Math.max(Math.min(heroH * 0.92, scrollH - actionBarH), rs(320))
+      : heroH * 0.92;
   const lowCount = tonightCount <= 3;
+  const distanceLabel =
+    card.hideDistance || card.distanceMiles < 0.1
+      ? 'Nearby'
+      : `Nearby · ${formatDistanceMiles(card.distanceMiles)} away`;
   const bottomPad = showClose ? 120 + insets.bottom : 100 + insets.bottom;
 
   return (
@@ -764,14 +775,15 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         <ScrollView
           ref={scrollRef}
           style={styles.scroll}
+          onLayout={(e) => setScrollH(e.nativeEvent.layout.height)}
           contentContainerStyle={{ paddingBottom: bottomPad }}
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={16}
         >
-          <View style={[styles.hero, { height: heroH * 0.92 }]}>
+          <View style={[styles.hero, { height: mediaH }]}>
             <MediaCarousel
               items={mediaItems}
-              height={heroH * 0.92}
+              height={mediaH}
               resetKey={card.userId}
               overlay={
                 <>
@@ -792,18 +804,24 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                     ) : (
                       <View style={styles.topSpacer} />
                     )}
-                    {tonight ? (
-                      <View style={styles.tonightBadge} pointerEvents="none">
-                        {tier === 0 ? (
-                          <Ionicons name="flash" size={rs(13)} color="#fff" />
-                        ) : (
-                          <View style={styles.laterDot} />
-                        )}
-                        <AppText style={styles.tonightBadgeText}>
-                          {availabilityText(card).toUpperCase()}
-                        </AppText>
+                    <View style={styles.topBadges} pointerEvents="none">
+                      {tonight ? (
+                        <View style={styles.tonightBadge}>
+                          {tier === 0 ? (
+                            <Ionicons name="flash" size={rs(13)} color="#fff" />
+                          ) : (
+                            <View style={styles.laterDot} />
+                          )}
+                          <AppText style={styles.tonightBadgeText}>
+                            {availabilityText(card).toUpperCase()}
+                          </AppText>
+                        </View>
+                      ) : null}
+                      <View style={styles.distanceBadge}>
+                        <Ionicons name="location" size={rs(12)} color="#fff" />
+                        <AppText style={styles.distanceBadgeText}>{distanceLabel}</AppText>
                       </View>
-                    ) : null}
+                    </View>
                   </View>
                   {card.isBoosted ? (
                     <View style={styles.boostedTag} pointerEvents="none">
@@ -834,13 +852,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                           {availabilityText(card).toUpperCase()}
                         </AppText>
                         <AppText style={styles.place} numberOfLines={1}>
-                          {[
-                            formatDistanceMiles(card.distanceMiles),
-                            tier === 0 ? `until ${formatClock(card.liveUntil)}` : null,
-                          ]
-                            .filter(Boolean)
-                            .map((bit) => ` · ${bit}`)
-                            .join('')}
+                          {tier === 0 ? ` · until ${formatClock(card.liveUntil)}` : ''}
                         </AppText>
                       </View>
                     ) : (
@@ -848,7 +860,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                         <View style={styles.statusLine}>
                           {activity?.online ? <View style={styles.onlineDot} /> : null}
                           <AppText style={styles.place}>
-                            {activity?.label} · {formatDistanceMiles(card.distanceMiles)}
+                            {activity?.label}
                           </AppText>
                         </View>
                         <AppText style={styles.notLiveNote}>
@@ -856,37 +868,39 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                         </AppText>
                       </>
                     )}
-                    <View style={styles.activities}>
-                      {card.activities.map((a) => (
-                        <View key={a} style={styles.pill}>
-                          <AppText style={styles.pillText}>
-                            {ACTIVITY_EMOJI[a] ? `${ACTIVITY_EMOJI[a]} ` : ''}
-                            {openToLabel(a)}
-                          </AppText>
-                        </View>
-                      ))}
-                      {isAfterHours()
-                        ? (card.afterHours ?? []).map((t) => (
-                            <View key={t} style={[styles.pill, styles.nightPill]}>
-                              <AppText style={styles.pillText}>
-                                🌙 {AFTER_HOURS_TAGS.find((o) => o.value === t)?.label}
-                              </AppText>
-                            </View>
-                          ))
-                        : null}
-                    </View>
                   </View>
                 </>
               }
             />
           </View>
 
-          {vibeChips.length || statusTags.length ? (
+          {vibeChips.length || statusTags.length || card.activities.length ? (
             <View style={styles.block}>
               <View style={styles.promptHead}>
                 <Ionicons name="sparkles" size={rs(14)} color={colors.brandBright} />
                 <AppText style={styles.promptHeadText}>TONIGHT’S VIBE</AppText>
               </View>
+              {card.activities.length || (isAfterHours() && card.afterHours?.length) ? (
+                <View style={styles.detailChips}>
+                  {card.activities.map((a) => (
+                    <View key={a} style={[styles.detailChip, styles.vibeChip]}>
+                      <AppText style={styles.detailChipText}>
+                        {ACTIVITY_EMOJI[a] ? `${ACTIVITY_EMOJI[a]} ` : ''}
+                        {openToLabel(a)}
+                      </AppText>
+                    </View>
+                  ))}
+                  {isAfterHours()
+                    ? (card.afterHours ?? []).map((t) => (
+                        <View key={t} style={[styles.detailChip, styles.nightPill]}>
+                          <AppText style={styles.detailChipText}>
+                            🌙 {AFTER_HOURS_TAGS.find((o) => o.value === t)?.label}
+                          </AppText>
+                        </View>
+                      ))
+                    : null}
+                </View>
+              ) : null}
               {vibeChips.length ? (
                 <View style={styles.detailChips}>
                   {vibeChips.map((v) => (
@@ -996,6 +1010,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 : Math.max(insets.bottom - 8, 8),
             },
           ]}
+          onLayout={(e) => setActionBarH(e.nativeEvent.layout.height)}
           pointerEvents="box-none"
         >
           <Pressable
@@ -1300,6 +1315,19 @@ const styles = ScaledSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   tonightBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
+  topBadges: { alignItems: 'flex-end', gap: 6 },
+  distanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(9,9,11,0.62)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  distanceBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   laterDot: {
     width: 9,
     height: 9,

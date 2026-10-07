@@ -1,5 +1,6 @@
 import { useEvent } from 'expo';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from 'expo-router';
@@ -109,11 +110,18 @@ export function MediaCarousel({
           )}
         </Pressable>
         {count > 1 ? (
-          <View style={styles.bars} pointerEvents="none">
-            {items.map((_, i) => (
-              <View key={i} style={[styles.bar, i === index && styles.barOn]} />
-            ))}
-          </View>
+          <>
+            <LinearGradient
+              colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0)']}
+              style={styles.barsScrim}
+              pointerEvents="none"
+            />
+            <View style={styles.bars} pointerEvents="none">
+              {items.map((_, i) => (
+                <View key={i} style={[styles.bar, i === index && styles.barOn]} />
+              ))}
+            </View>
+          </>
         ) : null}
       </View>
     </GestureDetector>
@@ -190,11 +198,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: rs(4),
   },
+  barsScrim: { position: 'absolute', top: 0, left: 0, right: 0, height: rs(56) },
   bar: {
     flex: 1,
-    height: rs(3),
+    height: rs(3.5),
     borderRadius: rs(2),
-    backgroundColor: 'rgba(255,255,255,0.32)',
+    backgroundColor: 'rgba(255,255,255,0.4)',
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 0 },
   },
   barOn: { backgroundColor: '#fff' },
   center: {
@@ -216,7 +229,7 @@ const styles = StyleSheet.create({
   playIcon: { marginLeft: rs(4) },
   videoCaption: {
     position: 'absolute',
-    top: rs(72),
+    top: rs(100),
     left: rs(16),
     right: rs(16),
     gap: rs(4),
