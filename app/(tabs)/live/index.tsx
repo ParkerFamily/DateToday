@@ -230,7 +230,11 @@ export default function LiveHomeScreen() {
   };
 
   const activateLive = async () => {
+    const t0 = performance.now();
+    console.log('[GO LIVE] Button pressed');
+    
     if (!readyForLive) {
+      console.log(`[GO LIVE] Not ready: ${performance.now() - t0}ms`);
       Alert.alert(
         'Finish setup to Go Live',
         missing.slice(0, 4).join('\n') || 'Complete your profile first.',
@@ -245,14 +249,24 @@ export default function LiveHomeScreen() {
       return;
     }
     try {
+      const t1 = performance.now();
+      console.log(`[GO LIVE] setLoading(true): ${t1 - t0}ms`);
       setLoading(true);
+      
       const { expiresAt, label } = buildExpiration(untilPick.value, laterTonightHour);
+      console.log(`[GO LIVE] buildExpiration: ${performance.now() - t1}ms`);
 
       let latitude = 33.7838;
       let longitude = -84.383;
 
+      const t2 = performance.now();
+      console.log('[GO LIVE] Requesting location permission');
       const { status } = await Location.requestForegroundPermissionsAsync();
+      console.log(`[GO LIVE] Permission status ${status}: ${performance.now() - t2}ms`);
+      
       if (status === 'granted') {
+        const t3 = performance.now();
+        console.log('[GO LIVE] Getting current position (8s timeout)');
         try {
           const position = await Promise.race([
             Location.getCurrentPositionAsync({
@@ -260,15 +274,18 @@ export default function LiveHomeScreen() {
             }),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
           ]);
+          console.log(`[GO LIVE] Got position: ${performance.now() - t3}ms`);
           if (position) {
             latitude = position.coords.latitude;
             longitude = position.coords.longitude;
+          } else {
+            console.log('[GO LIVE] Position timeout - using fallback');
           }
-        } catch {
-          // GPS failure — use fallback coordinates for development/testing
+        } catch (err) {
+          console.log(`[GO LIVE] Position error: ${err}`);
         }
       } else if (isBackendConfigured()) {
-        // Never go live at a made-up spot — people nearby would see the wrong distance.
+        console.log('[GO LIVE] Permission denied, showing alert');
         Alert.alert(
           'Turn on location to go Live',
           'DateToday uses your approximate location so people near you can find you tonight.',
@@ -282,6 +299,8 @@ export default function LiveHomeScreen() {
 
       // Firebase is primary — always publish a real beacon (no silent local-only pool).
       if (isBackendConfigured()) {
+        const t4 = performance.now();
+        console.log('[GO LIVE] Calling startLiveSession');
         const session = await startLiveSession({
           latitude,
           longitude,
@@ -297,10 +316,12 @@ export default function LiveHomeScreen() {
           travel,
           planIdea,
         });
+        console.log(`[GO LIVE] startLiveSession complete: ${performance.now() - t4}ms`);
         setLiveSession({ ...session, isBoosted: false, boostedAt: null });
         setPingResults(0, 0);
         setSheet('none');
         void registerPushTokenAsync({ prompt: true });
+        console.log(`[GO LIVE] TOTAL: ${performance.now() - t0}ms`);
         return;
       }
 
@@ -347,6 +368,7 @@ export default function LiveHomeScreen() {
       setPingResults(0, 0);
       setSheet('none');
     } catch (error) {
+      console.log(`[GO LIVE] ERROR: ${error}`);
       const errorMessage = friendlyError(error, 'Could not go live right now');
       Alert.alert(
         'Could not go live',
@@ -357,6 +379,7 @@ export default function LiveHomeScreen() {
         ],
       );
     } finally {
+      console.log('[GO LIVE] setLoading(false)');
       setLoading(false);
     }
   };

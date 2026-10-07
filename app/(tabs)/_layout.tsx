@@ -109,6 +109,8 @@ const MatchesTabIcon = memo(function MatchesTabIcon({
 });
 
 export default function TabsLayout() {
+  const startTime = performance.now();
+  
   useMatchesSubscription();
   useLiveSessionResync();
   useLiveActivitySync();
@@ -123,6 +125,11 @@ export default function TabsLayout() {
   );
   const tabPadBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 8);
   const tabBarHeight = rs(52) + tabPadBottom;
+
+  useEffect(() => {
+    const elapsed = performance.now() - startTime;
+    console.log(`[TAB RENDER] ${elapsed.toFixed(2)}ms`);
+  });
 
   return (
     <Tabs
