@@ -47,7 +47,13 @@ export function TapToPlayVideo({
       accessibilityLabel={isPlaying ? 'Pause video' : 'Play video'}
       style={style}
     >
-      <VideoView player={player} style={StyleSheet.absoluteFill} contentFit={contentFit} nativeControls={false} />
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        contentFit={contentFit}
+        nativeControls={false}
+        surfaceType="textureView"
+      />
       {isPlaying ? null : <PlayBadge />}
     </Pressable>
   );

@@ -189,7 +189,7 @@ export default function PlanDateScreen() {
       <View style={styles.root}>
         <Pressable style={styles.dim} onPress={() => dismissToLive(router)} />
 
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetAnchor}>
+        <KeyboardAvoidingView behavior="padding" style={styles.sheetAnchor}>
           <View style={styles.sheet}>
             <LinearGradient
               colors={['rgba(124,58,237,0.28)', 'rgba(18,16,26,0)']}

@@ -191,7 +191,11 @@ export default function SettingsScreen() {
           <SettingsRow
             label="Help & support"
             last
-            onPress={() => void Linking.openURL(`mailto:${SUPPORT.email}`)}
+            onPress={() =>
+              void Linking.openURL(`mailto:${SUPPORT.email}`).catch(() =>
+                Alert.alert('Help & support', `Email us at ${SUPPORT.email}`),
+              )
+            }
           />
         </SettingsGroup>
 

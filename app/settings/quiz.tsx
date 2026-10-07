@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Pressable, ScrollView, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/ui/Screen';
@@ -36,6 +36,16 @@ export default function CompatibilityQuizScreen() {
       .catch(() => undefined)
       .finally(() => setLoading(false));
   }, []);
+
+  // Answers only save at the end of a level, so the Android back button steps back instead of leaving.
+  useEffect(() => {
+    if (mode.kind !== 'questions') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setMode(mode.index > 0 ? { ...mode, index: mode.index - 1 } : { kind: 'menu' });
+      return true;
+    });
+    return () => sub.remove();
+  }, [mode]);
 
   const finishLevel = async (taken: number, next: QuizAnswers) => {
     const newLevel = Math.max(level, taken);

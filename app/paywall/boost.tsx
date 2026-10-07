@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { LiveBadge } from '@/components/ui/LiveBadge';
 import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, radii, spacing } from '@/constants/theme';
-import { loadBoostPackage, purchaseTonightBoost } from '@/lib/purchases';
+import { billingComingSoon, loadBoostPackage, purchaseTonightBoost } from '@/lib/purchases';
 import { useSessionStore } from '@/store/session';
 import { isLiveSessionActive } from '@/utils/time';
 import { ScaledSheet } from '@/lib/scale';
@@ -92,7 +92,9 @@ export default function TonightBoostScreen() {
           <AppText style={styles.caption}>One-time · lasts for your current Ping</AppText>
         </View>
 
-        {live ? (
+        {billingComingSoon() ? (
+          <Button label="Coming soon on Android" disabled onPress={() => undefined} />
+        ) : live ? (
           <Button
             label={`Boost Tonight · ${priceLabel}`}
             loading={loading}

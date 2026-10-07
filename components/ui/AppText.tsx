@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Image,
+  Platform,
   StyleSheet,
   Text,
   type TextProps,
@@ -22,6 +23,30 @@ const type = ScaledSheet.create({
 });
 
 type Variant = 'brand' | 'hero' | 'title' | 'body' | 'caption' | 'label' | 'secondary';
+
+const INTER_FACES: [number, string][] = [
+  [400, 'Inter_400Regular'],
+  [600, 'Inter_600SemiBold'],
+  [700, 'Inter_700Bold'],
+  [800, 'Inter_800ExtraBold'],
+];
+
+/**
+ * iOS resolves fontWeight to the closest loaded Inter face; Android treats each loaded face as its own
+ * family and fakes the weight instead. Pick the real face on Android so both render the same.
+ */
+function androidInterFace(flat: TextStyle, variantFamily: string): TextStyle | null {
+  const family = flat.fontFamily ?? variantFamily;
+  if (!family.startsWith('Inter_') || flat.fontWeight == null) return null;
+  const w = flat.fontWeight;
+  const weight = w === 'bold' ? 700 : w === 'normal' ? 400 : Number(w);
+  if (!Number.isFinite(weight)) return null;
+  let best = INTER_FACES[0];
+  for (const face of INTER_FACES) {
+    if (Math.abs(face[0] - weight) <= Math.abs(best[0] - weight)) best = face;
+  }
+  return { fontFamily: best[1], fontWeight: 'normal' };
+}
 
 interface AppTextProps extends TextProps {
   variant?: Variant;
@@ -71,9 +96,11 @@ export function AppText({
         ? 'Inter_600SemiBold'
         : 'Inter_400Regular';
 
+  const androidFace = Platform.OS === 'android' ? androidInterFace(flat, fontFamily) : null;
+
   return (
     <Text
-      style={[base, { color: resolvedColor, fontFamily }, style, { lineHeight }]}
+      style={[base, { color: resolvedColor, fontFamily }, style, { lineHeight }, androidFace]}
       {...rest}
     >
       {children}

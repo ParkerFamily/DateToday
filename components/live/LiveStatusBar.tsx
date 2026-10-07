@@ -14,6 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
+import { billingComingSoon } from '@/lib/purchases';
 
 const EDIT_HINT_KEY = 'dt.hint.liveEditSeen';
 
@@ -114,12 +115,12 @@ export function LiveStatusBar({
           </AppText>
         ) : null}
       </View>
-      {!isBoosted ? (
+      {isBoosted ? (
+        <AppText style={[styles.boosted, styles.indent]}>BOOSTED · FRONT OF THE LINE</AppText>
+      ) : billingComingSoon() ? null : (
         <Pressable onPress={onBoost} hitSlop={6} style={styles.indent}>
           <AppText style={styles.boost}>Boost your visibility tonight →</AppText>
         </Pressable>
-      ) : (
-        <AppText style={[styles.boosted, styles.indent]}>BOOSTED · FRONT OF THE LINE</AppText>
       )}
     </View>
   );

@@ -727,22 +727,44 @@ export default function ChatScreen() {
   );
 
   const openChatMenu = () => {
+    const blockAndReport = () => confirmBlockAndReport(router, { uid: theirId, name: theirName });
+    const reportOnly = () =>
+      router.push({
+        pathname: '/safety/report',
+        params: { userId: theirId, name: theirName, matchId },
+      });
+    // Android alerts render at most 3 buttons, so the safety actions move to a second step there.
+    if (Platform.OS === 'android') {
+      Alert.alert(
+        theirName,
+        undefined,
+        [
+          { text: 'View profile', onPress: openProfile },
+          { text: 'Unmatch', onPress: confirmUnmatch },
+          {
+            text: 'Block or report…',
+            onPress: () =>
+              Alert.alert(
+                `Block or report ${theirName}?`,
+                undefined,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Report only', onPress: reportOnly },
+                  { text: 'Block & report', onPress: blockAndReport },
+                ],
+                { cancelable: true },
+              ),
+          },
+        ],
+        { cancelable: true },
+      );
+      return;
+    }
     Alert.alert(theirName, undefined, [
       { text: 'View profile', onPress: openProfile },
       { text: 'Unmatch', style: 'destructive', onPress: confirmUnmatch },
-      {
-        text: 'Block & report',
-        style: 'destructive',
-        onPress: () => confirmBlockAndReport(router, { uid: theirId, name: theirName }),
-      },
-      {
-        text: 'Report without blocking',
-        onPress: () =>
-          router.push({
-            pathname: '/safety/report',
-            params: { userId: theirId, name: theirName, matchId },
-          }),
-      },
+      { text: 'Block & report', style: 'destructive', onPress: blockAndReport },
+      { text: 'Report without blocking', onPress: reportOnly },
       { text: 'Cancel', style: 'cancel' },
     ]);
   };

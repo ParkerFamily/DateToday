@@ -63,7 +63,13 @@ function VideoPoster({
   const player = useVideoPlayer(uri);
   return (
     <View style={styles.mediaFill} pointerEvents="none">
-      <VideoView player={player} style={styles.mediaFill} contentFit="cover" nativeControls={false} />
+      <VideoView
+        player={player}
+        style={styles.mediaFill}
+        contentFit="cover"
+        nativeControls={false}
+        surfaceType="textureView"
+      />
       <PlayBadge />
       <Caption caption={caption} eyebrow={eyebrow} />
     </View>

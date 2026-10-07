@@ -20,6 +20,7 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { UPGRADE_COPY, type UpgradeReason } from '@/lib/commerce/upgradePrompt';
 import { isPlusActive, plusStatusLabel } from '@/lib/entitlements';
 import {
+  billingComingSoon,
   loadPlusPlans,
   managementUrlForEntitlements,
   purchasePlusPackage,
@@ -48,6 +49,7 @@ export default function PaywallScreen() {
   const [loadingOffers, setLoadingOffers] = useState(true);
   const [busy, setBusy] = useState(false);
   const [storeHint, setStoreHint] = useState<string | null>(null);
+  const comingSoon = billingComingSoon();
 
   useEffect(() => {
     let alive = true;
@@ -235,20 +237,25 @@ export default function PaywallScreen() {
           </View>
         )}
 
-        <Button label={ctaLabel} loading={busy} onPress={() => void onContinue()} />
-
-        <AppText style={styles.legal}>
-          Payment is charged to your {Platform.OS === 'android' ? 'Google Play' : 'Apple ID'} account
-          at confirmation. Subscription automatically renews unless canceled at least 24 hours before
-          the end of the current period. Manage or cancel in your store account settings.
-        </AppText>
+        {comingSoon ? (
+          <Button label="Coming soon on Android" disabled onPress={() => undefined} />
+        ) : (
+          <>
+            <Button label={ctaLabel} loading={busy} onPress={() => void onContinue()} />
+            <AppText style={styles.legal}>
+              Payment is charged to your {Platform.OS === 'android' ? 'Google Play' : 'Apple ID'} account
+              at confirmation. Subscription automatically renews unless canceled at least 24 hours before
+              the end of the current period. Manage or cancel in your store account settings.
+            </AppText>
+          </>
+        )}
 
         <View style={styles.links}>
           <Pressable
             onPress={() =>
-              void Linking.openURL(LEGAL_URLS.appleStandardEula).catch(() =>
-                router.push('/legal/terms'),
-              )
+              void Linking.openURL(
+                Platform.OS === 'ios' ? LEGAL_URLS.appleStandardEula : LEGAL_URLS.termsOfService,
+              ).catch(() => router.push('/legal/terms'))
             }
           >
             <AppText style={styles.link}>Terms of Use (EULA)</AppText>
@@ -263,10 +270,14 @@ export default function PaywallScreen() {
           >
             <AppText style={styles.link}>Privacy</AppText>
           </Pressable>
-          <AppText style={styles.linkDot}>·</AppText>
-          <Pressable onPress={() => void onRestore()} disabled={busy}>
-            <AppText style={styles.link}>Restore</AppText>
-          </Pressable>
+          {comingSoon ? null : (
+            <>
+              <AppText style={styles.linkDot}>·</AppText>
+              <Pressable onPress={() => void onRestore()} disabled={busy}>
+                <AppText style={styles.link}>Restore</AppText>
+              </Pressable>
+            </>
+          )}
         </View>
       </ScrollView>
     </Screen>

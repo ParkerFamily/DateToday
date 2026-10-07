@@ -773,24 +773,32 @@ async function pushToUser(db, uid, { title, body, data, badge }, options = {}) {
     const snap = await db.collection('pushTokens').where('uid', '==', uid).get();
     const docs = snap.docs.filter((d) => {
       const t = d.data();
-      return typeof t.token === 'string' && t.enabled !== false && d.id !== options.excludeTokenDocId;
+      return (
+        typeof t.token === 'string' &&
+        t.enabled !== false &&
+        d.id !== options.excludeTokenDocId &&
+        (!options.platform || t.platform === options.platform)
+      );
     });
     if (!docs.length) return;
 
+    // Data-only: no banner or sound; the app's background task acts on it.
     const entries = docs.map((d) => ({
       ref: d.ref,
-      message: {
-        to: d.data().token,
-        title,
-        body,
-        data: data || {},
-        sound: 'default',
-        channelId: CHANNEL_FOR_TYPE[type] || 'system',
-        ...(CATEGORY_FOR_TYPE[type] ? { categoryId: CATEGORY_FOR_TYPE[type] } : {}),
-        priority: 'high',
-        ttl: TTL_FOR_TYPE[type] || DEFAULT_TTL,
-        ...(typeof badge === 'number' && badge >= 0 ? { badge } : {}),
-      },
+      message: options.silent
+        ? { to: d.data().token, data: data || {}, priority: 'high', ttl: TTL_FOR_TYPE[type] || DEFAULT_TTL }
+        : {
+            to: d.data().token,
+            title,
+            body,
+            data: data || {},
+            sound: 'default',
+            channelId: CHANNEL_FOR_TYPE[type] || 'system',
+            ...(CATEGORY_FOR_TYPE[type] ? { categoryId: CATEGORY_FOR_TYPE[type] } : {}),
+            priority: 'high',
+            ttl: TTL_FOR_TYPE[type] || DEFAULT_TTL,
+            ...(typeof badge === 'number' && badge >= 0 ? { badge } : {}),
+          },
     }));
 
     const retry = await sendExpoMessages(db, uid, type, entries);

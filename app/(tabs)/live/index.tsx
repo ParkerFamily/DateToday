@@ -52,6 +52,7 @@ import {
     AppState,
     Linking,
     Modal,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -254,12 +255,23 @@ export default function LiveHomeScreen() {
         );
         return;
       }
+      // Android keeps the permission granted with the phone's Location switch off; ask to turn it on.
+      if (status === 'granted' && Platform.OS === 'android' && !(await Location.hasServicesEnabledAsync().catch(() => true))) {
+        const turnedOn = await Location.enableNetworkProviderAsync().then(() => true, () => false);
+        if (!turnedOn) {
+          Alert.alert('Turn on Location to go Live', 'Your phone’s Location is off. Turn it on in Quick Settings, then try again.');
+          return;
+        }
+      }
       if (status === 'granted') {
         const position =
           (await Promise.race([
             Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
-          ])) ?? (await Location.getLastKnownPositionAsync().catch(() => null));
+          ])) ??
+          (await Location.getLastKnownPositionAsync(
+            Platform.OS === 'android' ? { maxAge: 30 * 60 * 1000 } : undefined,
+          ).catch(() => null));
         if (position?.coords) {
           latitude = position.coords.latitude;
           longitude = position.coords.longitude;

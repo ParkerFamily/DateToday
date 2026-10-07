@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { Alert, Platform, type AlertButton } from 'react-native';
 import type { useRouter } from 'expo-router';
 import { friendlyError } from '@/lib/errors';
 import { blockUser } from '@/features/safety/api';
@@ -16,32 +16,36 @@ export function leaveAfterBlock(router: Router) {
 /** One entry point for "Block & report" from chat and profiles. */
 export function confirmBlockAndReport(router: Router, target: { uid: string; name: string }) {
   if (!target.uid) return;
-  Alert.alert(`Block ${target.name}?`, BLOCK_EXPLAINER, [
-    {
-      text: 'Report & block',
-      style: 'destructive',
-      onPress: () =>
-        router.push({
-          pathname: '/safety/report',
-          params: { userId: target.uid, name: target.name, block: '1' },
-        }),
+  const reportAndBlock: AlertButton = {
+    text: 'Report & block',
+    style: 'destructive',
+    onPress: () =>
+      router.push({
+        pathname: '/safety/report',
+        params: { userId: target.uid, name: target.name, block: '1' },
+      }),
+  };
+  const blockOnly: AlertButton = {
+    text: 'Block only',
+    style: 'destructive',
+    onPress: () => {
+      void (async () => {
+        try {
+          await blockUser(target.uid, 'block', target.name);
+          Alert.alert('Blocked', `${target.name} is gone for good.`, [
+            { text: 'OK', onPress: () => leaveAfterBlock(router) },
+          ]);
+        } catch (error) {
+          Alert.alert('Couldn’t block', friendlyError(error, 'Try again.'));
+        }
+      })();
     },
-    {
-      text: 'Block only',
-      style: 'destructive',
-      onPress: () => {
-        void (async () => {
-          try {
-            await blockUser(target.uid, 'block', target.name);
-            Alert.alert('Blocked', `${target.name} is gone for good.`, [
-              { text: 'OK', onPress: () => leaveAfterBlock(router) },
-            ]);
-          } catch (error) {
-            Alert.alert('Couldn’t block', friendlyError(error, 'Try again.'));
-          }
-        })();
-      },
-    },
-    { text: 'Cancel', style: 'cancel' },
-  ]);
+  };
+  const cancel: AlertButton = { text: 'Cancel', style: 'cancel' };
+  // Android places the last button in the primary (right) slot, so Cancel goes first there.
+  if (Platform.OS === 'android') {
+    Alert.alert(`Block ${target.name}?`, BLOCK_EXPLAINER, [cancel, blockOnly, reportAndBlock], { cancelable: true });
+    return;
+  }
+  Alert.alert(`Block ${target.name}?`, BLOCK_EXPLAINER, [reportAndBlock, blockOnly, cancel]);
 }

@@ -217,12 +217,22 @@ async function liveEngagementSweep({ db, FieldValue, pushToUser, now = Date.now(
     if (d.endedAt) continue;
     // Expired or past the nightly reset: drop the Live badge/priority. Nearby presence stays.
     const end = Math.min(toMs(d.expiresAt) || now, nightResetMs(d, now), now);
-    await doc.ref
+    const ended = await doc.ref
       .set(
         { status: 'ended', endedAt: new Date(end).toISOString(), endedReason: 'expired', updatedAt: FieldValue.serverTimestamp() },
         { merge: true },
       )
-      .catch((e) => console.warn('expire live failed', doc.id, e && e.message));
+      .then(() => true)
+      .catch((e) => {
+        console.warn('expire live failed', doc.id, e && e.message);
+        return false;
+      });
+    // Android's pinned "You're live" notification can't expire on its own; this lets the app clear it while closed.
+    if (ended) {
+      await pushToUser(db, doc.id, { data: { type: 'live_ended' } }, { platform: 'android', silent: true }).catch(
+        () => undefined,
+      );
+    }
   }
 
   let sent = 0;

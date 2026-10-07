@@ -2,7 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import { functionsUrl } from '@/features/matches/api';
-import { dismissNotificationsForMatch } from '@/features/notifications/push';
+import { clearLiveStatusNotification, dismissNotificationsForMatch } from '@/features/notifications/push';
 import { getFirebaseAuth } from '@/lib/firebase/client';
 
 /** Must match CATEGORY_FOR_TYPE in functions/index.js. No ":" or "-" allowed in category ids. */
@@ -84,12 +84,15 @@ async function performLiveAction(response: Notifications.NotificationResponse) {
   const nonce = `${action}:${id.replace(/[^A-Za-z0-9:_.-]/g, '').slice(-120)}`;
   try {
     const { callLiveAction } = await import('@/features/live/liveActions');
+    let result;
     try {
-      await callLiveAction(action, nonce);
+      result = await callLiveAction(action, nonce);
     } catch {
       await new Promise((r) => setTimeout(r, 1500));
-      await callLiveAction(action, nonce);
+      result = await callLiveAction(action, nonce);
     }
+    // The pinned Android Live notification is otherwise only cleared by the app UI, which may not be running.
+    if (!result.live) await clearLiveStatusNotification();
     const uid = getFirebaseAuth().currentUser?.uid;
     if (uid) {
       const { restoreLiveSession } = await import('@/features/live/restoreLiveSession');
@@ -141,8 +144,11 @@ async function performNotificationAction(response: Notifications.NotificationRes
  * Android only delivers background action taps to a TaskManager task. Builds made
  * before expo-task-manager was added don't have its native module, so check first
  * and fall back to opening the app to send the reply.
+ *
+ * Must also run from the bundle entry (index.js): a tap after the app was swiped away
+ * starts headless JS that never renders routes, so the root layout can't define it.
  */
-function setUpAndroidActionTask(): boolean {
+export function defineAndroidActionTask(): boolean {
   if (Platform.OS !== 'android' || !requireOptionalNativeModule('ExpoTaskManager')) return false;
   try {
     const TaskManager = require('expo-task-manager') as typeof import('expo-task-manager');
@@ -150,14 +156,22 @@ function setUpAndroidActionTask(): boolean {
       TaskManager.defineTask<Notifications.NotificationTaskPayload>(ANDROID_ACTION_TASK, async ({ data }) => {
         if (data && typeof data === 'object' && 'actionIdentifier' in data) {
           await handleNotificationAction(data as Notifications.NotificationResponse);
+          return;
         }
+        // Silent "live_ended" push from the server's expiry sweep; payload shape varies, so match loosely.
+        if (JSON.stringify(data ?? null).includes('live_ended')) await clearLiveStatusNotification();
       });
     }
-    void Notifications.registerTaskAsync(ANDROID_ACTION_TASK).catch(() => undefined);
     return true;
   } catch {
     return false;
   }
+}
+
+function setUpAndroidActionTask(): boolean {
+  if (!defineAndroidActionTask()) return false;
+  void Notifications.registerTaskAsync(ANDROID_ACTION_TASK).catch(() => undefined);
+  return true;
 }
 
 /** Call once at module scope (root layout) so actions work on background / cold launches. */

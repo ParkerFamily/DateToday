@@ -102,7 +102,7 @@ export function OnboardingChrome({
     <Screen edges={['top', 'bottom', 'left', 'right']} padded={false}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
         keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <View style={[styles.root, compact && styles.rootCompact]}>

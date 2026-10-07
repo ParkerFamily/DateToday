@@ -53,6 +53,11 @@ export function configureNotificationHandler() {
       if (data?.type === 'live_status') {
         return { shouldPlaySound: false, shouldSetBadge: false, shouldShowBanner: false, shouldShowList: true };
       }
+      const { title, body } = notification.request.content;
+      if (data?.type === 'live_ended' || (!title && !body)) {
+        if (data?.type === 'live_ended') void clearLiveStatusNotification();
+        return { shouldPlaySound: false, shouldSetBadge: false, shouldShowBanner: false, shouldShowList: false };
+      }
       const inThatChat =
         Boolean(activeChatMatchId) && typeof data?.matchId === 'string' && data.matchId === activeChatMatchId;
       return {

@@ -121,9 +121,13 @@ export function useLiveActivitySync() {
 
   useEffect(() => {
     if (!active || !liveSession) return;
-    const ms = new Date(liveSession.expiresAt).getTime() - Date.now();
-    const timer = setTimeout(() => setTick((t) => t + 1), Math.max(0, ms) + 500);
-    return () => clearTimeout(timer);
+    const now = Date.now();
+    // Re-render at expiry, and when "Free until" passes so the label drops off.
+    const timers = [liveSession.expiresAt, liveSession.availableUntil]
+      .map((iso) => (iso ? new Date(iso).getTime() - now : NaN))
+      .filter((ms) => Number.isFinite(ms) && ms > 0 && ms < 24 * 60 * 60 * 1000)
+      .map((ms) => setTimeout(() => setTick((t) => t + 1), ms + 500));
+    return () => timers.forEach(clearTimeout);
   }, [active, liveSession]);
 
   const props = useMemo<LiveSessionActivityProps | null>(() => {

@@ -160,7 +160,13 @@ function CarouselVideo({
 
   return (
     <>
-      <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        nativeControls={false}
+        surfaceType="textureView"
+      />
       {overlay}
       <View style={styles.videoCaption} pointerEvents="none">
         <AppText style={styles.videoLabel}>🎥 {item.label}</AppText>

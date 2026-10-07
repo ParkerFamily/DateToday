@@ -18,10 +18,12 @@ import {
   ScrollView,
   View,
 } from 'react-native';
-import { ScaledSheet } from '@/lib/scale';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const ITEM_H = 44;
+/** ITEM_H as laid out by ScaledSheet; scroll math must use the rendered row height on tablets. */
+const ROW_H = rs(ITEM_H);
 const YEARS = Array.from({ length: 60 }, (_, i) => new Date().getFullYear() - 18 - i);
 const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 
@@ -39,7 +41,7 @@ function Wheel({
   const ref = useRef<ScrollView>(null);
   const index = Math.max(0, data.findIndex((d) => d === value));
   const onMomentum = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const i = Math.round(e.nativeEvent.contentOffset.y / ITEM_H);
+    const i = Math.round(e.nativeEvent.contentOffset.y / ROW_H);
     onChange(data[Math.min(Math.max(i, 0), data.length - 1)]);
   };
   return (
@@ -47,11 +49,12 @@ function Wheel({
       <View style={styles.highlight} pointerEvents="none" />
       <ScrollView
         ref={ref}
+        nestedScrollEnabled
         showsVerticalScrollIndicator={false}
-        snapToInterval={ITEM_H}
+        snapToInterval={ROW_H}
         decelerationRate="fast"
-        contentContainerStyle={{ paddingVertical: ITEM_H * 2 }}
-        onLayout={() => ref.current?.scrollTo({ y: index * ITEM_H, animated: false })}
+        contentContainerStyle={{ paddingVertical: ROW_H * 2 }}
+        onLayout={() => ref.current?.scrollTo({ y: index * ROW_H, animated: false })}
         onMomentumScrollEnd={onMomentum}
       >
         {data.map((item) => (

@@ -198,5 +198,6 @@ const styles = ScaledSheet.create({
     color: '#fff',
     fontSize: 10,
     fontWeight: '800',
+    includeFontPadding: false,
   },
 });

@@ -36,6 +36,11 @@ function isAndroidIapDeferred(): boolean {
   return Platform.OS === 'android';
 }
 
+/** Store billing isn't wired on this platform yet — paywalls show prices but can't sell. */
+export function billingComingSoon(): boolean {
+  return isAndroidIapDeferred();
+}
+
 function apiKeyForPlatform(): string {
   if (isAndroidIapDeferred()) return '';
   if (Platform.OS === 'ios') return env.revenueCatIosKey;
