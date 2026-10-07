@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo } from 'react';
+import React, { memo, useEffect, useMemo, useRef } from 'react';
 import { AppState, Platform, Text, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,8 +31,12 @@ const LiveTabIcon = memo(function LiveTabIcon({
   focused: boolean;
 }) {
   const liveSession = useSessionStore((s) => s.liveSession);
-  const live = liveSession ? isLiveSessionActive(liveSession, new Date()) : false;
-  const pulse = useSharedValue(1);
+  const live = useMemo(
+    () => liveSession ? isLiveSessionActive(liveSession, new Date()) : false,
+    [liveSession?.id, liveSession?.expiresAt]
+  );
+  const pulseRef = useRef(useSharedValue(1));
+  const pulse = pulseRef.current;
 
   useEffect(() => {
     if (!live) {
@@ -41,23 +45,21 @@ const LiveTabIcon = memo(function LiveTabIcon({
       return;
     }
     
-    // Pause animation when app is backgrounded to save battery
-    let isActive = AppState.currentState === 'active';
+    if (AppState.currentState !== 'active') return;
     
-    const startAnim = () => {
-      pulse.value = withRepeat(
-        withTiming(1.18, { duration: 900, easing: Easing.inOut(Easing.quad) }),
-        -1,
-        true,
-      );
-    };
-    
-    if (isActive) startAnim();
+    pulse.value = withRepeat(
+      withTiming(1.18, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+      -1,
+      true,
+    );
     
     const sub = AppState.addEventListener('change', (next) => {
-      isActive = next === 'active';
-      if (isActive && live) {
-        startAnim();
+      if (next === 'active' && live) {
+        pulse.value = withRepeat(
+          withTiming(1.18, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+          -1,
+          true,
+        );
       } else {
         cancelAnimation(pulse);
         pulse.value = 1;
