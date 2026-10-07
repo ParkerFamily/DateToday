@@ -135,14 +135,15 @@ export function useLiveActivitySync() {
     const bits: string[] = [];
     if (likes > 0) bits.push(plural(likes, 'person likes you', 'people like you'));
     if (unread > 0) bits.push(plural(unread, 'new message', 'new messages'));
+    const endsLabel = freeUntilLabel(liveSession.availableUntil) ?? '';
     return {
       headline: datePlannedTonight ? 'Date planned tonight' : 'You’re live',
       detail: [neighborhood, activities || 'Open to anything'].filter(Boolean).join(' · '),
       activity: bits.join(' · '),
-      endsLabel: freeUntilLabel(liveSession.availableUntil) ?? '',
+      endsLabel,
+      untilTime: endsLabel.replace(/^Free until\s*/, ''),
       likes,
       messages: unread,
-      startedAtMs: new Date(liveSession.startedAt).getTime(),
       endsAtMs: new Date(liveSession.expiresAt).getTime(),
       boosted: Boolean(liveSession.isBoosted),
     };

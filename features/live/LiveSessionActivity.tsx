@@ -1,18 +1,13 @@
-import { HStack, Image, ProgressView, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import { HStack, Image, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import {
   activityBackgroundTint,
   background,
   font,
   foregroundStyle,
-  frame,
   kerning,
-  labelsHidden,
   lineLimit,
-  monospacedDigit,
   padding,
-  progressViewStyle,
   shapes,
-  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { createLiveActivity, type LiveActivityEnvironment } from 'expo-widgets';
 
@@ -23,11 +18,13 @@ export type LiveSessionActivityProps = {
   detail: string;
   /** "2 people like you · 1 new message" — empty when nothing new (Android notification text). */
   activity: string;
-  /** "until 3:28 AM" */
+  /** "Free until 11 PM" (Android notification title). */
   endsLabel: string;
+  /** "11 PM" — the lock screen's headline time; empty when they didn't set one. */
+  untilTime: string;
   likes: number;
   messages: number;
-  startedAtMs: number;
+  /** Only marks the activity stale; there's no visible countdown. */
   endsAtMs: number;
   boosted: boolean;
 };
@@ -47,7 +44,6 @@ const LiveSessionActivity = (props: LiveSessionActivityProps, environment: LiveA
     startPoint: { x: 0, y: 0 },
     endPoint: { x: 1, y: 1 },
   };
-  const timer = { lower: new Date(props.startedAtMs), upper: new Date(props.endsAtMs) };
   const hasNews = props.likes > 0 || props.messages > 0;
 
   const logo = (
@@ -78,14 +74,6 @@ const LiveSessionActivity = (props: LiveSessionActivityProps, environment: LiveA
     </HStack>
   );
 
-  const progress = (
-    <ProgressView
-      timerInterval={timer}
-      countsDown
-      modifiers={[progressViewStyle('linear'), labelsHidden(), tint(dim ? white : brand)]}
-    />
-  );
-
   const news = hasNews ? (
     <HStack spacing={14}>
       {props.likes > 0 ? (
@@ -111,18 +99,17 @@ const LiveSessionActivity = (props: LiveSessionActivityProps, environment: LiveA
     </Text>
   );
 
-  const bigTimer = (size: number, width: number) => (
-    <Text
-      timerInterval={timer}
-      countsDown
-      modifiers={[
-        font({ size, weight: 'bold', design: 'rounded' }),
-        monospacedDigit(),
-        foregroundStyle(white),
-        frame({ width, alignment: 'trailing' }),
-      ]}
-    />
-  );
+  const freeUntil = (size: number) =>
+    props.untilTime ? (
+      <VStack alignment="trailing" spacing={0}>
+        <Text modifiers={[font({ size: 11, weight: 'semibold' }), kerning(0.6), foregroundStyle(muted)]}>
+          FREE UNTIL
+        </Text>
+        <Text modifiers={[font({ size, weight: 'bold', design: 'rounded' }), foregroundStyle(white), lineLimit(1)]}>
+          {props.untilTime}
+        </Text>
+      </VStack>
+    ) : null;
 
   return {
     banner: (
@@ -135,7 +122,6 @@ const LiveSessionActivity = (props: LiveSessionActivityProps, environment: LiveA
           {logo}
           {livePill}
           <Spacer />
-          <Text modifiers={[font({ size: 12, weight: 'medium' }), foregroundStyle(muted)]}>{props.endsLabel}</Text>
         </HStack>
         <HStack alignment="lastTextBaseline" spacing={10}>
           <VStack alignment="leading" spacing={2}>
@@ -145,9 +131,8 @@ const LiveSessionActivity = (props: LiveSessionActivityProps, environment: LiveA
             <Text modifiers={[font({ size: 13 }), foregroundStyle(muted), lineLimit(1)]}>{props.detail}</Text>
           </VStack>
           <Spacer />
-          {bigTimer(30, 118)}
+          {freeUntil(26)}
         </HStack>
-        {progress}
         {news}
       </VStack>
     ),
@@ -164,17 +149,12 @@ const LiveSessionActivity = (props: LiveSessionActivityProps, environment: LiveA
         <Text modifiers={[font({ size: 12, weight: 'heavy' }), kerning(0.6), foregroundStyle(green)]}>LIVE</Text>
       </HStack>
     ),
-    compactTrailing: (
-      <Text
-        timerInterval={timer}
-        countsDown
-        modifiers={[
-          font({ size: 14, weight: 'semibold', design: 'rounded' }),
-          monospacedDigit(),
-          foregroundStyle(green),
-          frame({ width: 52, alignment: 'trailing' }),
-        ]}
-      />
+    compactTrailing: props.untilTime ? (
+      <Text modifiers={[font({ size: 13, weight: 'semibold', design: 'rounded' }), foregroundStyle(white), lineLimit(1)]}>
+        {props.untilTime}
+      </Text>
+    ) : (
+      <Image systemName="bolt.heart.fill" size={12} color={green} />
     ),
     minimal: hasNews ? (
       <Image systemName="heart.fill" size={12} color={pink} />
@@ -189,8 +169,7 @@ const LiveSessionActivity = (props: LiveSessionActivityProps, environment: LiveA
     ),
     expandedTrailing: (
       <VStack alignment="trailing" spacing={0} modifiers={[padding({ trailing: 4, top: 2 })]}>
-        {bigTimer(22, 92)}
-        <Text modifiers={[font({ size: 11, weight: 'medium' }), foregroundStyle(muted)]}>{props.endsLabel}</Text>
+        {freeUntil(20)}
       </VStack>
     ),
     expandedBottom: (
@@ -201,7 +180,6 @@ const LiveSessionActivity = (props: LiveSessionActivityProps, environment: LiveA
           </Text>
           <Text modifiers={[font({ size: 13 }), foregroundStyle(muted), lineLimit(1)]}>{props.detail}</Text>
         </VStack>
-        {progress}
         {news}
       </VStack>
     ),
