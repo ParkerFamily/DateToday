@@ -89,6 +89,7 @@ export default function ProfileTabScreen() {
           isWide && { width: contentWidth, alignSelf: 'center' },
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.heroCard}>
           {profile?.mainPhotoUrl ? (

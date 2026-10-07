@@ -217,6 +217,7 @@ export default function MatchesScreen() {
           <ScrollView
             contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 8) + 24, paddingTop: spacing.md }}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
             <View style={styles.panel}>
               <View style={styles.emptyCircle}>
