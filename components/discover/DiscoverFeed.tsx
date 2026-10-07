@@ -137,15 +137,15 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const interestsSentRef = useRef(0);
   const uid = useSessionStore((s) => s.userId);
   // Extract only matched user IDs (stable key that only changes when matches add/remove, not on message updates)
-  const matchedKey = useMatchesStore(
+  const matchedIds = useMatchesStore(
     useCallback((s) => {
-      const ids: string[] = [];
+      const ids = new Set<string>();
       for (const m of s.matches) {
         for (const u of m.userIds) {
-          if (u !== uid) ids.push(u);
+          if (u !== uid) ids.add(u);
         }
       }
-      return ids.sort().join(',');
+      return ids;
     }, [uid]),
   );
   const liveSession = useSessionStore((s) => s.liveSession);
@@ -203,11 +203,6 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       unsub();
     };
   }, [live, queryClient]);
-
-  const matchedIds = useMemo(
-    () => new Set(matchedKey ? matchedKey.split(',') : []),
-    [matchedKey],
-  );
 
   const myVibe = useMemo(
     () => ({
