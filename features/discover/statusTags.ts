@@ -1,5 +1,6 @@
 import { CLOSE_BY_MILES } from '@/constants/afterHours';
 import { formatHeight, INTENT_OPTIONS } from '@/features/discover/applyFilters';
+import { isUpcomingTraveler, tripLabel } from '@/features/travel/trip';
 import type { DiscoveryCard } from '@/types';
 
 export const ACTIVE_NOW_MS = 20 * 60 * 1000;
@@ -29,9 +30,13 @@ export function isLaterTonight(card: Pick<DiscoveryCard, 'availabilityMode'>): b
   return card.availabilityMode === 'later';
 }
 
-/** Feed order: live now, then free later tonight, then nearby people who aren't live. */
-export function feedTier(card: Pick<DiscoveryCard, 'availabilityMode'>): 0 | 1 | 2 {
+/**
+ * Feed order: live now, then free later tonight (and travelers who haven't arrived yet),
+ * then nearby people who aren't live.
+ */
+export function feedTier(card: Pick<DiscoveryCard, 'availabilityMode' | 'trip'>, now: Date = new Date()): 0 | 1 | 2 {
   if (card.availabilityMode === 'nearby') return 2;
+  if (isUpcomingTraveler(card, now)) return 1;
   return card.availabilityMode === 'later' ? 1 : 0;
 }
 
@@ -68,6 +73,7 @@ export function activityStatus(
 /** "Live tonight" is reserved for people who explicitly went live — never derived from app activity. */
 export function availabilityText(card: DiscoveryCard, now: Date = new Date()): string {
   if (card.availabilityMode === 'nearby') return activityStatus(card, now).label;
+  if (card.trip) return tripLabel(card.trip, now);
   if (isLaterTonight(card) && card.laterTonightHour != null) {
     return `Free at ${hourLabel(card.laterTonightHour)}`;
   }
@@ -85,10 +91,11 @@ export function repliesFast(card: Pick<DiscoveryCard, 'replies' | 'fastReplies'>
  */
 export function cardStatusTags(card: DiscoveryCard, now: Date = new Date(), max = 3): StatusTag[] {
   const nowMs = now.getTime();
-  const tier = feedTier(card);
+  const tier = feedTier(card, now);
   const tags: StatusTag[] = [];
 
-  if (tier !== 2) {
+  // Travelers are placed at a city center, so distance says nothing about where they are.
+  if (tier !== 2 && !card.trip) {
     if (card.distanceMiles <= CLOSE_BY_MILES) tags.push({ key: 'nearby', label: 'Close by', tone: 'brand' });
     if (tier === 0 && ms(card.freeUntil || card.liveUntil) - nowMs >= FREE_TONIGHT_MS) {
       tags.push({ key: 'tonight', label: 'Free all night', tone: 'brand' });

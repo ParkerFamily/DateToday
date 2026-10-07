@@ -40,6 +40,9 @@ import { androidGlow } from '@/lib/glow';
 import { endLiveSession, startLiveSession } from '@/services/api';
 import { useDiscoverFilters } from '@/store/discoverFilters';
 import { useSessionStore } from '@/store/session';
+import { useTravelMode } from '@/store/travelMode';
+import { tripDatesLabel, tripLabel, tripPhase, usableTrip } from '@/features/travel/trip';
+import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import type { RadiusMiles, TonightActivity, TonightEnergy, TravelPref } from '@/types';
 import { isLiveSessionActive } from '@/utils/time';
 import { Ionicons } from '@expo/vector-icons';
@@ -151,6 +154,11 @@ export default function LiveHomeScreen() {
   const wantsDinner = activities.includes('dinner');
   const radiusOptions = allowedRadiusPresets(entitlements);
   const plus = isPlusActive(entitlements);
+  const userId = useSessionStore((s) => s.userId);
+  const savedTrip = useTravelMode((s) => s.trip);
+  // DateToday+ only; a lapsed subscription quietly falls back to going Live where you are.
+  const trip = plus ? usableTrip(savedTrip, now) : null;
+  const tripUpcoming = trip ? tripPhase(trip, now) === 'upcoming' : false;
   const plusFilters = canUseAdvancedFilters(entitlements);
   const discoverFilters = useDiscoverFilters();
   const filterCount = activeFilterLabels(discoverFilters, { plus: plusFilters }).length;
@@ -193,6 +201,10 @@ export default function LiveHomeScreen() {
   useEffect(() => {
     if (!live) void clearTonightBoost();
   }, [live]);
+
+  useEffect(() => {
+    void useTravelMode.getState().hydrate(userId);
+  }, [userId]);
 
   useEffect(() => {
     if (!offlineToast) return;
@@ -238,10 +250,38 @@ export default function LiveHomeScreen() {
     setLoading(true);
 
     try {
-      const { freeUntil: freeAt, label } = buildFreeUntil(untilPick.value, laterTonightHour);
-      const { expiresAt, liveDurationMs, nightResetAt } = buildLiveWindow(laterTonightHour);
+      const laterHour = tripUpcoming ? null : laterTonightHour;
+      const { freeUntil: freeAt, label } = buildFreeUntil(untilPick.value, laterHour);
+      const { expiresAt, liveDurationMs, nightResetAt } = buildLiveWindow(laterHour);
       let latitude = 33.7838;
       let longitude = -84.383;
+
+      // Travel Mode goes Live at the trip city; the phone's location is never read or shared.
+      if (trip && isBackendConfigured()) {
+        const session = await startLiveSession({
+          latitude: trip.latitude,
+          longitude: trip.longitude,
+          radiusMiles: radius,
+          expiresAt: expiresAt.toISOString(),
+          activities: activities as TonightActivity[],
+          foodCuisines: wantsDinner ? foodCuisines : [],
+          availabilityLabel: label,
+          availableUntil: freeAt.toISOString(),
+          laterTonightHour: laterHour,
+          afterHours: showLateNight && !tripUpcoming ? afterHoursTags : [],
+          energy,
+          travel,
+          planIdea,
+          liveDurationMs,
+          nightResetAt,
+          trip,
+        });
+        setLiveSession({ ...session, isBoosted: false, boostedAt: null });
+        setPingResults(0, 0);
+        setSheet('none');
+        void registerPushTokenAsync({ prompt: true });
+        return;
+      }
 
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted' && isBackendConfigured()) {
@@ -441,6 +481,7 @@ export default function LiveHomeScreen() {
   const onStopRef = useRef(onStop);
   onStopRef.current = onStop;
   const liveMeta = [
+    liveSession?.trip ? `✈️ ${liveSession.trip.city}` : null,
     formatActivities(liveSession?.activities ?? activities),
     foodBit || null,
     `${radiusLabel} mi`,
@@ -639,7 +680,29 @@ export default function LiveHomeScreen() {
                 <Pressable style={styles.settingRow} onPress={() => setSheet('radius')}>
                   <Ionicons name="location-outline" size={rs(18)} color={colors.brandBright} />
                   <AppText style={styles.settingKey}>Distance</AppText>
-                  <AppText style={styles.settingVal}>Within {radiusLabel} miles</AppText>
+                  <AppText style={styles.settingVal}>
+                    Within {radiusLabel} miles{trip ? ` of ${trip.city}` : ''}
+                  </AppText>
+                  <AppText style={styles.settingChevron}>›</AppText>
+                </Pressable>
+                <Pressable
+                  style={styles.settingRow}
+                  onPress={() => (plus ? router.push('/travel') : openUpgrade(router, 'travel'))}
+                  accessibilityLabel="Travel Mode"
+                >
+                  <Ionicons name="airplane-outline" size={rs(18)} color={colors.brandBright} />
+                  <AppText style={styles.settingKey}>Travel Mode</AppText>
+                  {trip ? (
+                    <AppText style={[styles.settingVal, styles.settingValOn]} numberOfLines={1}>
+                      {trip.city} · {tripDatesLabel(trip, now)}
+                    </AppText>
+                  ) : plus ? (
+                    <AppText style={styles.settingVal}>Another city</AppText>
+                  ) : (
+                    <View style={styles.plusBadge}>
+                      <AppText style={styles.plusBadgeText}>PLUS</AppText>
+                    </View>
+                  )}
                   <AppText style={styles.settingChevron}>›</AppText>
                 </Pressable>
                 <Pressable style={styles.settingRow} onPress={() => router.push('/filters')}>
@@ -883,13 +946,15 @@ export default function LiveHomeScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.goLiveGrad}
                 >
-                  <AppText style={styles.goLiveLabel}>
-                    {loading ? 'Going live…' : 'GO LIVE TONIGHT ⚡'}
+                  <AppText style={styles.goLiveLabel} numberOfLines={1}>
+                    {loading ? 'Going live…' : trip ? `GO LIVE IN ${trip.city.toUpperCase()} ✈️` : 'GO LIVE TONIGHT ⚡'}
                   </AppText>
                 </LinearGradient>
               </Pressable>
               <AppText style={styles.goLiveHint}>
-                Go Live to let nearby matches know you're ready to make plans tonight.
+                {trip
+                  ? `People in ${trip.city} will see “${tripLabel(trip, now)}”, never “nearby”.`
+                  : 'Go Live to let nearby matches know you\'re ready to make plans tonight.'}
               </AppText>
             </View>
           </>

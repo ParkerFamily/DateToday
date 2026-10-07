@@ -159,8 +159,19 @@ service cloud.firestore {
 
     // Approximate live beacons for Ping discovery (rounded lat/lng only).
     match /liveSessions/{userId} {
+      // Travel Mode: a labelled city + dates, never presented as physically nearby.
+      function validTrip(d) {
+        return !('trip' in d) || d.trip == null || (
+          d.trip is map
+          && d.trip.city is string && d.trip.city.size() > 0 && d.trip.city.size() <= 60
+          && d.trip.startsOn is string && d.trip.startsOn.size() == 10
+          && d.trip.endsOn is string && d.trip.endsOn.size() == 10
+          && d.trip.startsOn <= d.trip.endsOn
+        );
+      }
       allow read: if signedIn();
-      allow create, update: if isOwner(userId) && verifiedMatchesAccount(userId);
+      allow create, update: if isOwner(userId) && verifiedMatchesAccount(userId)
+        && validTrip(request.resource.data);
       allow delete: if isOwner(userId);
     }
 

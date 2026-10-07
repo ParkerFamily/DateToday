@@ -9,6 +9,7 @@ import type {
   TonightActivity,
   TonightEnergy,
   TravelPref,
+  TravelTrip,
   FoodCuisine,
   DiscoveryCard,
   SendPingResult,
@@ -163,6 +164,7 @@ export interface StartLiveInput {
   planIdea?: string | null;
   liveDurationMs?: number;
   nightResetAt?: string | null;
+  trip?: TravelTrip | null;
 }
 
 export async function startLiveSession(input: StartLiveInput): Promise<LiveSession> {

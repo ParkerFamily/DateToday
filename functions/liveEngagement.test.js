@@ -7,6 +7,7 @@ const {
   isLive,
   liveDuration,
   mutuallyVisible,
+  notifyNewLiveNearby,
   nudgeAllowed,
   stayLiveExpiry,
 } = require('./liveEngagement');
@@ -80,4 +81,38 @@ test('mutual visibility needs both radii and both "show me" prefs', () => {
   assert.equal(mutuallyVisible(a, { ...b, interestedIn: 'women' }), false);
   assert.equal(mutuallyVisible(a, { ...b, latitude: 34.5 }), false);
   assert.equal(mutuallyVisible(a, { ...b, latitude: undefined }), false);
+});
+
+test('Travel Mode sessions never send or receive "Someone new just went Live nearby"', async () => {
+  const here = { latitude: 33.75, longitude: -84.39, radiusMiles: 10 };
+  const trip = { city: 'Atlanta', startsOn: '2026-10-09', endsOn: '2026-10-11' };
+  const docs = {
+    local: session(here),
+    traveler: session({ ...here, trip }),
+  };
+  const db = {
+    collection: (name) => ({
+      where: () => ({
+        limit: () => ({
+          get: async () => ({ docs: Object.entries(docs).map(([id, d]) => ({ id, data: () => d })) }),
+        }),
+      }),
+      doc: (id) => ({ path: `${name}/${id}` }),
+    }),
+    runTransaction: async (fn) => fn({ get: async () => ({ exists: false }), set: () => undefined }),
+  };
+  const pushed = [];
+  const deps = {
+    db,
+    FieldValue: { serverTimestamp: () => 'ts' },
+    pushToUser: async (_db, uid) => pushed.push(uid),
+    isHiddenFrom: async () => false,
+    now: NOW,
+  };
+
+  assert.equal(await notifyNewLiveNearby({ ...deps, uid: 'traveler', session: docs.traveler }), 0);
+  assert.deepEqual(pushed, []);
+
+  assert.equal(await notifyNewLiveNearby({ ...deps, uid: 'newcomer', session: session(here) }), 1);
+  assert.deepEqual(pushed, ['local']);
 });

@@ -60,6 +60,7 @@ import { useSessionStore } from '@/store/session';
 import type { DiscoveryCard, FoodCuisine, RadiusMiles, TonightActivity } from '@/types';
 import { formatDistanceMiles, isLiveSessionActive } from '@/utils/time';
 import { freeUntilLabel } from '@/features/live/freeUntil';
+import { isUpcomingTraveler, tripLabel } from '@/features/travel/trip';
 import { tonightCompatibility } from '@/utils/tonightCompatibility';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -205,7 +206,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   );
 
   const feedQuery = useQuery({
-    queryKey: ['discovery-feed', live, liveSession?.id, liveSession?.radiusMiles, filters.maxDistanceMiles],
+    queryKey: [
+      'discovery-feed',
+      live,
+      liveSession?.id,
+      liveSession?.radiusMiles,
+      filters.maxDistanceMiles,
+      liveSession?.trip?.city ?? null,
+    ],
     queryFn: () => fetchDiscoveryFeed(40, filters.maxDistanceMiles),
     // People who aren't live browse from their nearby presence (Firestore only).
     enabled: live
@@ -268,7 +276,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const liveRadius = liveSession?.radiusMiles ?? filters.maxDistanceMiles;
   const widerRadius = maxRadiusMiles(entitlements);
   const widerQuery = useQuery({
-    queryKey: ['nearby-wider', liveSession?.id, widerRadius],
+    queryKey: ['nearby-wider', liveSession?.id, widerRadius, liveSession?.trip?.city ?? null],
     queryFn: () => fetchFirestoreNearbyBrowse(widerRadius),
     enabled:
       live &&
@@ -362,7 +370,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       .map((f) => foodLabel(f));
     const bits = [...acts];
     if (foods.length) bits.push(foods.join('/'));
-    bits.push(`within ${liveSession?.radiusMiles ?? filters.maxDistanceMiles} mi`);
+    const within = `within ${liveSession?.radiusMiles ?? filters.maxDistanceMiles} mi`;
+    bits.push(liveSession?.trip ? `${within} of ${liveSession.trip.city}` : within);
     return bits.join(' · ');
   }, [liveSession, filters.maxDistanceMiles]);
 
@@ -747,7 +756,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                         {p.laterTonightHour != null
                           ? `Free after ${formatLaterHour(p.laterTonightHour)}`
                           : 'Later tonight'}{' '}
-                        · {p.hideDistance ? 'Nearby' : formatDistanceMiles(p.distanceMiles)}
+                        · {p.trip ? tripLabel(p.trip) : p.hideDistance ? 'Nearby' : formatDistanceMiles(p.distanceMiles)}
                       </AppText>
                     </View>
                   </Pressable>
@@ -776,10 +785,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       ? Math.max(Math.min(heroH * 0.92, scrollH - actionBarH), rs(320))
       : heroH * 0.92;
   const lowCount = tonightCount <= 3;
-  const distanceLabel =
-    card.hideDistance
+  // Travelers sit at a city center: say they're visiting, never "nearby".
+  const distanceLabel = card.trip
+    ? 'Visiting'
+    : card.hideDistance
       ? 'Nearby'
       : `Nearby · ${formatDistanceMiles(card.distanceMiles).replace('Under', 'under')} away`;
+  const upcomingTrip = isUpcomingTraveler(card);
   const bottomPad = showClose ? 120 + insets.bottom : 100 + insets.bottom;
 
   return (
@@ -866,18 +878,20 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                     <View style={styles.topBadges} pointerEvents="none">
                       {tonight ? (
                         <View style={styles.tonightBadge}>
-                          {tier === 0 ? (
+                          {card.trip ? (
+                            <Ionicons name="airplane" size={rs(13)} color="#fff" />
+                          ) : tier === 0 ? (
                             <Ionicons name="flash" size={rs(13)} color="#fff" />
                           ) : (
                             <View style={styles.laterDot} />
                           )}
-                          <AppText style={styles.tonightBadgeText}>
+                          <AppText style={[styles.tonightBadgeText, styles.shrinkText]} numberOfLines={1}>
                             {availabilityText(card).toUpperCase()}
                           </AppText>
                         </View>
                       ) : null}
                       <View style={styles.distanceBadge}>
-                        <Ionicons name="location" size={rs(12)} color="#fff" />
+                        <Ionicons name={card.trip ? 'airplane' : 'location'} size={rs(12)} color="#fff" />
                         <AppText style={styles.distanceBadgeText}>{distanceLabel}</AppText>
                       </View>
                     </View>
@@ -902,19 +916,24 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                     </View>
                     {tonight ? (
                       <View style={styles.statusLine}>
-                        {tier === 0 ? (
+                        {card.trip ? (
+                          <Ionicons name="airplane" size={rs(14)} color={colors.brandBright} />
+                        ) : tier === 0 ? (
                           <Ionicons name="flash" size={rs(14)} color={colors.brandBright} />
                         ) : (
                           <View style={styles.laterDot} />
                         )}
-                        <AppText style={styles.statusLineStrong}>
+                        <AppText
+                          style={[styles.statusLineStrong, card.trip && styles.shrinkText]}
+                          numberOfLines={1}
+                        >
                           {availabilityText(card).toUpperCase()}
                         </AppText>
                         <AppText style={styles.place} numberOfLines={1}>
                           {[
                             card.activities[0] ? planWord(card.activities[0]) : null,
-                            card.hideDistance ? null : formatDistanceMiles(card.distanceMiles),
-                            freeUntilLabel(card.freeUntil),
+                            card.hideDistance || card.trip ? null : formatDistanceMiles(card.distanceMiles),
+                            upcomingTrip ? null : freeUntilLabel(card.freeUntil),
                           ]
                             .filter(Boolean)
                             .map((bit) => ` · ${bit}`)
@@ -1378,7 +1397,8 @@ const styles = ScaledSheet.create({
     ...androidGlow(colors.brandBright, 0.8, 12),
   },
   tonightBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
-  topBadges: { alignItems: 'flex-end', gap: 6 },
+  topBadges: { alignItems: 'flex-end', gap: 6, flexShrink: 1, marginLeft: 8 },
+  shrinkText: { flexShrink: 1 },
   distanceBadge: {
     flexDirection: 'row',
     alignItems: 'center',

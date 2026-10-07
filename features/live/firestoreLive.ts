@@ -28,10 +28,12 @@ import type {
   TonightActivity,
   TonightEnergy,
   TravelPref,
+  TravelTrip,
   VerificationStatus,
 } from '@/types';
 import { analytics } from '@/lib/analytics';
 import { isStaleLive } from '@/features/live/freeUntil';
+import { cleanTrip, cleanTripBadge, tripPhase } from '@/features/travel/trip';
 
 /** Timeout wrapper for Firebase operations to prevent infinite hanging. */
 function withTimeout<T>(promise: Promise<T>, timeoutMs = 15000, operation = 'Firebase operation'): Promise<T> {
@@ -76,7 +78,8 @@ export async function refreshLiveLocation(coords: { latitude: number; longitude:
   const ref = doc(getDb(), 'liveSessions', uid);
   const snap = await getDoc(ref);
   const d = snap.data();
-  if (!d || d.status !== 'active') return;
+  // Travel Mode beacons stay pinned to the trip city.
+  if (!d || d.status !== 'active' || d.trip) return;
   const lat = approxCoord(coords.latitude);
   const lng = approxCoord(coords.longitude);
   if (Number(d.latitude) === lat && Number(d.longitude) === lng) return;
@@ -118,6 +121,8 @@ export type PublishLiveInput = {
   planIdea?: string | null;
   liveDurationMs?: number;
   nightResetAt?: string | null;
+  /** Travel Mode: latitude/longitude are this city's center. */
+  trip?: TravelTrip | null;
 };
 
 function videoPromptsFromUser(d: Record<string, unknown>): DiscoveryCard['videoPrompts'] {
@@ -245,11 +250,14 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
   );
   const u = (userSnap.data() ?? {}) as Record<string, unknown>;
   const nowIso = new Date().toISOString();
-  const lat = approxCoord(input.latitude);
-  const lng = approxCoord(input.longitude);
+  const trip = cleanTrip(input.trip);
+  const lat = approxCoord(trip ? trip.latitude : input.latitude);
+  const lng = approxCoord(trip ? trip.longitude : input.longitude);
+  const tripDoc = trip ? { ...trip, latitude: lat, longitude: lng, region: trip.region ?? null } : null;
+  const upcomingTrip = trip != null && tripPhase(trip) === 'upcoming';
 
   const laterHour =
-    input.laterTonightHour != null && input.laterTonightHour >= 18
+    !upcomingTrip && input.laterTonightHour != null && input.laterTonightHour >= 18
       ? input.laterTonightHour
       : null;
   const afterHours = cleanAfterHoursTags(input.afterHours);
@@ -283,6 +291,7 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     energy,
     travel,
     planIdea,
+    trip: tripDoc,
     ...publicCardFields(u),
     updatedAt: serverTimestamp(),
   };
@@ -294,8 +303,9 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
   );
   analytics.track('go_live_completed');
   // Keeps them discoverable once Live ends — only if they allow showing up when not Live.
+  // Never from a trip city: nearby presence means where you actually are.
   const privacy = (u.privacyControls ?? {}) as { showInDiscovery?: boolean; pauseDiscovery?: boolean };
-  if (privacy.showInDiscovery !== false && privacy.pauseDiscovery !== true) {
+  if (!trip && privacy.showInDiscovery !== false && privacy.pauseDiscovery !== true) {
     void publishNearbyPresence({ latitude: input.latitude, longitude: input.longitude }).catch(() => undefined);
   }
 
@@ -323,6 +333,7 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     energy,
     travel,
     planIdea,
+    trip: tripDoc,
   };
 }
 
@@ -435,6 +446,7 @@ export async function fetchMyActiveLiveSession(uid: string): Promise<LiveSession
     energy: cleanEnergy(d.energy),
     travel: cleanTravel(d.travel),
     planIdea: cleanPlanIdea(d.planIdea),
+    trip: cleanTrip(d.trip),
   };
 }
 
@@ -508,9 +520,11 @@ export async function fetchFirestoreDiscoveryFeed(
     myRadius = browseRadiusMiles;
   }
 
-  const here = await deviceCoords();
-  const myLat = here?.latitude ?? Number(mine.latitude);
-  const myLng = here?.longitude ?? Number(mine.longitude);
+  // Travel Mode browses the trip city, not wherever the phone is.
+  const myTrip = mine.status === 'active' ? cleanTrip(mine.trip) : null;
+  const here = myTrip ? null : await deviceCoords();
+  const myLat = myTrip?.latitude ?? here?.latitude ?? Number(mine.latitude);
+  const myLng = myTrip?.longitude ?? here?.longitude ?? Number(mine.longitude);
   if (!Number.isFinite(myLat) || !Number.isFinite(myLng)) return [];
   if (here && mine.status === 'active') void refreshLiveLocation(here).catch(() => undefined);
 
@@ -538,6 +552,9 @@ export async function fetchFirestoreDiscoveryFeed(
     const lat = Number(d.latitude);
     const lng = Number(d.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    // A traveler's beacon sits at the trip city; without a valid, current trip it can't be labelled honestly.
+    const trip = cleanTripBadge(d.trip);
+    if (d.trip && (!trip || tripPhase(trip) === 'over')) continue;
 
     const theirRadius = Number(d.radiusMiles ?? 10);
     const dist = milesBetween(
@@ -549,7 +566,9 @@ export async function fetchFirestoreDiscoveryFeed(
     if (!wantsToSee(mine, d) || !wantsToSee(d, mine)) continue;
 
     const laterHour =
-      typeof d.laterTonightHour === 'number' ? d.laterTonightHour : null;
+      typeof d.laterTonightHour === 'number' && !(trip && tripPhase(trip) === 'upcoming')
+        ? d.laterTonightHour
+        : null;
     // "Free after 8" becomes live once 8 PM arrives.
     const mode = laterHour != null && laterHour > new Date().getHours() ? 'later' : 'live';
 
@@ -571,6 +590,7 @@ export async function fetchFirestoreDiscoveryFeed(
       energy: cleanEnergy(d.energy),
       travel: cleanTravel(d.travel),
       planIdea: cleanPlanIdea(d.planIdea),
+      trip,
     });
 
     if (cards.length >= limit) break;
@@ -607,9 +627,10 @@ export async function fetchFirestoreNearbyBrowse(radiusMiles: number, limit = 40
   const live = liveSnap.data();
   const mine = live && live.status === 'active' ? live : nearbySnap.data();
   if (!mine) return [];
-  const here = await deviceCoords();
-  const latitude = here?.latitude ?? Number(mine.latitude);
-  const longitude = here?.longitude ?? Number(mine.longitude);
+  const myTrip = mine === live ? cleanTrip(live?.trip) : null;
+  const here = myTrip ? null : await deviceCoords();
+  const latitude = myTrip?.latitude ?? here?.latitude ?? Number(mine.latitude);
+  const longitude = myTrip?.longitude ?? here?.longitude ?? Number(mine.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
 
   const cards = await fetchNearbyCards(me, { ...mine, latitude, longitude }, radiusMiles, new Set(), limit);

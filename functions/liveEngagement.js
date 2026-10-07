@@ -83,6 +83,11 @@ function milesBetween(a, b) {
   return 3958.8 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/** Live in Travel Mode: placed at a chosen city, not where their phone is. */
+function isTraveling(d) {
+  return Boolean(d && d.trip && typeof d.trip.city === 'string');
+}
+
 /** Same rule as wantsToSee() in features/live/firestoreLive.ts. */
 function wantsToSee(viewer, other) {
   const pref = viewer.interestedIn;
@@ -277,7 +282,9 @@ async function liveEngagementSweep({ db, FieldValue, pushToUser, now = Date.now(
       if (ok) continue;
     }
 
-    const others = live.filter((o) => o.uid !== uid && mutuallyVisible(d, o.d)).length;
+    const others = isTraveling(d)
+      ? 0
+      : live.filter((o) => o.uid !== uid && !isTraveling(o.d) && mutuallyVisible(d, o.d)).length;
     if (others >= NUDGE.moreMin) {
       const ok = await send(
         'more',
@@ -317,10 +324,14 @@ async function liveEngagementSweep({ db, FieldValue, pushToUser, now = Date.now(
 
 /** Someone just went Live: tell a few nearby Live people who'd see them (throttled per recipient). */
 async function notifyNewLiveNearby({ db, FieldValue, pushToUser, isHiddenFrom, uid, session, now = Date.now() }) {
-  if (!isLive(session, now)) return 0;
+  // Travel Mode sessions sit at a city they may not be in yet; never pitch them as "nearby".
+  if (!isLive(session, now) || isTraveling(session)) return 0;
   const snap = await db.collection('liveSessions').where('status', '==', 'active').limit(500).get();
   const recipients = snap.docs
-    .filter((doc) => doc.id !== uid && isLive(doc.data(), now) && mutuallyVisible(session, doc.data()))
+    .filter(
+      (doc) =>
+        doc.id !== uid && isLive(doc.data(), now) && !isTraveling(doc.data()) && mutuallyVisible(session, doc.data()),
+    )
     .map((doc) => ({
       uid: doc.id,
       d: doc.data(),

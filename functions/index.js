@@ -2108,6 +2108,44 @@ async function cachedHotPlaces(lat, lng, category, cuisine) {
   return hotInFlight.get(rawKey);
 }
 
+/** Travel Mode city picker: cities only, de-duped by name + region. */
+async function searchCities(rawQuery) {
+  const query = rawQuery.trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (query.length < 2) return [];
+  const key = `city|${query.toLowerCase()}`;
+  const cacheRef = getFirestore()
+    .collection('placeCache')
+    .doc(`photon_${require('crypto').createHash('sha1').update(key).digest('hex')}`);
+  const cached = await cacheRef.get().catch(() => null);
+  if (cached && cached.exists && Date.now() - (cached.data().at || 0) < 7 * 24 * 3600 * 1000) {
+    return cached.data().cities || [];
+  }
+  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=8&lang=en&layer=city`;
+  const json = await placeFetch(url, {}, 8000);
+  const seen = new Set();
+  const cities = [];
+  for (const f of json.features || []) {
+    const p = f.properties || {};
+    const [lng, lat] = (f.geometry && f.geometry.coordinates) || [];
+    if (!p.name || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const region = p.state || p.country || null;
+    const k = `${p.name}|${region || ''}`.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    cities.push({
+      id: `osm-${p.osm_type || 'x'}-${p.osm_id || cities.length}`,
+      name: String(p.name).slice(0, 60),
+      region: region ? String(region).slice(0, 60) : null,
+      country: p.countrycode ? String(p.countrycode).toUpperCase() : null,
+      lat: Math.round(lat * 1000) / 1000,
+      lng: Math.round(lng * 1000) / 1000,
+    });
+    if (cities.length >= 6) break;
+  }
+  if (cities.length) await cacheRef.set({ cities, at: Date.now() }).catch(() => undefined);
+  return cities;
+}
+
 exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req, res) => {
   try {
     if (req.method !== 'POST') {
@@ -2116,6 +2154,10 @@ exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req,
     }
     await requireUser(req);
     const body = req.body || {};
+    if (body.mode === 'city') {
+      res.json({ cities: await searchCities(typeof body.query === 'string' ? body.query : '') });
+      return;
+    }
     const mode = body.mode === 'search' ? 'search' : body.mode === 'hot' ? 'hot' : 'nearby';
     const lat = Number.isFinite(body.lat) ? Math.max(-90, Math.min(90, body.lat)) : null;
     const lng = Number.isFinite(body.lng) ? Math.max(-180, Math.min(180, body.lng)) : null;

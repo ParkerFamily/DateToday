@@ -44,6 +44,7 @@ export const PLUS_FILTER_FEATURES = [
   'Advanced filters: age, intent, height, lifestyle',
   'See everyone who liked you',
   'Priority Pool + 50 mi radius',
+  'Travel Mode: go Live in another city',
 ] as const;
 
 /** @deprecated emoji map kept for any residual display helpers */

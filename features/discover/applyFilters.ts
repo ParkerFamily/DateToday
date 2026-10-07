@@ -16,6 +16,7 @@ import {
 import { ENERGY_OPTIONS, hasSpotInMind, TRAIT_KEYS, TRAITS, TRAVEL_OPTIONS } from '@/constants/datingTraits';
 import { isBroadInterest, normalizeInterests, sharedInterests } from '@/constants/interests';
 import { foodLabel } from '@/constants/tonightVibe';
+import { isUpcomingTraveler } from '@/features/travel/trip';
 import type { DiscoverFilterValues } from '@/store/discoverFilters';
 import type { DiscoveryCard } from '@/types';
 
@@ -56,7 +57,7 @@ export function formatHeight(cm: number): string {
 
 /** Can this person meet within the "How soon?" window? Live now counts for every window but "later". */
 export function matchesHowSoon(c: DiscoveryCard, howSoon: HowSoon, now: Date = new Date()): boolean {
-  if (isNearbyOnly(c)) return false;
+  if (isNearbyOnly(c) || isUpcomingTraveler(c, now)) return false;
   const later = c.availabilityMode === 'later';
   if (howSoon === 'now') return !later;
   if (howSoon === 'later') return later;
@@ -79,7 +80,7 @@ export function effectiveFreeFor(f: Pick<DiscoverFilterValues, 'freeFor'>, plus:
 
 export function matchesFreeFor(c: DiscoveryCard, freeFor: FreeFor, now: Date = new Date()): boolean {
   const free = freeUntilOf(c);
-  if (isNearbyOnly(c) || !free) return false;
+  if (isNearbyOnly(c) || isUpcomingTraveler(c, now) || !free) return false;
   const until = new Date(free).getTime();
   if (freeFor === 'night') return until >= tonightAt(24, now).getTime();
   const start =
@@ -176,22 +177,24 @@ export function applyDiscoverFilters(
     }
     if (f.videoOnly && !(c.videoPrompts ?? []).some((p) => Boolean(p.videoUrl))) return false;
 
+    // Not out tonight: nearby-only people, and travelers who haven't arrived yet.
+    const notOutTonight = nearbyOnly || isUpcomingTraveler(c, now);
     if (afterHours) {
-      if (nearbyOnly && (outLateAt || f.afterHoursNow || f.lateNightOpen || f.stillOut)) return false;
+      if (notOutTonight && (outLateAt || f.afterHoursNow || f.lateNightOpen || f.stillOut)) return false;
       if (outLateAt && new Date(freeUntilOf(c) ?? 0).getTime() < outLateAt) return false;
       if (f.afterHoursNow && c.availabilityMode === 'later') return false;
       if (f.lateNightOpen && !(c.afterHours ?? []).length) return false;
       if (f.stillOut && !(c.afterHours ?? []).includes('still_out')) return false;
     }
 
-    if (f.closeByMiles != null && c.distanceMiles > f.closeByMiles) return false;
+    if (f.closeByMiles != null && (c.trip || c.distanceMiles > f.closeByMiles)) return false;
     if (f.lastMinute) {
       const started = c.startedAt ? new Date(c.startedAt).getTime() : NaN;
-      if (nearbyOnly || !(nowMs - started <= JUST_LIVE_MS)) return false;
+      if (notOutTonight || !(nowMs - started <= JUST_LIVE_MS)) return false;
     }
     if (f.readyNow) {
       const confirmed = new Date(c.confirmedAt ?? c.startedAt ?? NaN).getTime();
-      if (nearbyOnly || c.availabilityMode === 'later' || !(nowMs - confirmed <= READY_NOW_MS)) return false;
+      if (notOutTonight || c.availabilityMode === 'later' || !(nowMs - confirmed <= READY_NOW_MS)) return false;
     }
 
     return true;
@@ -294,7 +297,7 @@ export function matchedFilterLabels(
   const out: string[] = [];
   const has = <T>(wanted: readonly T[], value: T | null | undefined): value is T =>
     value != null && wanted.includes(value);
-  const nearbyOnly = isNearbyOnly(c);
+  const nearbyOnly = isNearbyOnly(c) || isUpcomingTraveler(c, now);
 
   if (plus && f.readyNow && !nearbyOnly && c.availabilityMode !== 'later') {
     const confirmed = new Date(c.confirmedAt ?? c.startedAt ?? NaN).getTime();
@@ -316,7 +319,9 @@ export function matchedFilterLabels(
     const e = ENERGY_OPTIONS.find((o) => o.value === c.energy)!;
     out.push(`${e.emoji} ${e.label}`);
   }
-  if (plus && f.closeByMiles != null && c.distanceMiles <= f.closeByMiles) out.push(`📍 Under ${f.closeByMiles} mi`);
+  if (plus && f.closeByMiles != null && !c.trip && c.distanceMiles <= f.closeByMiles) {
+    out.push(`📍 Under ${f.closeByMiles} mi`);
+  }
   if (f.planInMind && hasSpotInMind(c.planIdea)) out.push('📍 Has a plan');
   if (has(f.travel, c.travel)) out.push(TRAVEL_OPTIONS.find((o) => o.value === c.travel)!.label);
   const foods = plus ? f.foodFilter : f.foodFilter.slice(0, 1);

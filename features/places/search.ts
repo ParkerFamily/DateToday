@@ -131,6 +131,40 @@ export function ratingLine(p: Pick<Place, 'rating' | 'reviewCount'>) {
   return `★ ${p.rating.toFixed(1)}${count}`;
 }
 
+export type CityResult = {
+  id: string;
+  name: string;
+  region: string | null;
+  country: string | null;
+  lat: number;
+  lng: number;
+};
+
+/** Travel Mode city picker. */
+export async function searchCities(query: string): Promise<CityResult[]> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Sign in first.');
+  const token = await user.getIdToken();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch(functionsUrl('searchPlaces'), {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'city', query }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { cities?: CityResult[]; error?: string };
+    if (!res.ok) throw new Error(json.error || 'Couldn’t search cities right now.');
+    return json.cities ?? [];
+  } catch (error) {
+    if ((error as Error)?.name === 'AbortError') throw new Error('City search is taking too long. Try again.');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Search restaurants, bars, and other spots by name, biased to where you are. */
 export function searchPlaces(query: string, me: LatLng | null) {
   return callSearch({ mode: 'search', query, lat: me?.lat ?? null, lng: me?.lng ?? null });

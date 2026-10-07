@@ -183,6 +183,22 @@ export interface ProfileVideo {
   sortOrder: number;
 }
 
+/**
+ * Travel Mode (DateToday+): Live in a chosen city for a date range. Dates are calendar days
+ * (YYYY-MM-DD); coordinates are the city center, never the person's real location.
+ */
+export interface TravelTrip {
+  city: string;
+  region?: string | null;
+  latitude: number;
+  longitude: number;
+  startsOn: string;
+  endsOn: string;
+}
+
+/** What other people see about a traveler: city + dates only. */
+export type TripBadge = Pick<TravelTrip, 'city' | 'startsOn' | 'endsOn'>;
+
 export interface LiveSession {
   id: string;
   userId: string;
@@ -218,6 +234,8 @@ export interface LiveSession {
   travel?: TravelPref | null;
   /** Optional spot or idea, e.g. "Rooftop drinks at Ponce". */
   planIdea?: string | null;
+  /** Set when Live through Travel Mode. */
+  trip?: TravelTrip | null;
 }
 
 export interface DiscoveryVideoPrompt {
@@ -272,6 +290,8 @@ export interface DiscoveryCard extends ProfileTraits {
   energy?: TonightEnergy | null;
   travel?: TravelPref | null;
   planIdea?: string | null;
+  /** Live through Travel Mode: label them by trip, never as physically nearby. */
+  trip?: TripBadge | null;
   /** Compatibility quiz level they've finished; 0 = not taken. */
   quizLevel?: number;
   occupation?: string | null;
