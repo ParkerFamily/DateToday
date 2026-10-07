@@ -230,77 +230,49 @@ export default function LiveHomeScreen() {
   };
 
   const activateLive = async () => {
-    const t0 = performance.now();
-    console.log('[GO LIVE] Button pressed');
-    
     if (!readyForLive) {
-      console.log(`[GO LIVE] Not ready: ${performance.now() - t0}ms`);
       Alert.alert(
         'Finish setup to Go Live',
         missing.slice(0, 4).join('\n') || 'Complete your profile first.',
         [
           { text: 'Not now', style: 'cancel' },
-          {
-            text: 'Finish profile',
-            onPress: () => router.push('/(tabs)/profile'),
-          },
+          { text: 'Finish profile', onPress: () => router.push('/(tabs)/profile') },
         ],
       );
       return;
     }
-    try {
-      const t1 = performance.now();
-      console.log(`[GO LIVE] setLoading(true): ${t1 - t0}ms`);
-      setLoading(true);
-      
-      const { expiresAt, label } = buildExpiration(untilPick.value, laterTonightHour);
-      console.log(`[GO LIVE] buildExpiration: ${performance.now() - t1}ms`);
 
+    setLoading(true);
+
+    try {
+      const { expiresAt, label } = buildExpiration(untilPick.value, laterTonightHour);
       let latitude = 33.7838;
       let longitude = -84.383;
 
-      const t2 = performance.now();
-      console.log('[GO LIVE] Requesting location permission');
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      console.log(`[GO LIVE] Permission status ${status}: ${performance.now() - t2}ms`);
-      
-      if (status === 'granted') {
-        const t3 = performance.now();
-        console.log('[GO LIVE] Getting current position (8s timeout)');
-        try {
-          const position = await Promise.race([
-            Location.getCurrentPositionAsync({
+      // Non-blocking location with aggressive timeout
+      try {
+        const locationWithTimeout = Promise.race([
+          (async () => {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') return null;
+            return await Location.getCurrentPositionAsync({
               accuracy: Location.Accuracy.Balanced,
-            }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
-          ]);
-          console.log(`[GO LIVE] Got position: ${performance.now() - t3}ms`);
-          if (position) {
-            latitude = position.coords.latitude;
-            longitude = position.coords.longitude;
-          } else {
-            console.log('[GO LIVE] Position timeout - using fallback');
-          }
-        } catch (err) {
-          console.log(`[GO LIVE] Position error: ${err}`);
+            });
+          })(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+        ]);
+
+        const position = await locationWithTimeout;
+        if (position?.coords) {
+          latitude = position.coords.latitude;
+          longitude = position.coords.longitude;
         }
-      } else if (isBackendConfigured()) {
-        console.log('[GO LIVE] Permission denied, showing alert');
-        Alert.alert(
-          'Turn on location to go Live',
-          'DateToday uses your approximate location so people near you can find you tonight.',
-          [
-            { text: 'Not now', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => void Linking.openSettings() },
-          ],
-        );
-        return;
+      } catch {
+        // Use fallback coordinates on any error
       }
 
-      // Firebase is primary — always publish a real beacon (no silent local-only pool).
+      // Publish session
       if (isBackendConfigured()) {
-        const t4 = performance.now();
-        console.log('[GO LIVE] Calling startLiveSession');
         const session = await startLiveSession({
           latitude,
           longitude,
@@ -316,12 +288,10 @@ export default function LiveHomeScreen() {
           travel,
           planIdea,
         });
-        console.log(`[GO LIVE] startLiveSession complete: ${performance.now() - t4}ms`);
         setLiveSession({ ...session, isBoosted: false, boostedAt: null });
         setPingResults(0, 0);
         setSheet('none');
         void registerPushTokenAsync({ prompt: true });
-        console.log(`[GO LIVE] TOTAL: ${performance.now() - t0}ms`);
         return;
       }
 
@@ -368,18 +338,15 @@ export default function LiveHomeScreen() {
       setPingResults(0, 0);
       setSheet('none');
     } catch (error) {
-      console.log(`[GO LIVE] ERROR: ${error}`);
-      const errorMessage = friendlyError(error, 'Could not go live right now');
       Alert.alert(
         'Could not go live',
-        errorMessage,
+        friendlyError(error, 'Could not go live right now'),
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Try Again', onPress: () => void activateLive() },
         ],
       );
     } finally {
-      console.log('[GO LIVE] setLoading(false)');
       setLoading(false);
     }
   };
