@@ -1,5 +1,4 @@
 import { LIVE_ENDING_WARN_MS, NIGHTLY_RESET_HOUR, nextNightlyReset } from '@/constants/liveConfig';
-import { clampLiveExpiration } from '@/utils/time';
 
 /** Free Until: availability tonight. Independent of how long the Live session lasts. */
 export type FreeUntilOption = { value: string; label: string; expiresAt: Date };
@@ -44,7 +43,7 @@ export function freeUntilOptions(now: Date = new Date(), startHour: number | nul
     at.setHours(end.hour, 0, 0, 0);
     if (at.getTime() - now.getTime() < MIN_LIVE_MS) continue;
     const label = lateNight && end.lateLabel ? end.lateLabel : end.label;
-    out.push({ value: end.value, label, expiresAt: clampLiveExpiration(at, now) });
+    out.push({ value: end.value, label, expiresAt: at });
   }
   if (out.length) return out;
 

@@ -37,6 +37,11 @@ describe('freeUntilOptions', () => {
     expect(pickFreeUntil(freeUntilOptions(at(1, 40, 27)), null).value).toBe('27');
   });
 
+  it('keeps the exact hour when going Live in the morning', () => {
+    const pick = pickFreeUntil(freeUntilOptions(at(10, 47)), '23');
+    expect(pick.expiresAt.getTime()).toBe(at(23).getTime());
+  });
+
   it('never ends before a free-later start', () => {
     expect(values(at(17), 21)).toEqual(['22', '23', 'late']);
   });

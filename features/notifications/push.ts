@@ -20,6 +20,12 @@ export const ANDROID_CHANNELS = [
 ] as const;
 
 const TOKEN_DOC_KEY = 'dt.pushTokenDocId';
+/** Re-save an unchanged token at most this often (keeps updatedAt fresh without hammering Firestore). */
+const RESAVE_MS = 6 * 60 * 60 * 1000;
+
+let registering: Promise<boolean> | null = null;
+let lastSaved: { key: string; at: number } | null = null;
+let lastDeviceToken: string | null = null;
 
 let activeChatMatchId: string | null = null;
 let channelsReady: Promise<void> | null = null;
@@ -143,7 +149,15 @@ async function markStoredTokenDisabled() {
  * Save this device's Expo push token for the signed-in user (one doc per device,
  * so a user can have several phones). Only prompts when `prompt` is true.
  */
-export async function registerPushTokenAsync(options: { prompt?: boolean } = {}): Promise<boolean> {
+export function registerPushTokenAsync(options: { prompt?: boolean } = {}): Promise<boolean> {
+  if (registering) return registering;
+  registering = savePushToken(options).finally(() => {
+    registering = null;
+  });
+  return registering;
+}
+
+async function savePushToken(options: { prompt?: boolean }): Promise<boolean> {
   if (Platform.OS === 'web') return false;
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return false;
@@ -166,6 +180,8 @@ export async function registerPushTokenAsync(options: { prompt?: boolean } = {})
 
     const token = (await Notifications.getExpoPushTokenAsync({ projectId: pid })).data;
     const id = tokenDocId(token);
+    const key = `${uid}:${id}`;
+    if (lastSaved?.key === key && Date.now() - lastSaved.at < RESAVE_MS) return true;
     const ref = doc(getDb(), 'pushTokens', id);
 
     let isNewForThisUser = true;
@@ -196,6 +212,7 @@ export async function registerPushTokenAsync(options: { prompt?: boolean } = {})
       await deleteDoc(doc(getDb(), 'pushTokens', previous)).catch(() => undefined);
     }
     await AsyncStorage.setItem(TOKEN_DOC_KEY, id).catch(() => undefined);
+    lastSaved = { key, at: Date.now() };
     return true;
   } catch (error) {
     console.warn('[DateToday] push registration failed', error);
@@ -203,10 +220,19 @@ export async function registerPushTokenAsync(options: { prompt?: boolean } = {})
   }
 }
 
-/** Re-save when APNs/FCM rotates this device's token. Returns an unsubscribe. */
+/**
+ * Re-save when APNs/FCM rotates this device's token. Returns an unsubscribe.
+ * iOS fires this on every token fetch (including our own), so only a different token counts.
+ */
 export function listenForPushTokenChanges(): () => void {
   if (Platform.OS === 'web') return () => undefined;
-  const sub = Notifications.addPushTokenListener(() => {
+  const sub = Notifications.addPushTokenListener((t) => {
+    const next = typeof t.data === 'string' ? t.data : JSON.stringify(t.data);
+    const first = lastDeviceToken == null;
+    if (next === lastDeviceToken) return;
+    lastDeviceToken = next;
+    if (first && (registering || lastSaved)) return;
+    lastSaved = null;
     void registerPushTokenAsync();
   });
   return () => sub.remove();
@@ -222,6 +248,7 @@ export async function unregisterPushTokenAsync() {
     /* best effort */
   }
   await AsyncStorage.removeItem(TOKEN_DOC_KEY).catch(() => undefined);
+  lastSaved = null;
 }
 
 const LIVE_STATUS_ID = 'live-status';
