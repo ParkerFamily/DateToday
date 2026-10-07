@@ -26,6 +26,7 @@ import type { FoodCuisine, TonightActivity } from '@/types';
 import { useSessionStore } from '@/store/session';
 import { canStartPlan } from '@/features/live/planGate';
 import { ScaledSheet } from '@/lib/scale';
+import { repairStorageUrl } from '@/utils/photoUrl';
 
 function CollideRing({
   side,
@@ -110,7 +111,7 @@ export default function MutualMatchScreen() {
   }));
 
   const theirName = params.name ?? 'them';
-  const theirPhoto = typeof params.photo === 'string' ? params.photo : '';
+  const theirPhoto = repairStorageUrl(typeof params.photo === 'string' ? params.photo : null) ?? '';
   const myPhoto = profile?.mainPhotoUrl ?? null;
   const conversationId = params.matchId ?? params.conversationId ?? '';
 

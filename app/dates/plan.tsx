@@ -5,7 +5,7 @@ import { Screen } from '@/components/ui/Screen';
 import { PlacePicker, SelectedPlaceCard, placeLine } from '@/components/plan/PlacePicker';
 import { colors, radii, spacing } from '@/constants/theme';
 import { foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
-import { proposeDate } from '@/features/matches/api';
+import { otherUserId, proposeDate } from '@/features/matches/api';
 import { prefetchNearby, type Place, type PlanCategory } from '@/features/places/search';
 import {
   availableSlots,
@@ -19,7 +19,9 @@ import {
   whenSentence,
   type DayChoice,
 } from '@/features/plan/when';
+import { useMatchesStore } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
+import { repairStorageUrl } from '@/utils/photoUrl';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -84,9 +86,14 @@ export default function PlanDateScreen() {
     conversationId?: string;
   }>();
   const theirName = displayName(params.name ?? 'them');
-  const theirPhoto = typeof params.photo === 'string' && params.photo ? params.photo : null;
   const myPhoto = useSessionStore((s) => s.profile?.mainPhotoUrl ?? null);
+  const myUid = useSessionStore((s) => s.userId);
   const matchId = typeof params.conversationId === 'string' ? params.conversationId : '';
+  const matchPhoto = useMatchesStore((s) => {
+    const m = matchId ? s.matches.find((x) => x.id === matchId) : undefined;
+    return m && myUid ? (m.users[otherUserId(m, myUid)]?.mainPhotoUrl ?? null) : null;
+  });
+  const theirPhoto = matchPhoto || repairStorageUrl(typeof params.photo === 'string' ? params.photo : null);
   const sharedFood =
     typeof params.food === 'string' && params.food.length ? (params.food as FoodCuisine) : null;
 

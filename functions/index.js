@@ -1793,7 +1793,11 @@ exports.getCompatibility = onRequest({ cors: true }, async (req, res) => {
 // otherwise OpenStreetMap (Overpass for nearby, Photon for search). Cached ~1 km / 24 h.
 
 const PLACE_UA = 'DateToday/1.0 (support@datetoday.app)';
-const OVERPASS_URLS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const OVERPASS_URLS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
 const PLACE_CATEGORIES = ['drinks', 'dinner', 'coffee', 'activity'];
 
 const OSM_FILTERS = {
@@ -1865,25 +1869,23 @@ function osmPlace(e) {
   };
 }
 
-async function overpass(query) {
-  let lastError;
-  for (const [i, url] of OVERPASS_URLS.entries()) {
-    try {
-      const json = await placeFetch(
+/** All public mirrors at once; first good answer wins (they go down or crawl independently). */
+async function overpass(query, timeoutMs = 10000) {
+  return Promise.any(
+    OVERPASS_URLS.map((url) =>
+      placeFetch(
         url,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: `data=${encodeURIComponent(query)}`,
         },
-        i === 0 ? 13000 : 7000,
-      );
-      return (json.elements || []).map(osmPlace).filter(Boolean);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
+        timeoutMs,
+      ).then((json) => (json.elements || []).map(osmPlace).filter(Boolean)),
+    ),
+  ).catch((error) => {
+    throw new Error((error.errors || []).map((e) => e.message).join('; ') || 'Overpass unavailable');
+  });
 }
 
 async function osmNearby(lat, lng, category, cuisine) {
@@ -1897,14 +1899,17 @@ async function osmNearby(lat, lng, category, cuisine) {
         .map((f) => `nwr(around:${radius},${lat},${lng})${f}${cuisineFilter}["name"];`)
         .join('')});out center 80;`,
     );
+  // Photon runs alongside so a slow/down Overpass doesn't leave people with nothing.
+  const photon = photonNearby(lat, lng, category, cuisine).catch(() => []);
   try {
     const close = await run(3000);
     if (close.length >= 5) return close;
     const wider = await run(9000).catch(() => []);
-    return wider.length > close.length ? wider : close;
+    const best = wider.length > close.length ? wider : close;
+    return best.length >= 5 ? best : [...best, ...(await photon)];
   } catch (error) {
     console.warn('Overpass failed, using Photon', error.message);
-    return photonNearby(lat, lng, category, cuisine);
+    return photon;
   }
 }
 
@@ -1930,7 +1935,7 @@ async function photonNearby(lat, lng, category, cuisine) {
       url.searchParams.set('location_bias_scale', '0.05');
       url.searchParams.set('limit', '15');
       url.searchParams.set('bbox', [lng - 0.12, lat - 0.1, lng + 0.12, lat + 0.1].join(','));
-      return placeFetch(url.toString(), {}, 7000)
+      return placeFetch(url.toString(), {}, 12000)
         .then((json) =>
           (json.features || []).map((f) => {
             const p = f.properties || {};
@@ -2137,6 +2142,7 @@ exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req,
     const cached = await cacheRef.get();
     const maxAge = mode === 'nearby' ? 24 * 3600 * 1000 : 6 * 3600 * 1000;
     let places = null;
+    const stale = cached.exists ? cached.data().places || [] : [];
     if (cached.exists && Date.now() - (cached.data().at || 0) < maxAge) places = cached.data().places;
 
     if (!places) {
@@ -2153,6 +2159,8 @@ exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req,
       if (!places) {
         places = mode === 'nearby' ? await osmNearby(lat, lng, category, cuisine) : await osmSearch(query, lat, lng);
       }
+      // Providers flaked: an older list for this spot beats "nothing nearby".
+      if (!places.length && stale.length) places = stale;
       const seen = new Set();
       places = places.filter((p) => {
         const k = `${p.name.toLowerCase()}|${p.address || ''}`;
