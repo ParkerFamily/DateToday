@@ -26,7 +26,7 @@ export const copy = {
     'DateToday uses your location to show people who are actually available near you.',
   stopConfirmTitle: 'GO OFFLINE?',
   stopConfirmBody:
-    "You'll leave tonight's live pool and stop Pinging your radius.",
+    "You'll leave tonight's live pool and stop showing as Live nearby.",
   stayLive: 'Stay Live',
   goOffline: 'Go Offline',
   ageConfirm: 'I am at least 18 years old.',

@@ -17,7 +17,6 @@ import { DEMO_VIDEO_PROMPTS, demoCity, demoVideoPromptsFor } from '@/constants/d
 import {
     flowCopy,
     formatLaterHour,
-    radiusHint,
 } from '@/constants/flow';
 import { colors, radii, spacing } from '@/constants/theme';
 import { foodLabel } from '@/constants/tonightVibe';
@@ -47,14 +46,18 @@ import { canUseAdvancedFilters, canUsePriorityPool, maxRadiusMiles } from '@/lib
 import { env, isBackendConfigured } from '@/lib/env';
 import { useContentLayout } from '@/lib/layout';
 import { fetchDiscoveryFeed, sendPing } from '@/services/api';
-import { fetchFirestoreNearbyBrowse, subscribeActiveLiveSessions } from '@/features/live/firestoreLive';
+import {
+  fetchFirestoreNearbyBrowse,
+  subscribeActiveLiveSessions,
+  updateMyLiveSession,
+} from '@/features/live/firestoreLive';
 import { sendInterest, subscribeSentInterests } from '@/features/matches/api';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { useHiddenUserMap } from '@/store/blocks';
 import { useDiscoverFilters } from '@/store/discoverFilters';
 import { useMatchesStore } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
-import type { DiscoveryCard, FoodCuisine, TonightActivity } from '@/types';
+import type { DiscoveryCard, FoodCuisine, RadiusMiles, TonightActivity } from '@/types';
 import { formatDistanceMiles, isLiveSessionActive } from '@/utils/time';
 import { freeUntilLabel } from '@/features/live/freeUntil';
 import { tonightCompatibility } from '@/utils/tonightCompatibility';
@@ -594,7 +597,21 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   if (!card) {
     const radiusMi = liveRadius;
     const nextRadius = radiusPresets.find((mi) => mi > radiusMi && mi <= widerRadius) ?? null;
-    const radiusLine = radiusHint(tonightCount, radiusMi, nextRadius);
+    // The feed reads the radius off the saved Live session, so a local-only change finds no one new.
+    const applyRadius = (mi: RadiusMiles) => {
+      if (mi > widerRadius) {
+        router.push('/paywall');
+        return;
+      }
+      void Haptics.selectionAsync();
+      useDiscoverFilters.getState().setMaxDistanceMiles(mi);
+      if (!liveSession) return;
+      useSessionStore.getState().setLiveSession({ ...liveSession, radiusMiles: mi });
+      if (!isBackendConfigured()) return;
+      void updateMyLiveSession({ radiusMiles: mi })
+        .then(() => queryClient.invalidateQueries({ queryKey: ['discovery-feed'] }))
+        .catch((error) => Alert.alert('Couldn’t change your radius', friendlyError(error, 'Try again.')));
+    };
 
     return (
       <Screen padded={false} edges={liveHeader ? ['left', 'right'] : undefined}>
@@ -650,25 +667,16 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                   {radiusPresets.map((mi) => (
                     <OptionChip
                       key={mi}
-                      label={`${mi} mi`}
+                      label={mi > widerRadius ? `${mi} mi ✦` : `${mi} mi`}
                       selected={radiusMi === mi}
-                      onPress={() => {
-                        useDiscoverFilters.getState().setMaxDistanceMiles(mi);
-                        if (liveSession) {
-                          useSessionStore.getState().setLiveSession({
-                            ...liveSession,
-                            radiusMiles: mi,
-                          });
-                        }
-                        void feedQuery.refetch();
-                      }}
+                      onPress={() => applyRadius(mi)}
                     />
                   ))}
                 </View>
-                {radiusLine ? (
-                  <AppText variant="secondary" style={styles.quietBody}>
-                    {radiusLine}
-                  </AppText>
+                {nextRadius ? (
+                  <Pressable accessibilityRole="button" hitSlop={10} onPress={() => applyRadius(nextRadius)}>
+                    <AppText style={styles.tryFarther}>Try {nextRadius} mi instead →</AppText>
+                  </Pressable>
                 ) : null}
                 <Button
                   label={flowCopy.adjustFilters}
@@ -1616,6 +1624,7 @@ const styles = ScaledSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
+  tryFarther: { color: colors.brandBright, fontSize: 15, fontWeight: '800', textAlign: 'center' },
   widerTitle: { color: colors.text, fontSize: 15, fontWeight: '700', textAlign: 'center' },
   widerMeta: { fontSize: 12, textAlign: 'center' },
   quietCta: {

@@ -78,14 +78,6 @@ export function formatPingMatchLine(count: number): string {
   return `${count} people match your night`;
 }
 
-/** Under the radius chips. Zero never reads as "a few"; no suggestion past what the plan allows. */
-export function radiusHint(count: number, radiusMi: number, nextMi: number | null): string | null {
-  const next = nextMi != null && nextMi > radiusMi ? ` Try ${nextMi} mi.` : '';
-  if (count <= 0) return `No matches within ${radiusMi} mi yet.${next}`;
-  if (count <= 3) return `Only a few matches within ${radiusMi} mi.${next}`;
-  return null;
-}
-
 /** Offline teaser — never invents a headcount. */
 export function formatCityTonightTeaser(city: string, _estimated?: number): string {
   return `People get ready around ${city} tonight — Go Live to enter the pool.`;
