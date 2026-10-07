@@ -65,6 +65,13 @@ export async function continueAfterSocialAuth(
   const setProfile = useSessionStore.getState().setProfile;
   const setPreferences = useSessionStore.getState().setPreferences;
   const setProfileHydration = useSessionStore.getState().setProfileHydration;
+  
+  // Clear any stale draft data from previous account before loading this user
+  const currentUserId = useSessionStore.getState().userId;
+  if (currentUserId && currentUserId !== user.id) {
+    useOnboardingDraft.getState().reset();
+  }
+  
   const applySocialProfile = useOnboardingDraft.getState().applySocialProfile;
   const setEmail = useOnboardingDraft.getState().setEmail;
 
