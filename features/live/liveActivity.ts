@@ -3,13 +3,8 @@ import { AppState, Platform } from 'react-native';
 import type { LiveActivity, LiveActivityFactory } from 'expo-widgets';
 import type { LiveSessionActivityProps } from '@/features/live/LiveSessionActivity';
 import { clearLiveStatusNotification, showLiveStatusNotification } from '@/features/notifications/push';
-import {
-  cancelLiveEndingReminder,
-  cancelStillFreeReminder,
-  scheduleLiveEndingReminder,
-  scheduleStillFreeReminder,
-} from '@/features/notifications/reminders';
-import { lastConfirmedMs, RECONFIRM_AFTER_MS } from '@/features/live/freeUntil';
+import { cancelLiveEndingReminder, cancelStillFreeReminder } from '@/features/notifications/reminders';
+import { freeUntilLabel } from '@/features/live/freeUntil';
 import { useLiveSessionRestored } from '@/features/live/restoreLiveSession';
 import { useMatchesStore, usePendingLikes, useUnreadMatchCount } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
@@ -66,9 +61,8 @@ async function showLiveActivity(props: LiveSessionActivityProps) {
   if (Platform.OS === 'android') {
     if (key === lastKey) return;
     lastKey = key;
-    const until = new Date(props.endsAtMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     await showLiveStatusNotification(
-      `${props.headline} · until ${until}`,
+      props.endsLabel ? `${props.headline} · ${props.endsLabel}` : props.headline,
       [props.detail, props.activity].filter(Boolean).join('\n'),
     );
     return;
@@ -141,12 +135,11 @@ export function useLiveActivitySync() {
     const bits: string[] = [];
     if (likes > 0) bits.push(plural(likes, 'person likes you', 'people like you'));
     if (unread > 0) bits.push(plural(unread, 'new message', 'new messages'));
-    const endsAt = new Date(liveSession.expiresAt);
     return {
       headline: datePlannedTonight ? 'Date planned tonight' : 'You’re live',
       detail: [neighborhood, activities || 'Open to anything'].filter(Boolean).join(' · '),
       activity: bits.join(' · '),
-      endsLabel: `until ${endsAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`,
+      endsLabel: freeUntilLabel(liveSession.availableUntil) ?? '',
       likes,
       messages: unread,
       startedAtMs: new Date(liveSession.startedAt).getTime(),
@@ -165,19 +158,9 @@ export function useLiveActivitySync() {
     else if (knownOffline) void endLiveActivity();
   }, [props, knownOffline]);
 
-  const endsAtMs = props?.endsAtMs ?? null;
+  // Live reminders are server pushes now (throttled, with Stay Live / Go Offline); clear old local ones.
   useEffect(() => {
-    if (uid && endsAtMs) void scheduleLiveEndingReminder(uid, endsAtMs);
-    else if (knownOffline) void cancelLiveEndingReminder();
-  }, [uid, endsAtMs, knownOffline]);
-
-  const askAtMs =
-    active && liveSession ? lastConfirmedMs(liveSession) + RECONFIRM_AFTER_MS : NaN;
-  useEffect(() => {
-    if (endsAtMs && Number.isFinite(askAtMs) && askAtMs < endsAtMs - 20 * 60 * 1000) {
-      void scheduleStillFreeReminder(askAtMs);
-    } else if (knownOffline || endsAtMs) {
-      void cancelStillFreeReminder();
-    }
-  }, [askAtMs, endsAtMs, knownOffline]);
+    void cancelLiveEndingReminder();
+    void cancelStillFreeReminder();
+  }, []);
 }

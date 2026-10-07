@@ -161,6 +161,8 @@ export interface StartLiveInput {
   energy?: TonightEnergy | null;
   travel?: TravelPref | null;
   planIdea?: string | null;
+  liveDurationMs?: number;
+  nightResetAt?: string | null;
 }
 
 export async function startLiveSession(input: StartLiveInput): Promise<LiveSession> {

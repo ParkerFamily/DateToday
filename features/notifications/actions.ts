@@ -9,12 +9,17 @@ import { getFirebaseAuth } from '@/lib/firebase/client';
 export const MESSAGE_CATEGORY = 'message';
 const REPLY_ACTION = 'reply';
 const MARK_READ_ACTION = 'mark_read';
+/** Must match CATEGORY_FOR_TYPE live_* in functions/index.js. */
+export const LIVE_CATEGORY = 'live_session';
+const STAY_LIVE_ACTION = 'stay_live';
+const GO_OFFLINE_ACTION = 'go_offline';
+const ACTION_IDS = new Set([REPLY_ACTION, MARK_READ_ACTION, STAY_LIVE_ACTION, GO_OFFLINE_ACTION]);
 const ANDROID_ACTION_TASK = 'dt_notification_actions';
 
 const handled = new Set<string>();
 
 export function isNotificationAction(response: Notifications.NotificationResponse | null | undefined) {
-  return response?.actionIdentifier === REPLY_ACTION || response?.actionIdentifier === MARK_READ_ACTION;
+  return ACTION_IDS.has(response?.actionIdentifier ?? '');
 }
 
 /** Stable id per (notification, reply text) so a retried reply can't post twice. */
@@ -58,7 +63,7 @@ function releaseBackgroundTime() {
   }
 }
 
-/** Handles Reply / Mark as read without opening the app. Returns true if the response was an action. */
+/** Handles Reply / Mark as read / Stay Live / Go Offline without opening the app. Returns true if the response was an action. */
 export async function handleNotificationAction(response: Notifications.NotificationResponse) {
   if (!isNotificationAction(response)) return false;
   const key = `${response.notification.request.identifier}:${response.actionIdentifier}:${response.userText ?? ''}`;
@@ -72,7 +77,43 @@ export async function handleNotificationAction(response: Notifications.Notificat
   return true;
 }
 
+/** Stay Live / Go Offline go through the server (idempotent per notification), then resync locally. */
+async function performLiveAction(response: Notifications.NotificationResponse) {
+  const action = response.actionIdentifier === STAY_LIVE_ACTION ? 'stay' : 'offline';
+  const id = response.notification.request.identifier;
+  const nonce = `${action}:${id.replace(/[^A-Za-z0-9:_.-]/g, '').slice(-120)}`;
+  try {
+    const { callLiveAction } = await import('@/features/live/liveActions');
+    try {
+      await callLiveAction(action, nonce);
+    } catch {
+      await new Promise((r) => setTimeout(r, 1500));
+      await callLiveAction(action, nonce);
+    }
+    const uid = getFirebaseAuth().currentUser?.uid;
+    if (uid) {
+      const { restoreLiveSession } = await import('@/features/live/restoreLiveSession');
+      await restoreLiveSession(uid);
+    }
+  } catch {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: action === 'stay' ? 'Couldn’t keep you Live' : 'Couldn’t take you offline',
+        body: 'Tap to open DateToday and try again.',
+        data: { type: 'live_status_error', url: '/live' },
+      },
+      trigger: Platform.OS === 'android' ? { channelId: 'live' } : null,
+    }).catch(() => undefined);
+  } finally {
+    await Notifications.dismissNotificationAsync(id).catch(() => undefined);
+  }
+}
+
 async function performNotificationAction(response: Notifications.NotificationResponse) {
+  if (response.actionIdentifier === STAY_LIVE_ACTION || response.actionIdentifier === GO_OFFLINE_ACTION) {
+    await performLiveAction(response);
+    return;
+  }
   const data = response.notification.request.content.data as { matchId?: unknown } | undefined;
   const matchId = typeof data?.matchId === 'string' ? data.matchId : null;
   if (!matchId) return;
@@ -142,6 +183,15 @@ export function installNotificationActions() {
   void Notifications.setNotificationCategoryAsync(MESSAGE_CATEGORY, actions, {
     previewPlaceholder: 'New message',
   }).catch(() => undefined);
+
+  void Notifications.setNotificationCategoryAsync(LIVE_CATEGORY, [
+    { identifier: STAY_LIVE_ACTION, buttonTitle: 'Stay Live', options: { opensAppToForeground: !silent } },
+    {
+      identifier: GO_OFFLINE_ACTION,
+      buttonTitle: 'Go Offline',
+      options: { opensAppToForeground: !silent, isDestructive: true },
+    },
+  ]).catch(() => undefined);
 
   Notifications.addNotificationResponseReceivedListener((response) => {
     void handleNotificationAction(response);

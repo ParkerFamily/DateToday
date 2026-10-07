@@ -9,6 +9,7 @@ export type NotificationPrefKey =
   | 'dateRequests'
   | 'dateUpdates'
   | 'reminders'
+  | 'liveUpdates'
   | 'promotions'
   | 'system';
 
@@ -21,6 +22,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   dateRequests: true,
   dateUpdates: true,
   reminders: true,
+  liveUpdates: true,
   // Marketing needs an explicit opt-in (App Store 4.5.4).
   promotions: false,
   system: true,
@@ -32,7 +34,12 @@ export const NOTIFICATION_PREF_ROWS: { key: NotificationPrefKey; label: string; 
   { key: 'likes', label: 'Likes', detail: 'When someone taps Interested on you' },
   { key: 'dateRequests', label: 'Date requests', detail: 'When a match proposes a plan' },
   { key: 'dateUpdates', label: 'Date confirmations & changes', detail: 'When a plan is accepted or declined' },
-  { key: 'reminders', label: 'Reminders', detail: 'Before your live time runs out' },
+  { key: 'reminders', label: 'Live reminders', detail: 'Before your Live session ends, with Stay Live / Go Offline' },
+  {
+    key: 'liveUpdates',
+    label: 'Live tonight',
+    detail: 'When people near you go Live, and a nudge if you’re still Live. A few a night at most.',
+  },
   {
     key: 'promotions',
     label: 'Tonight nudges & offers',

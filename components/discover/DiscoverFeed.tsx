@@ -55,6 +55,7 @@ import { useMatchesStore } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
 import type { DiscoveryCard, FoodCuisine, TonightActivity } from '@/types';
 import { formatDistanceMiles, isLiveSessionActive } from '@/utils/time';
+import { freeUntilLabel } from '@/features/live/freeUntil';
 import { tonightCompatibility } from '@/utils/tonightCompatibility';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -107,10 +108,6 @@ const DEMO_CARDS: DiscoveryCard[] = DEMO_VIDEO_PROMPTS.map((p, i) => ({
   videoPrompts: demoVideoPromptsFor(p),
 }));
 
-function formatClock(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
 /** Main photo, then videos interleaved with the remaining photos. */
 function carouselItemsFor(card: DiscoveryCard): CarouselItem[] {
   const photos: CarouselItem[] = (
@@ -140,10 +137,8 @@ function carouselItemsFor(card: DiscoveryCard): CarouselItem[] {
   return out;
 }
 
-function activityLabel(a: string): string {
-  const emoji = ACTIVITY_EMOJI[a] ?? '';
-  const word = a === 'surprise' ? 'Spontaneous' : a.charAt(0).toUpperCase() + a.slice(1);
-  return emoji ? `${emoji} ${word}` : word;
+function planWord(a: string): string {
+  return a === 'surprise' ? 'Spontaneous' : a.charAt(0).toUpperCase() + a.slice(1);
 }
 
 interface DiscoverFeedProps {
@@ -730,7 +725,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         <View style={[styles.pingHeader, { paddingTop: topPad + 8 }]}>
           <View style={styles.pingHeaderLeft}>
             <AppText style={[styles.pingHeaderEyebrow, !tonight && styles.pingHeaderEyebrowNearby]}>
-              {tonight ? '⚡ OUT TONIGHT' : 'NEARBY'}
+              {tonight ? '⚡ OUT TONIGHT' : 'MORE NEARBY'}
             </AppText>
             <AppText style={styles.pingHeaderTitle}>
               {!tonight
@@ -852,7 +847,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                           {availabilityText(card).toUpperCase()}
                         </AppText>
                         <AppText style={styles.place} numberOfLines={1}>
-                          {tier === 0 ? ` · until ${formatClock(card.liveUntil)}` : ''}
+                          {[
+                            card.activities[0] ? planWord(card.activities[0]) : null,
+                            card.hideDistance ? null : formatDistanceMiles(card.distanceMiles),
+                            freeUntilLabel(card.freeUntil),
+                          ]
+                            .filter(Boolean)
+                            .map((bit) => ` · ${bit}`)
+                            .join('')}
                         </AppText>
                       </View>
                     ) : (
@@ -863,9 +865,6 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                             {activity?.label}
                           </AppText>
                         </View>
-                        <AppText style={styles.notLiveNote}>
-                          Not live tonight · you can still match and chat
-                        </AppText>
                       </>
                     )}
                   </View>
@@ -1295,7 +1294,6 @@ const styles = ScaledSheet.create({
   goLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22E58B' },
   goLiveText: { flex: 1, color: colors.white, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   goLiveCta: { color: '#22E58B', fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
-  notLiveNote: { color: 'rgba(250,250,250,0.62)', fontSize: 13, fontWeight: '600' },
   tonightFrame: {
     ...StyleSheet.absoluteFill,
     borderWidth: 2,

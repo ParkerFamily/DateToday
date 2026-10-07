@@ -66,10 +66,16 @@ export function matchesHowSoon(c: DiscoveryCard, howSoon: HowSoon, now: Date = n
   return tonightAt(c.laterTonightHour, now).getTime() - now.getTime() <= window;
 }
 
+/** Free Until drives availability filters; sessions from before it was split out fall back to Live end. */
+export function freeUntilOf(c: Pick<DiscoveryCard, 'freeUntil' | 'liveUntil'>): string | null {
+  return c.freeUntil || c.liveUntil || null;
+}
+
 /** How much time they have once they're free (from now, or from their "free later" hour). */
 export function matchesFreeFor(c: DiscoveryCard, freeFor: FreeFor, now: Date = new Date()): boolean {
-  if (isNearbyOnly(c) || !c.liveUntil) return false;
-  const until = new Date(c.liveUntil).getTime();
+  const free = freeUntilOf(c);
+  if (isNearbyOnly(c) || !free) return false;
+  const until = new Date(free).getTime();
   if (freeFor === 'night') return until >= tonightAt(24, now).getTime();
   const start =
     c.availabilityMode === 'later' && c.laterTonightHour != null
@@ -166,7 +172,7 @@ export function applyDiscoverFilters(
 
     if (afterHours) {
       if (nearbyOnly && (outLateAt || f.afterHoursNow || f.lateNightOpen || f.stillOut)) return false;
-      if (outLateAt && new Date(c.liveUntil).getTime() < outLateAt) return false;
+      if (outLateAt && new Date(freeUntilOf(c) ?? 0).getTime() < outLateAt) return false;
       if (f.afterHoursNow && c.availabilityMode === 'later') return false;
       if (f.lateNightOpen && !(c.afterHours ?? []).length) return false;
       if (f.stillOut && !(c.afterHours ?? []).includes('still_out')) return false;
@@ -310,7 +316,7 @@ export function matchedFilterLabels(
 
   if (plus && isAfterHours(now) && !nearbyOnly) {
     const late = OUT_LATE_OPTIONS.find((o) => o.value === f.outLate);
-    if (late && new Date(c.liveUntil).getTime() >= tonightAt(late.hour, now).getTime()) out.push(`🌙 ${late.label}`);
+    if (late && new Date(freeUntilOf(c) ?? 0).getTime() >= tonightAt(late.hour, now).getTime()) out.push(`🌙 ${late.label}`);
     if (f.stillOut && (c.afterHours ?? []).includes('still_out')) out.push('🌙 Still outside');
     if (f.lateNightOpen && (c.afterHours ?? []).length) out.push('🌙 Late-night plans');
   }

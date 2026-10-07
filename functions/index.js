@@ -14,6 +14,7 @@ const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { activateLive, nearbyLive } = require('./nearbyLive');
+const liveEngagement = require('./liveEngagement');
 
 initializeApp();
 
@@ -582,11 +583,19 @@ const CHANNEL_FOR_TYPE = {
   verification: 'system',
   security: 'system',
   promotion: 'promotions',
+  live_ending: 'live',
+  live_check: 'live',
+  live_still: 'live',
+  live_more: 'live',
+  live_new_nearby: 'live',
 };
 
 /** Interactive actions (Reply / Mark as read). Must match MESSAGE_CATEGORY in features/notifications/actions.ts. */
 const CATEGORY_FOR_TYPE = {
   message: 'message',
+  // Stay Live / Go Offline. Must match LIVE_CATEGORY in features/notifications/actions.ts.
+  live_ending: 'live_session',
+  live_check: 'live_session',
 };
 
 /** Preference that gates each push type. Must match NotificationPrefKey in features/notifications/preferences.ts. */
@@ -599,6 +608,11 @@ const PREF_FOR_TYPE = {
   date_declined: 'dateUpdates',
   reminder: 'reminders',
   promotion: 'promotions',
+  live_ending: 'reminders',
+  live_check: 'reminders',
+  live_still: 'liveUpdates',
+  live_more: 'liveUpdates',
+  live_new_nearby: 'liveUpdates',
   // verification / security are always delivered.
 };
 
@@ -704,6 +718,12 @@ const TTL_FOR_TYPE = {
   date_accepted: 7 * 24 * 60 * 60,
   date_declined: 7 * 24 * 60 * 60,
   interest: 2 * 24 * 60 * 60,
+  // Live pushes are only useful right now; drop them rather than deliver late.
+  live_ending: 15 * 60,
+  live_check: 20 * 60,
+  live_still: 20 * 60,
+  live_more: 20 * 60,
+  live_new_nearby: 20 * 60,
 };
 const DEFAULT_TTL = 12 * 60 * 60;
 
@@ -1343,6 +1363,31 @@ exports.onLiveSessionStarted = onDocumentWritten('liveSessions/{uid}', async (ev
   if (!after || after.status !== 'active') return;
   if (before && before.status === 'active' && before.startedAt === after.startedAt) return;
   await ensureJoinedAt(event.params.uid);
+  // Stay Live re-activations keep startedAt, so only a real new session fans out.
+  if (before && before.startedAt === after.startedAt) return;
+  try {
+    await liveEngagement.notifyNewLiveNearby({
+      db: getFirestore(),
+      FieldValue,
+      pushToUser,
+      isHiddenFrom,
+      uid: event.params.uid,
+      session: after,
+    });
+  } catch (e) {
+    console.warn('notifyNewLiveNearby failed', event.params.uid, e && e.message);
+  }
+});
+
+/** Stay Live / Go Offline from a notification action or the app. Body: { action: 'stay'|'offline', nonce? } */
+exports.liveAction = onRequest({ cors: true }, (req, res) =>
+  liveEngagement.liveAction(req, res, { db: getFirestore(), FieldValue, requireUser }),
+);
+
+/** Expires stale Live sessions and sends throttled Live check-ins. */
+exports.liveEngagementSweep = onSchedule({ schedule: 'every 10 minutes', timeoutSeconds: 300 }, async () => {
+  const result = await liveEngagement.liveEngagementSweep({ db: getFirestore(), FieldValue, pushToUser });
+  if (result.sent) console.info('liveEngagementSweep', result);
 });
 
 exports.onNearbyProfileCreated = onDocumentCreated('nearbyProfiles/{uid}', async (event) => {

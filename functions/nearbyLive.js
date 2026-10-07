@@ -52,7 +52,8 @@ function eligible(data, now = Date.now()) {
     && age >= 18
     && (completion.communityStandards === true || Boolean(data?.communityStandardsAcceptedAt)
       || Boolean(consent.acceptedAt && consent.communityGuidelinesVersion))
-    && privacy.showInDiscovery !== false && privacy.pauseDiscovery !== true;
+    // showInDiscovery means "show me when I'm not Live" — it never blocks Live itself.
+    && privacy.pauseDiscovery !== true;
 }
 
 function canBrowseProfiles(user, decodedToken) {

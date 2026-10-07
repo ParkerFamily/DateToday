@@ -186,14 +186,22 @@ export interface ProfileVideo {
 export interface LiveSession {
   id: string;
   userId: string;
+  /** When this Live session started (liveStartedAt). */
   startedAt: string;
+  /** When Live ends (liveExpiresAt) — a short configurable session, NOT Free Until. */
   expiresAt: string;
   endedAt: string | null;
   status: LiveSessionStatus;
   radiusMiles: RadiusMiles;
   availableFrom: string | null;
+  /** Free Until: how long they're available tonight. Display + filters only. */
   availableUntil: string | null;
+  /** e.g. "Until 11 PM" — the Free Until pick. */
   availabilityLabel: string | null;
+  /** Session length used for Stay Live extensions. */
+  liveDurationMs?: number;
+  /** Local nightly cutoff (ISO); Live and tonight state never carry past it. */
+  nightResetAt?: string | null;
   activities?: TonightActivity[];
   /** Optional when Dinner is selected — not a dating preference */
   foodCuisines?: FoodCuisine[];
@@ -235,7 +243,10 @@ export interface DiscoveryCard extends ProfileTraits {
   /** Up to 3, main photo first. */
   photoUrls?: string[];
   liveSessionId: string;
+  /** When their Live session ends (priority + ⚡ badge stop then). */
   liveUntil: string;
+  /** Free Until (ISO): their availability tonight, independent of the Live session. */
+  freeUntil?: string | null;
   availabilityLabel: string | null;
   activities: TonightActivity[];
   isBoosted: boolean;

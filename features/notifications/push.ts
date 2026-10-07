@@ -14,6 +14,7 @@ export const ANDROID_CHANNELS = [
   { id: 'matches', name: 'Matches', importance: Notifications.AndroidImportance.MAX },
   { id: 'activity', name: 'Likes & activity', importance: Notifications.AndroidImportance.HIGH },
   { id: 'dates', name: 'Dates & reminders', importance: Notifications.AndroidImportance.MAX },
+  { id: 'live', name: 'Live tonight', importance: Notifications.AndroidImportance.HIGH },
   { id: 'system', name: 'Account & security', importance: Notifications.AndroidImportance.HIGH },
   { id: 'promotions', name: 'News & offers', importance: Notifications.AndroidImportance.DEFAULT },
 ] as const;

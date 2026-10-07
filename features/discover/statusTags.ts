@@ -90,7 +90,7 @@ export function cardStatusTags(card: DiscoveryCard, now: Date = new Date(), max 
 
   if (tier !== 2) {
     if (card.distanceMiles <= CLOSE_BY_MILES) tags.push({ key: 'nearby', label: 'Close by', tone: 'brand' });
-    if (tier === 0 && ms(card.liveUntil) - nowMs >= FREE_TONIGHT_MS) {
+    if (tier === 0 && ms(card.freeUntil || card.liveUntil) - nowMs >= FREE_TONIGHT_MS) {
       tags.push({ key: 'tonight', label: 'Free all night', tone: 'brand' });
     }
   }

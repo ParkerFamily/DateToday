@@ -67,8 +67,8 @@ export default function PrivacyControlsScreen() {
 
         <SettingsGroup title="Discovery">
           <ToggleRow
-            label="Show in discovery"
-            detail="When off, you should not appear in discovery / live pools."
+            label="Show me when I’m not Live"
+            detail="When you're Live, you're prioritized for tonight. When you're not Live, people can still discover your profile."
             value={showInDiscovery}
             onValueChange={(showInDiscovery) => update({ showInDiscovery })}
           />

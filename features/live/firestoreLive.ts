@@ -116,6 +116,8 @@ export type PublishLiveInput = {
   energy?: TonightEnergy | null;
   travel?: TravelPref | null;
   planIdea?: string | null;
+  liveDurationMs?: number;
+  nightResetAt?: string | null;
 };
 
 function videoPromptsFromUser(d: Record<string, unknown>): DiscoveryCard['videoPrompts'] {
@@ -262,12 +264,15 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     confirmedAt: nowIso,
     expiresAt: input.expiresAt,
     endedAt: null,
+    endedReason: null,
     radiusMiles: input.radiusMiles,
     latitude: lat,
     longitude: lng,
     availableFrom: input.availableFrom ?? null,
     availableUntil: input.availableUntil ?? input.expiresAt,
     availabilityLabel: input.availabilityLabel ?? null,
+    liveDurationMs: input.liveDurationMs ?? null,
+    nightResetAt: input.nightResetAt ?? null,
     activities: input.activities,
     foodCuisines: input.foodCuisines ?? [],
     laterTonightHour: laterHour,
@@ -288,7 +293,11 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     'Go live'
   );
   analytics.track('go_live_completed');
-  void publishNearbyPresence({ latitude: input.latitude, longitude: input.longitude }).catch(() => undefined);
+  // Keeps them discoverable once Live ends — only if they allow showing up when not Live.
+  const privacy = (u.privacyControls ?? {}) as { showInDiscovery?: boolean; pauseDiscovery?: boolean };
+  if (privacy.showInDiscovery !== false && privacy.pauseDiscovery !== true) {
+    void publishNearbyPresence({ latitude: input.latitude, longitude: input.longitude }).catch(() => undefined);
+  }
 
   return {
     id: uid,
@@ -301,6 +310,8 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     availableFrom: input.availableFrom ?? null,
     availableUntil: input.availableUntil ?? input.expiresAt,
     availabilityLabel: input.availabilityLabel ?? null,
+    liveDurationMs: input.liveDurationMs,
+    nightResetAt: input.nightResetAt ?? null,
     activities: input.activities,
     foodCuisines: input.foodCuisines,
     laterTonightHour: laterHour,
@@ -411,6 +422,8 @@ export async function fetchMyActiveLiveSession(uid: string): Promise<LiveSession
     availableFrom: (d.availableFrom as string | null) ?? null,
     availableUntil: (d.availableUntil as string | null) ?? expiresAt,
     availabilityLabel: (d.availabilityLabel as string | null) ?? null,
+    liveDurationMs: typeof d.liveDurationMs === 'number' ? d.liveDurationMs : undefined,
+    nightResetAt: (d.nightResetAt as string | null) ?? null,
     activities: (d.activities as TonightActivity[]) ?? [],
     foodCuisines: (d.foodCuisines as FoodCuisine[]) ?? [],
     laterTonightHour: laterHour,
@@ -544,6 +557,7 @@ export async function fetchFirestoreDiscoveryFeed(
       ...cardBase(docSnap.id, d, dist),
       liveSessionId: docSnap.id,
       liveUntil: expiresAt,
+      freeUntil: d.availableUntil ? tsToIso(d.availableUntil) : null,
       availabilityLabel: (d.availabilityLabel as string | null) ?? null,
       activities: (d.activities as TonightActivity[]) ?? [],
       foodCuisines: (d.foodCuisines as FoodCuisine[]) ?? [],

@@ -113,7 +113,7 @@ service cloud.firestore {
       allow create, update: if isOwner(userId)
         && request.resource.data.keys().hasOnly([
           'matches', 'messages', 'likes', 'dateRequests', 'dateUpdates', 'reminders',
-          'promotions', 'system', 'updatedAt'
+          'liveUpdates', 'promotions', 'system', 'updatedAt'
         ]);
       allow delete: if isOwner(userId);
     }

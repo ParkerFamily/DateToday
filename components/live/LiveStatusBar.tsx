@@ -1,8 +1,7 @@
 import { AppText } from '@/components/ui/AppText';
 import { colors, radii, spacing } from '@/constants/theme';
-import { formatRemaining } from '@/utils/time';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
@@ -16,7 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
 
 interface LiveStatusBarProps {
-  expiresAt: string;
+  /** e.g. "Free until 1 AM"; Live itself has no visible countdown. */
+  freeUntil: string | null;
   meta: string;
   datePlanned: boolean;
   isBoosted: boolean;
@@ -26,9 +26,9 @@ interface LiveStatusBarProps {
   onBoost: () => void;
 }
 
-/** Compact "you're live" strip that sits above the Live feed. Owns its own 1s clock. */
+/** Compact "you're live" strip that sits above the Live feed. */
 export function LiveStatusBar({
-  expiresAt,
+  freeUntil,
   meta,
   datePlanned,
   isBoosted,
@@ -38,13 +38,7 @@ export function LiveStatusBar({
   onBoost,
 }: LiveStatusBarProps) {
   const insets = useSafeAreaInsets();
-  const [now, setNow] = useState(() => new Date());
   const pulse = useSharedValue(1);
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     pulse.value = withRepeat(withTiming(0.35, { duration: 900, easing: Easing.inOut(Easing.quad) }), -1, true);
@@ -53,8 +47,6 @@ export function LiveStatusBar({
 
   const dotAnim = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
-  const timeLeft = `${formatRemaining(expiresAt, now)} left`;
-
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + 6 }]}>
       <View style={styles.row}>
@@ -62,11 +54,15 @@ export function LiveStatusBar({
         <View style={styles.copy}>
           <AppText style={styles.title} numberOfLines={1}>
             {datePlanned ? 'DATE PLANNED' : 'YOU’RE LIVE'}
-            <AppText style={styles.timer}>  ·  {timeLeft}</AppText>
           </AppText>
           <AppText style={styles.meta} numberOfLines={1}>
             {meta}
           </AppText>
+          {freeUntil ? (
+            <AppText style={styles.freeUntil} numberOfLines={1}>
+              {freeUntil}
+            </AppText>
+          ) : null}
         </View>
         <Pressable
           accessibilityRole="button"
@@ -116,7 +112,7 @@ const styles = ScaledSheet.create({
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.live },
   copy: { flex: 1, minWidth: 0 },
   title: { color: colors.live, fontSize: 13, fontWeight: '800', letterSpacing: 1 },
-  timer: { color: colors.text, fontSize: 13, fontWeight: '700', letterSpacing: 0.2 },
+  freeUntil: { color: colors.text, fontSize: 12, fontWeight: '600', marginTop: 2 },
   meta: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   iconBtn: {
     width: 34,

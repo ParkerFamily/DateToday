@@ -8,7 +8,10 @@ import { isBackendConfigured } from '@/lib/env';
  * Do not add toggles here that the backend cannot enforce.
  */
 export type PrivacyControls = {
-  /** When false, you should not appear in discovery/live pools. */
+  /**
+   * "Show me when I'm not Live". When false you only appear while Live; your non-Live
+   * nearby presence (nearbyProfiles) is removed.
+   */
   showInDiscovery: boolean;
   /** Prefer showing neighborhood / hidden distance instead of miles. */
   hideDistance: boolean;

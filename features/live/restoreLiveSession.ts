@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { create } from 'zustand';
+import { tonightKey } from '@/constants/liveConfig';
 import type { LiveSessionPatch } from '@/features/live/firestoreLive';
 import { isBackendConfigured } from '@/lib/env';
 import { useSessionStore } from '@/store/session';
@@ -55,14 +56,30 @@ export async function syncLiveSessionPatch(patch: LiveSessionPatch) {
   }
 }
 
+let seenTonight = tonightKey();
+
+/** Past the nightly reset, tonight-only state (e.g. "Date planned tonight") starts fresh. */
+function resetTonightIfNewNight() {
+  const key = tonightKey();
+  if (key === seenTonight) return;
+  seenTonight = key;
+  useSessionStore.getState().setDatePlannedTonight(false);
+}
+
 /** Mount once (tabs layout): re-check the beacon whenever the app comes back to the foreground. */
 export function useLiveSessionResync() {
   const uid = useSessionStore((s) => s.userId);
   useEffect(() => {
     if (!uid) return;
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void restoreLiveSession(uid);
+      if (state !== 'active') return;
+      resetTonightIfNewNight();
+      void restoreLiveSession(uid);
     });
-    return () => sub.remove();
+    const id = setInterval(resetTonightIfNewNight, 5 * 60 * 1000);
+    return () => {
+      sub.remove();
+      clearInterval(id);
+    };
   }, [uid]);
 }
