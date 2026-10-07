@@ -407,7 +407,7 @@ export function subscribeActiveLiveSessions(onChange: () => void) {
     collection(getDb(), 'liveSessions'), 
     where('status', '==', 'active'),
     orderBy('createdAt', 'desc'),
-    limit(200)
+    limitTo(200)
   );
   let first = true;
   return onSnapshot(
