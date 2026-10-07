@@ -82,6 +82,12 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
   const setPreferences = useSessionStore.getState().setPreferences;
   const setProfileHydration = useSessionStore.getState().setProfileHydration;
   
+  // Clear onboarding draft when loading a different user to prevent data mixing
+  const currentUserId = useSessionStore.getState().userId;
+  if (currentUserId && currentUserId !== uid) {
+    useOnboardingDraft.getState().reset();
+  }
+  
   setAuth(uid, email);
   setProfileHydration('loading');
   

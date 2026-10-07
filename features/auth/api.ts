@@ -135,7 +135,12 @@ export async function signOut() {
   if (!isFirebaseConfigured()) return;
   await markSignedOut();
   const { useSessionStore } = await import('@/store/session');
+  const { useOnboardingDraft } = await import('@/store/onboardingDraft');
   const live = useSessionStore.getState().liveSession;
+  
+  // Clear onboarding draft to prevent data from leaking to next login
+  useOnboardingDraft.getState().reset();
+  
   await Promise.all([
     live
       ? bestEffort(async () => {

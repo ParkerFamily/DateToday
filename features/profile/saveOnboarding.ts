@@ -35,8 +35,9 @@ type DraftSnapshot = Pick<
   | 'verificationStatus'
   | 'personaInquiryId'
   | 'legalConsentAccepted'
+  | 'legalName'
 > &
-  Partial<Pick<OnboardingDraft, 'interests' | 'legalName'>>;
+  Partial<Pick<OnboardingDraft, 'interests'>>;
 
 function isUploadableUri(uri: string | null | undefined): uri is string {
   if (!uri) return false;
@@ -118,6 +119,11 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
   const uid = auth.currentUser?.uid;
   if (!uid) {
     throw new Error('Sign in before saving your profile.');
+  }
+
+  const legalName = draft.legalName.trim().slice(0, 80);
+  if (legalName.length < 2) {
+    throw new Error('Legal name is required — it must match your government ID.');
   }
 
   let mainPhotoUrl: string | null = remoteMediaUrlOrNull(draft.mainPhotoUri);
@@ -253,10 +259,7 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
   await setDoc(userRef, payload, { merge: true });
 
   // Separate write: rules reject changing a legal name that's already set.
-  const legalName = draft.legalName?.trim().slice(0, 80);
-  if (legalName) {
-    await setDoc(userRef, { legalName }, { merge: true }).catch(() => {});
-  }
+  await setDoc(userRef, { legalName }, { merge: true }).catch(() => {});
 
   // Public discovery slice — no DOB/email/coords; verification only if already trusted server-side.
   await setDoc(
@@ -284,7 +287,7 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
   const profile: Profile = {
     userId: uid,
     displayName: payload.displayName,
-    legalName: legalName || null,
+    legalName,
     bio: payload.bio,
     dateOfBirth: draft.dateOfBirth || null,
     genderId: payload.gender,

@@ -67,6 +67,13 @@ export default function LoginScreen() {
         return;
       }
       const data = await signInWithEmail(values);
+      
+      // Clear any stale draft data from previous account before loading this user
+      const currentUserId = useSessionStore.getState().userId;
+      if (currentUserId && currentUserId !== data.user.id) {
+        useOnboardingDraft.getState().reset();
+      }
+      
       setAuth(data.user.id, data.user.email ?? null);
       const saved = await loadUserProfile(data.user.id);
       if (saved && hasEnteredApp(saved.profile)) {
