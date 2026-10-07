@@ -130,6 +130,11 @@ export default function MediaSettingsScreen() {
         },
         { merge: true },
       );
+      void import('@/features/live/firestoreLive')
+        .then(({ refreshLiveProfileFields }) =>
+          refreshLiveProfileFields({ mainPhotoUrl: main, photoUrls: remoteNext }),
+        )
+        .catch(() => undefined);
     }
   };
 

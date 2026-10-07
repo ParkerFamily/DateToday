@@ -111,6 +111,15 @@ function videoPromptsFromUser(d: Record<string, unknown>): DiscoveryCard['videoP
   return out;
 }
 
+/** Main photo first, then the rest, max 3; docs written before photoUrls existed fall back to the main photo. */
+function cardPhotos(d: Record<string, unknown>): string[] {
+  const main = typeof d.mainPhotoUrl === 'string' && d.mainPhotoUrl ? d.mainPhotoUrl : null;
+  const list = Array.isArray(d.photoUrls)
+    ? (d.photoUrls as unknown[]).filter((u): u is string => typeof u === 'string' && u.startsWith('http'))
+    : [];
+  return [...new Set([...(main ? [main] : []), ...list])].slice(0, 3);
+}
+
 /** Public card fields copied from private users/{uid} onto live + nearby docs. */
 function publicCardFields(u: Record<string, unknown>) {
   let age = 21;
@@ -127,6 +136,7 @@ function publicCardFields(u: Record<string, unknown>) {
     age,
     neighborhoodLabel: (u.neighborhoodLabel as string | null) ?? null,
     mainPhotoUrl: (u.mainPhotoUrl as string | null) ?? null,
+    photoUrls: cardPhotos(u),
     verificationStatus: (u.verificationStatus as string) ?? 'unverified',
     datingIntention: (u.datingIntention as string | null) ?? null,
     bio: (u.bio as string | null) ?? null,
@@ -547,6 +557,7 @@ function cardBase(id: string, d: Record<string, unknown>, dist: number) {
     datingIntention: (d.datingIntention as DiscoveryCard['datingIntention']) ?? null,
     bio: (d.bio as string | null) ?? null,
     mainPhotoUrl: (d.mainPhotoUrl as string | null) ?? null,
+    photoUrls: cardPhotos(d),
     videoPrompts: videoPromptsFromUser(d),
     heightCm: typeof d.heightCm === 'number' ? d.heightCm : null,
     drinking: (d.drinking as string | null) ?? null,

@@ -116,6 +116,14 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
     // onboarding before location permissions were added.
     if (hasEnteredApp(saved.profile)) {
       void ensureLocationPermissionAsked();
+      const photos = saved.profile.photoUrls ?? [];
+      if (photos.length) {
+        void import('@/features/live/firestoreLive')
+          .then(({ refreshLiveProfileFields }) =>
+            refreshLiveProfileFields({ mainPhotoUrl: saved.profile.mainPhotoUrl, photoUrls: photos }),
+          )
+          .catch(() => undefined);
+      }
     }
     
     // Parallelize independent operations for faster hydration

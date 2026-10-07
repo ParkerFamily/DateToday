@@ -232,6 +232,8 @@ export interface DiscoveryCard extends ProfileTraits {
   datingIntention: DatingIntention | null;
   bio: string | null;
   mainPhotoUrl: string | null;
+  /** Up to 3, main photo first. */
+  photoUrls?: string[];
   liveSessionId: string;
   liveUntil: string;
   availabilityLabel: string | null;

@@ -24,7 +24,11 @@ import { promptDisplayLabel } from '@/constants/videoPrompts';
 import { compareDiscoveryRank } from '@/lib/commerce/sessionCommerce';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { canMatchToday } from '@/lib/usage/dailyLimits';
-import { applyDiscoverFilters, matchedFilterLabels } from '@/features/discover/applyFilters';
+import {
+  applyDiscoverFilters,
+  INTENT_OPTIONS,
+  matchedFilterLabels,
+} from '@/features/discover/applyFilters';
 import {
   activityStatus,
   availabilityText,
@@ -68,7 +72,8 @@ import {
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
-import { energyLabel } from '@/constants/datingTraits';
+import { energyLabel, TRAVEL_OPTIONS } from '@/constants/datingTraits';
+import { MediaCarousel, type CarouselItem } from '@/components/discover/MediaCarousel';
 
 const ACTIVITY_EMOJI: Record<string, string> = {
   drinks: '🍸',
@@ -104,6 +109,35 @@ const DEMO_CARDS: DiscoveryCard[] = DEMO_VIDEO_PROMPTS.map((p, i) => ({
 
 function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+/** Main photo, then videos interleaved with the remaining photos. */
+function carouselItemsFor(card: DiscoveryCard): CarouselItem[] {
+  const photos: CarouselItem[] = (
+    card.photoUrls?.length ? card.photoUrls : card.mainPhotoUrl ? [card.mainPhotoUrl] : []
+  ).map((uri) => ({ kind: 'photo', uri }));
+  const prompts = card.videoPrompts ?? [];
+  const ordered = [
+    prompts.find((p) => p.kind === 'tonight_signature'),
+    prompts.find((p) => p.kind === 'about_you'),
+    ...prompts.filter((p) => p.kind !== 'tonight_signature' && p.kind !== 'about_you'),
+  ];
+  const videos: CarouselItem[] = ordered
+    .filter((p): p is NonNullable<typeof p> => Boolean(p?.videoUrl))
+    .map((p) => ({
+      kind: 'video',
+      uri: p.videoUrl!,
+      label: promptDisplayLabel(p.kind),
+      prompt: p.promptText,
+    }));
+  const out: CarouselItem[] = [];
+  const [first, ...restPhotos] = photos;
+  if (first) out.push(first);
+  for (let i = 0; i < Math.max(videos.length, restPhotos.length); i++) {
+    if (videos[i]) out.push(videos[i]);
+    if (restPhotos[i]) out.push(restPhotos[i]);
+  }
+  return out;
 }
 
 function activityLabel(a: string): string {
@@ -302,16 +336,25 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       })
     : null;
   const commonInterests = card ? sharedInterests(myInterests, card.interests) : [];
-  const prompts = card?.videoPrompts ?? [];
-  const signature = prompts.find((p) => p.kind === 'tonight_signature') ?? prompts[0];
-  const about = prompts.find((p) => p.kind === 'about_you') ?? prompts[1];
-  const tonightFeeling = (card?.activities ?? []).map(activityLabel).join(' · ');
+  const mediaItems = card ? carouselItemsFor(card) : [];
   const statusTags = card ? cardStatusTags(card) : [];
   const matched = card ? matchedFilterLabels(card, filters, { plus: plusFoods, myInterests }) : [];
   const tier = card ? feedTier(card) : 0;
   const tonight = tier !== 2;
   const activity = card && !tonight ? activityStatus(card) : null;
-  const traits = card ? keyTraits(card) : [];
+  const intentLabel = card
+    ? INTENT_OPTIONS.find((o) => o.value === card.datingIntention)?.label ?? null
+    : null;
+  const lifestyle = card ? keyTraits(card, 4).filter((t) => t !== intentLabel) : [];
+  const vibeChips = card
+    ? [
+        intentLabel ? `💞 ${intentLabel}` : null,
+        energyLabel(card.energy),
+        card.planIdea ? `📍 ${card.planIdea}` : null,
+        card.travel ? `🚗 ${TRAVEL_OPTIONS.find((o) => o.value === card.travel)?.label}` : null,
+      ].filter((v): v is string => Boolean(v))
+    : [];
+  const otherInterests = (card?.interests ?? []).filter((i) => !commonInterests.includes(i));
 
   const markHandled = (userId: string) => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -666,6 +709,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   }
 
   const heroH = Math.min(layoutHeight * 0.68, rs(620));
+  const lowCount = tonightCount <= 3;
   const bottomPad = showClose ? 120 + insets.bottom : 100 + insets.bottom;
 
   return (
@@ -678,13 +722,15 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               {tonight ? '⚡ OUT TONIGHT' : 'NEARBY'}
             </AppText>
             <AppText style={styles.pingHeaderTitle}>
-              {tonight
-                ? `${tonightCount} ${tonightCount === 1 ? 'person' : 'people'} looking for plans now`
-                : 'More people you might like'}
+              {!tonight
+                ? 'More people you might like'
+                : lowCount
+                  ? `${tonightCount} live now${nearbyCount > 0 ? ' · more nearby' : ''}`
+                  : `${tonightCount} people looking for plans now`}
             </AppText>
             <AppText style={styles.pingHeaderMeta} numberOfLines={1}>
               {tonight
-                ? nearbyCount > 0
+                ? nearbyCount > 0 && !lowCount
                   ? `${pingSummary} · ${nearbyCount} more nearby`
                   : pingSummary
                 : 'They haven’t gone live tonight, but you can still match'}
@@ -723,173 +769,155 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           scrollEventThrottle={16}
         >
           <View style={[styles.hero, { height: heroH * 0.92 }]}>
-            {card.mainPhotoUrl ? (
-              <Image 
-                source={{ uri: card.mainPhotoUrl }} 
-                style={styles.media}
-                cachePolicy="memory-disk"
-                contentFit="cover"
-                transition={200}
-              />
-            ) : (
-              <View style={[styles.media, styles.mediaPlaceholder]}>
-                <AppText style={styles.videoHint}>VIDEO</AppText>
-              </View>
-            )}
-            <LinearGradient
-              colors={
-                tonight
-                  ? ['rgba(124,58,237,0.28)', 'rgba(20,8,36,0.1)', 'rgba(16,6,30,0.97)']
-                  : ['transparent', 'rgba(5,5,6,0.15)', 'rgba(5,5,6,0.96)']
-              }
-              style={styles.fade}
-            />
-            {tonight ? <View style={styles.tonightFrame} pointerEvents="none" /> : null}
-            <View style={[styles.topBar, { top: 12 }]}>
-              {showClose ? (
-                <CloseButton onPress={() => dismissToLive(router)} />
-              ) : (
-                <View style={styles.topSpacer} />
-              )}
-              {tonight ? (
-                <View style={styles.tonightBadge}>
-                  {tier === 0 ? (
-                    <Ionicons name="flash" size={rs(13)} color="#fff" />
-                  ) : (
-                    <View style={styles.laterDot} />
-                  )}
-                  <AppText style={styles.tonightBadgeText}>{availabilityText(card).toUpperCase()}</AppText>
-                </View>
-              ) : null}
-            </View>
-            {card.isBoosted ? (
-              <View style={styles.boostedTag}>
-                <AppText style={styles.boostedTagText}>BOOSTED</AppText>
-              </View>
-            ) : null}
-            <View style={styles.heroMeta}>
-              {compat?.cue ? (
-                <View style={styles.compatCue}>
-                  <AppText style={styles.compatText}>{compat.cue}</AppText>
-                </View>
-              ) : null}
-              <AppText style={styles.name}>
-                {card.displayName}, {card.age}
-              </AppText>
-              <View style={styles.verifyRow}>
-                <VerificationTag status={card.verificationStatus} compact />
-                <MatchPill otherUid={card.userId} theirLevel={card.quizLevel ?? 0} />
-              </View>
-              {tonight ? (
+            <MediaCarousel
+              items={mediaItems}
+              height={heroH * 0.92}
+              resetKey={card.userId}
+              overlay={
                 <>
-                <View style={styles.statusLine}>
-                  {tier === 0 ? (
-                    <Ionicons name="flash" size={rs(14)} color={colors.brandBright} />
-                  ) : (
-                    <View style={styles.laterDot} />
-                  )}
-                  <AppText style={styles.statusLineStrong}>{availabilityText(card).toUpperCase()}</AppText>
-                  <AppText style={styles.place} numberOfLines={1}>
-                    {[
-                      ...card.activities.slice(0, 2).map(activityLabel),
-                      formatDistanceMiles(card.distanceMiles),
-                      tier === 0 ? `until ${formatClock(card.liveUntil)}` : null,
-                    ]
-                      .filter(Boolean)
-                      .map((bit) => ` · ${bit}`)
-                      .join('')}
-                  </AppText>
-                </View>
-                {card.energy || card.planIdea ? (
-                  <AppText style={styles.planLine} numberOfLines={1}>
-                    {[energyLabel(card.energy), card.planIdea ? `📍 ${card.planIdea}` : null]
-                      .filter(Boolean)
-                      .join('  ·  ')}
-                  </AppText>
-                ) : null}
-                </>
-              ) : (
-                <>
-                  <View style={styles.statusLine}>
-                    {activity?.online ? <View style={styles.onlineDot} /> : null}
-                    <AppText style={styles.place}>
-                      {activity?.label} · {formatDistanceMiles(card.distanceMiles)}
-                    </AppText>
-                  </View>
-                  <AppText style={styles.notLiveNote}>
-                    Not live tonight · you can still match and chat
-                  </AppText>
-                </>
-              )}
-              <View style={styles.activities}>
-                {statusTags.map((t) => (
-                  <View
-                    key={t.key}
-                    style={[
-                      styles.statusPill,
-                      t.tone === 'live' ? styles.statusLive : t.tone === 'brand' ? styles.statusBrand : null,
-                    ]}
-                  >
-                    {t.key === 'availability' ? <View style={styles.statusDot} /> : null}
-                    <AppText style={styles.statusText}>{t.label}</AppText>
-                  </View>
-                ))}
-              </View>
-              <View style={styles.activities}>
-                {card.activities.map((a) => (
-                  <View key={a} style={styles.pill}>
-                    <AppText style={styles.pillText}>
-                      {ACTIVITY_EMOJI[a] ? `${ACTIVITY_EMOJI[a]} ` : ''}
-                      {openToLabel(a)}
-                    </AppText>
-                  </View>
-                ))}
-                {isAfterHours()
-                  ? (card.afterHours ?? []).map((t) => (
-                      <View key={t} style={[styles.pill, styles.nightPill]}>
-                        <AppText style={styles.pillText}>
-                          🌙 {AFTER_HOURS_TAGS.find((o) => o.value === t)?.label}
+                  <LinearGradient
+                    colors={
+                      tonight
+                        ? ['rgba(124,58,237,0.22)', 'rgba(20,8,36,0)', 'rgba(16,6,30,0.97)']
+                        : ['transparent', 'rgba(5,5,6,0.1)', 'rgba(5,5,6,0.96)']
+                    }
+                    locations={[0, 0.45, 1]}
+                    style={styles.fade}
+                    pointerEvents="none"
+                  />
+                  {tonight ? <View style={styles.tonightFrame} pointerEvents="none" /> : null}
+                  <View style={[styles.topBar, { top: rs(20) }]} pointerEvents="box-none">
+                    {showClose ? (
+                      <CloseButton onPress={() => dismissToLive(router)} />
+                    ) : (
+                      <View style={styles.topSpacer} />
+                    )}
+                    {tonight ? (
+                      <View style={styles.tonightBadge} pointerEvents="none">
+                        {tier === 0 ? (
+                          <Ionicons name="flash" size={rs(13)} color="#fff" />
+                        ) : (
+                          <View style={styles.laterDot} />
+                        )}
+                        <AppText style={styles.tonightBadgeText}>
+                          {availabilityText(card).toUpperCase()}
                         </AppText>
-                      </View>
-                    ))
-                  : null}
-              </View>
-              {traits.length ? (
-                <AppText style={styles.traits} numberOfLines={1}>
-                  {traits.join('  ·  ')}
-                </AppText>
-              ) : null}
-              {commonInterests.length ? (
-                <View style={styles.sharedRow}>
-                  <Ionicons name="heart" size={rs(12)} color={colors.brandBright} />
-                  <AppText style={styles.sharedText} numberOfLines={1}>
-                    {commonInterests.length} in common · {commonInterests.slice(0, 3).join(', ')}
-                    {commonInterests.length > 3 ? '…' : ''}
-                  </AppText>
-                </View>
-              ) : null}
-              {matched.length ? (
-                <View style={styles.matchedWrap}>
-                  <View style={styles.matchedHead}>
-                    <Ionicons name="checkmark-circle" size={rs(13)} color={colors.brandBright} />
-                    <AppText style={styles.matchedTitle}>MATCHES YOUR FILTERS</AppText>
-                  </View>
-                  <View style={styles.matchedChips}>
-                    {matched.slice(0, 6).map((m) => (
-                      <View key={m} style={styles.matchedChip}>
-                        <AppText style={styles.matchedText}>{m}</AppText>
-                      </View>
-                    ))}
-                    {matched.length > 6 ? (
-                      <View style={styles.matchedChip}>
-                        <AppText style={styles.matchedText}>+{matched.length - 6}</AppText>
                       </View>
                     ) : null}
                   </View>
+                  {card.isBoosted ? (
+                    <View style={styles.boostedTag} pointerEvents="none">
+                      <AppText style={styles.boostedTagText}>BOOSTED</AppText>
+                    </View>
+                  ) : null}
+                  <View style={styles.heroMeta} pointerEvents="box-none">
+                    {compat?.cue ? (
+                      <View style={styles.compatCue}>
+                        <AppText style={styles.compatText}>{compat.cue}</AppText>
+                      </View>
+                    ) : null}
+                    <AppText style={styles.name}>
+                      {card.displayName}, {card.age}
+                    </AppText>
+                    <View style={styles.verifyRow}>
+                      <VerificationTag status={card.verificationStatus} compact />
+                      <MatchPill otherUid={card.userId} theirLevel={card.quizLevel ?? 0} />
+                    </View>
+                    {tonight ? (
+                      <View style={styles.statusLine}>
+                        {tier === 0 ? (
+                          <Ionicons name="flash" size={rs(14)} color={colors.brandBright} />
+                        ) : (
+                          <View style={styles.laterDot} />
+                        )}
+                        <AppText style={styles.statusLineStrong}>
+                          {availabilityText(card).toUpperCase()}
+                        </AppText>
+                        <AppText style={styles.place} numberOfLines={1}>
+                          {[
+                            formatDistanceMiles(card.distanceMiles),
+                            tier === 0 ? `until ${formatClock(card.liveUntil)}` : null,
+                          ]
+                            .filter(Boolean)
+                            .map((bit) => ` · ${bit}`)
+                            .join('')}
+                        </AppText>
+                      </View>
+                    ) : (
+                      <>
+                        <View style={styles.statusLine}>
+                          {activity?.online ? <View style={styles.onlineDot} /> : null}
+                          <AppText style={styles.place}>
+                            {activity?.label} · {formatDistanceMiles(card.distanceMiles)}
+                          </AppText>
+                        </View>
+                        <AppText style={styles.notLiveNote}>
+                          Not live tonight · you can still match and chat
+                        </AppText>
+                      </>
+                    )}
+                    <View style={styles.activities}>
+                      {card.activities.map((a) => (
+                        <View key={a} style={styles.pill}>
+                          <AppText style={styles.pillText}>
+                            {ACTIVITY_EMOJI[a] ? `${ACTIVITY_EMOJI[a]} ` : ''}
+                            {openToLabel(a)}
+                          </AppText>
+                        </View>
+                      ))}
+                      {isAfterHours()
+                        ? (card.afterHours ?? []).map((t) => (
+                            <View key={t} style={[styles.pill, styles.nightPill]}>
+                              <AppText style={styles.pillText}>
+                                🌙 {AFTER_HOURS_TAGS.find((o) => o.value === t)?.label}
+                              </AppText>
+                            </View>
+                          ))
+                        : null}
+                    </View>
+                  </View>
+                </>
+              }
+            />
+          </View>
+
+          {vibeChips.length || statusTags.length ? (
+            <View style={styles.block}>
+              <View style={styles.promptHead}>
+                <Ionicons name="sparkles" size={rs(14)} color={colors.brandBright} />
+                <AppText style={styles.promptHeadText}>TONIGHT’S VIBE</AppText>
+              </View>
+              {vibeChips.length ? (
+                <View style={styles.detailChips}>
+                  {vibeChips.map((v) => (
+                    <View key={v} style={[styles.detailChip, styles.vibeChip]}>
+                      <AppText style={styles.detailChipText}>{v}</AppText>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+              {statusTags.length ? (
+                <View style={styles.detailChips}>
+                  {statusTags.map((t) => (
+                    <View
+                      key={t.key}
+                      style={[
+                        styles.statusPill,
+                        t.tone === 'live'
+                          ? styles.statusLive
+                          : t.tone === 'brand'
+                            ? styles.statusBrand
+                            : null,
+                      ]}
+                    >
+                      {t.key === 'availability' ? <View style={styles.statusDot} /> : null}
+                      <AppText style={styles.statusText}>{t.label}</AppText>
+                    </View>
+                  ))}
                 </View>
               ) : null}
             </View>
-          </View>
+          ) : null}
 
           {card.bio?.trim() ? (
             <View style={styles.block}>
@@ -897,90 +925,66 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 <Ionicons name="person-circle-outline" size={rs(14)} color={colors.brandBright} />
                 <AppText style={styles.promptHeadText}>BIO</AppText>
               </View>
-              <AppText style={styles.bioText} numberOfLines={5}>
-                {card.bio.trim()}
-              </AppText>
+              <AppText style={styles.bioText}>{card.bio.trim()}</AppText>
             </View>
           ) : null}
 
-          {signature ? (
-          <View style={styles.block}>
-            <View style={styles.promptHead}>
-              <Ionicons name="videocam" size={rs(14)} color={colors.live} />
-              <AppText style={[styles.promptHeadText, styles.promptHeadTonight]}>
-                🎥 {signature ? promptDisplayLabel(signature.kind) : 'TONIGHT'}
-              </AppText>
-              {signature?.durationSeconds ? (
-                <AppText style={styles.duration}>{signature.durationSeconds}s</AppText>
-              ) : null}
-            </View>
-            <AppText style={styles.promptQ}>
-              “{signature?.promptText ?? "You get me for tonight. What's the move?"}”
-            </AppText>
-            <View style={styles.videoFrame}>
-              {(signature?.thumbnailUrl ?? card.mainPhotoUrl) ? (
-                <Image
-                  source={{ uri: signature?.thumbnailUrl ?? card.mainPhotoUrl! }}
-                  style={styles.media}
-                  cachePolicy="memory-disk"
-                  contentFit="cover"
-                  transition={200}
-                />
-              ) : null}
-              <View style={styles.playBtn}>
-                <Ionicons name="play" size={rs(28)} color={colors.text} />
+          {commonInterests.length || otherInterests.length ? (
+            <View style={styles.block}>
+              <View style={styles.promptHead}>
+                <Ionicons name="heart" size={rs(14)} color={colors.brandBright} />
+                <AppText style={styles.promptHeadText}>
+                  {commonInterests.length
+                    ? `INTERESTS · ${commonInterests.length} IN COMMON`
+                    : 'INTERESTS'}
+                </AppText>
+              </View>
+              <View style={styles.detailChips}>
+                {commonInterests.map((i) => (
+                  <View key={i} style={[styles.detailChip, styles.sharedChip]}>
+                    <AppText style={styles.detailChipText}>♥ {i}</AppText>
+                  </View>
+                ))}
+                {otherInterests.map((i) => (
+                  <View key={i} style={styles.detailChip}>
+                    <AppText style={styles.detailChipText}>{i}</AppText>
+                  </View>
+                ))}
               </View>
             </View>
-          </View>
           ) : null}
 
-          {card.mainPhotoUrl ? (
-            <View style={styles.photoBlock}>
-              <Image 
-                source={{ uri: card.mainPhotoUrl }} 
-                style={styles.midPhoto}
-                cachePolicy="memory-disk"
-                contentFit="cover"
-                transition={200}
-              />
-            </View>
-          ) : null}
-
-          {about ? (
-          <View style={styles.block}>
-            <View style={styles.promptHead}>
-              <Ionicons name="videocam" size={rs(14)} color={colors.brandBright} />
-              <AppText style={styles.promptHeadText}>
-                🎥 {about ? promptDisplayLabel(about.kind) : 'ABOUT YOU'}
-              </AppText>
-              {about?.durationSeconds ? (
-                <AppText style={styles.duration}>{about.durationSeconds}s</AppText>
-              ) : null}
-            </View>
-            <AppText style={styles.promptQ}>
-              “{about?.promptText ?? 'My friends would warn you that I…'}”
-            </AppText>
-            <View style={[styles.videoFrame, styles.videoFrameAlt]}>
-              {(about?.thumbnailUrl ?? card.mainPhotoUrl) ? (
-                <Image
-                  source={{ uri: about?.thumbnailUrl ?? card.mainPhotoUrl! }}
-                  style={styles.media}
-                  cachePolicy="memory-disk"
-                  contentFit="cover"
-                  transition={200}
-                />
-              ) : null}
-              <View style={styles.playBtn}>
-                <Ionicons name="play" size={rs(28)} color={colors.text} />
+          {lifestyle.length ? (
+            <View style={styles.block}>
+              <View style={styles.promptHead}>
+                <Ionicons name="person-outline" size={rs(14)} color={colors.brandBright} />
+                <AppText style={styles.promptHeadText}>LIFESTYLE</AppText>
+              </View>
+              <View style={styles.detailChips}>
+                {lifestyle.map((t) => (
+                  <View key={t} style={styles.detailChip}>
+                    <AppText style={styles.detailChipText}>{t}</AppText>
+                  </View>
+                ))}
               </View>
             </View>
-          </View>
           ) : null}
 
-          <View style={styles.block}>
-            <AppText style={styles.sectionLabel}>Tonight</AppText>
-            <AppText style={styles.feeling}>{tonightFeeling || 'Open'}</AppText>
-          </View>
+          {matched.length ? (
+            <View style={styles.block}>
+              <View style={styles.matchedHead}>
+                <Ionicons name="checkmark-circle" size={rs(13)} color={colors.brandBright} />
+                <AppText style={styles.matchedTitle}>MATCHES YOUR FILTERS</AppText>
+              </View>
+              <View style={styles.matchedChips}>
+                {matched.map((m) => (
+                  <View key={m} style={styles.matchedChip}>
+                    <AppText style={styles.matchedText}>{m}</AppText>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
         </ScrollView>
 
         <View
@@ -1125,7 +1129,7 @@ const styles = ScaledSheet.create({
   },
   boostedTag: {
     position: 'absolute',
-    top: 56,
+    top: 68,
     left: spacing.lg,
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -1321,6 +1325,24 @@ const styles = ScaledSheet.create({
     gap: 6,
   },
   bioText: { color: colors.text, fontSize: 16, lineHeight: 23 },
+  detailChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  detailChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  vibeChip: {
+    backgroundColor: 'rgba(124,58,237,0.16)',
+    borderColor: 'rgba(168,85,247,0.4)',
+  },
+  sharedChip: {
+    backgroundColor: 'rgba(124,58,237,0.28)',
+    borderColor: 'rgba(168,85,247,0.6)',
+  },
+  detailChipText: { color: colors.text, fontSize: 14, fontWeight: '600' },
   promptHeadText: {
     color: colors.brandBright,
     fontSize: 11,
