@@ -17,6 +17,7 @@ import { DEMO_VIDEO_PROMPTS, demoCity, demoVideoPromptsFor } from '@/constants/d
 import {
     flowCopy,
     formatLaterHour,
+    radiusHint,
 } from '@/constants/flow';
 import { colors, radii, spacing } from '@/constants/theme';
 import { foodLabel } from '@/constants/tonightVibe';
@@ -42,11 +43,11 @@ import { sharedInterests } from '@/constants/interests';
 import { FilterBar } from '@/components/discover/FilterBar';
 import { MatchPill } from '@/components/discover/MatchPill';
 import { AFTER_HOURS_TAGS, isAfterHours } from '@/constants/afterHours';
-import { canUseAdvancedFilters, canUsePriorityPool } from '@/lib/entitlements';
+import { canUseAdvancedFilters, canUsePriorityPool, maxRadiusMiles } from '@/lib/entitlements';
 import { env, isBackendConfigured } from '@/lib/env';
 import { useContentLayout } from '@/lib/layout';
 import { fetchDiscoveryFeed, sendPing } from '@/services/api';
-import { subscribeActiveLiveSessions } from '@/features/live/firestoreLive';
+import { fetchFirestoreNearbyBrowse, subscribeActiveLiveSessions } from '@/features/live/firestoreLive';
 import { sendInterest, subscribeSentInterests } from '@/features/matches/api';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { useHiddenUserMap } from '@/store/blocks';
@@ -164,6 +165,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const [interestFlash, setInterestFlash] = useState(false);
   const [scrollH, setScrollH] = useState(0);
   const [actionBarH, setActionBarH] = useState(0);
+  /** No one in range → browsing people who aren't live, past the Live radius. */
+  const [browseWider, setBrowseWider] = useState(false);
   /** Preview: first ♥ is one-way interest; second ♥ simulates mutual match */
   const interestsSentRef = useRef(0);
   const uid = useSessionStore((s) => s.userId);
@@ -210,6 +213,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   useEffect(() => {
     setHandled(new Set());
+    setBrowseWider(false);
   }, [liveSession?.id]);
 
   useEffect(() => {
@@ -257,10 +261,43 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       .filter((c) => !handled.has(c.userId) && !sentTo.has(c.userId) && !matchedIds.has(c.userId));
   }, [rawFeed, filters.maxDistanceMiles, blockedMap, handled, sentTo, matchedIds]);
 
+  const liveRadius = liveSession?.radiusMiles ?? filters.maxDistanceMiles;
+  const widerRadius = maxRadiusMiles(entitlements);
+  const widerQuery = useQuery({
+    queryKey: ['nearby-wider', liveSession?.id, widerRadius],
+    queryFn: () => fetchFirestoreNearbyBrowse(widerRadius),
+    enabled:
+      live &&
+      isBackendConfigured() &&
+      widerRadius > liveRadius &&
+      (browseWider || (feedQuery.isFetched && nearbyBeforeFilters.length === 0)),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const widerExtra = useMemo(() => {
+    const inFeed = new Set(rawFeed.map((c) => c.userId));
+    return (widerQuery.data ?? []).filter(
+      (c) =>
+        !inFeed.has(c.userId) &&
+        !blockedMap[c.userId] &&
+        !handled.has(c.userId) &&
+        !sentTo.has(c.userId) &&
+        !matchedIds.has(c.userId),
+    );
+  }, [widerQuery.data, rawFeed, blockedMap, handled, sentTo, matchedIds]);
+  const widerCount = useMemo(
+    () => applyDiscoverFilters(widerExtra, filters, { plus: plusFoods, myInterests }).length,
+    [widerExtra, filters, plusFoods, myInterests],
+  );
+  const pool = useMemo(
+    () => (browseWider ? [...nearbyBeforeFilters, ...widerExtra] : nearbyBeforeFilters),
+    [browseWider, nearbyBeforeFilters, widerExtra],
+  );
+
   // Memoize compatibility scores per card to avoid O(n^2 log n) recalculation during sort
   const cardScores = useMemo(() => {
     const scores = new Map<string, number>();
-    for (const c of nearbyBeforeFilters) {
+    for (const c of pool) {
       const compatScore = tonightCompatibility(myVibe, { 
         activities: c.activities, 
         foodCuisines: c.foodCuisines 
@@ -269,10 +306,10 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       scores.set(c.userId, compatScore + interestScore);
     }
     return scores;
-  }, [nearbyBeforeFilters, myVibe, myInterests]);
+  }, [pool, myVibe, myInterests]);
 
   const cards = useMemo(() => {
-    const list = applyDiscoverFilters(nearbyBeforeFilters, filters, { plus: plusFoods, myInterests });
+    const list = applyDiscoverFilters(pool, filters, { plus: plusFoods, myInterests });
 
     // Live now, then free later tonight, then nearby people who aren't live.
     return [...list].sort((a, b) => {
@@ -295,7 +332,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         { priorityPool },
       );
     });
-  }, [nearbyBeforeFilters, filters, cardScores, priorityPool, plusFoods, myInterests]);
+  }, [pool, filters, cardScores, priorityPool, plusFoods, myInterests]);
 
   const laterTonight = useMemo(() => {
     return nearbyBeforeFilters
@@ -555,9 +592,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   }
 
   if (!card) {
-    const radiusMi = liveSession?.radiusMiles ?? filters.maxDistanceMiles;
-    const nextRadius =
-      radiusPresets.find((mi) => mi > radiusMi) ?? radiusPresets[radiusPresets.length - 1];
+    const radiusMi = liveRadius;
+    const nextRadius = radiusPresets.find((mi) => mi > radiusMi && mi <= widerRadius) ?? null;
+    const radiusLine = radiusHint(tonightCount, radiusMi, nextRadius);
 
     return (
       <Screen padded={false} edges={liveHeader ? ['left', 'right'] : undefined}>
@@ -602,9 +639,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               <>
                 <AppText style={styles.teaserEyebrow}>{flowCopy.youreLiveWatching}</AppText>
                 <AppText style={styles.quietTitle}>{flowCopy.watchingArea}</AppText>
-                <AppText variant="secondary" style={styles.quietBody}>
-                  {flowCopy.zeroMatchNow}
-                </AppText>
+                <AppText style={[styles.quietBody, styles.quietLead]}>{flowCopy.noLiveMatchesYet}</AppText>
                 <AppText variant="secondary" style={styles.quietBody}>
                   {flowCopy.notifyWhenNearby}
                 </AppText>
@@ -630,15 +665,35 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                     />
                   ))}
                 </View>
-                <AppText variant="secondary" style={styles.quietBody}>
-                  Only a few people match within {radiusMi} mi? Try {nextRadius} mi.
-                </AppText>
+                {radiusLine ? (
+                  <AppText variant="secondary" style={styles.quietBody}>
+                    {radiusLine}
+                  </AppText>
+                ) : null}
                 <Button
                   label={flowCopy.adjustFilters}
                   variant="secondary"
                   onPress={() => router.push('/filters')}
                   style={styles.quietCta}
                 />
+                {widerCount > 0 ? (
+                  <View style={styles.widerBlock}>
+                    <AppText style={styles.widerTitle}>{flowCopy.notLiveYetTitle}</AppText>
+                    <Button
+                      label={flowCopy.recentlyActiveNearby}
+                      variant="secondary"
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        setBrowseWider(true);
+                      }}
+                      style={styles.quietCta}
+                    />
+                    <AppText variant="secondary" style={styles.widerMeta}>
+                      {widerCount === 1 ? '1 person' : `${widerCount} people`} within {widerRadius} mi · you
+                      stay Live while you browse
+                    </AppText>
+                  </View>
+                ) : null}
               </>
             )}
 
@@ -1546,11 +1601,23 @@ const styles = ScaledSheet.create({
     color: colors.textSecondary,
     fontSize: 15,
   },
+  quietLead: { color: colors.text, fontWeight: '600' },
   quietMeta: {
     color: colors.textSecondary,
     fontSize: 13,
     fontWeight: '600',
   },
+  widerBlock: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  widerTitle: { color: colors.text, fontSize: 15, fontWeight: '700', textAlign: 'center' },
+  widerMeta: { fontSize: 12, textAlign: 'center' },
   quietCta: {
     alignSelf: 'stretch',
     width: '100%',

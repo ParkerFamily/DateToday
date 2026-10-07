@@ -50,9 +50,11 @@ export const flowCopy = {
     'No one matching your filters is pinged nearby yet. Start your Ping — we’ll alert you when compatible people go live.',
   youreLiveWatching: "You're live ✦",
   watchingArea: "We're watching your area.",
-  zeroMatchNow: '0 people match right now',
-  notifyWhenNearby: "We'll notify you the second someone matching your preferences Pings nearby.",
-  expandRadius: 'Expand radius',
+  noLiveMatchesYet: 'No one matching your preferences is live nearby yet.',
+  notifyWhenNearby: "We'll ping you as soon as someone is.",
+  expandRadius: 'Try a little farther out',
+  notLiveYetTitle: 'Show people who aren’t Live yet',
+  recentlyActiveNearby: 'Recently active nearby →',
   adjustFilters: 'Adjust filters',
   loosenFiltersTitle: 'No exact matches right now',
   loosenFiltersBody: 'People are Live nearby if you loosen one preference.',
@@ -74,6 +76,14 @@ export function formatPingMatchLine(count: number): string {
   if (count <= 0) return 'Waiting for people who match your night';
   if (count === 1) return '1 person matches your night';
   return `${count} people match your night`;
+}
+
+/** Under the radius chips. Zero never reads as "a few"; no suggestion past what the plan allows. */
+export function radiusHint(count: number, radiusMi: number, nextMi: number | null): string | null {
+  const next = nextMi != null && nextMi > radiusMi ? ` Try ${nextMi} mi.` : '';
+  if (count <= 0) return `No matches within ${radiusMi} mi yet.${next}`;
+  if (count <= 3) return `Only a few matches within ${radiusMi} mi.${next}`;
+  return null;
 }
 
 /** Offline teaser — never invents a headcount. */

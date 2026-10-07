@@ -593,6 +593,31 @@ export async function fetchFirestoreDiscoveryFeed(
   return cards;
 }
 
+/**
+ * People who aren't live, out to `radiusMiles` (past the Live radius). Backs "Recently active
+ * nearby" when no one is live — reading only, so the viewer's own Live session is untouched.
+ */
+export async function fetchFirestoreNearbyBrowse(radiusMiles: number, limit = 40): Promise<DiscoveryCard[]> {
+  const me = getFirebaseAuth().currentUser?.uid;
+  if (!me) return [];
+  const [liveSnap, nearbySnap] = await Promise.all([
+    withTimeout(getDoc(doc(getDb(), 'liveSessions', me)), 10000, 'Load your location'),
+    withTimeout(getDoc(doc(getDb(), 'nearbyProfiles', me)), 10000, 'Load your profile'),
+  ]);
+  const live = liveSnap.data();
+  const mine = live && live.status === 'active' ? live : nearbySnap.data();
+  if (!mine) return [];
+  const here = await deviceCoords();
+  const latitude = here?.latitude ?? Number(mine.latitude);
+  const longitude = here?.longitude ?? Number(mine.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
+
+  const cards = await fetchNearbyCards(me, { ...mine, latitude, longitude }, radiusMiles, new Set(), limit);
+  const stats = await fetchUserStats(cards.map((c) => c.userId)).catch(() => new Map<string, UserStats>());
+  for (const c of cards) Object.assign(c, stats.get(c.userId));
+  return cards;
+}
+
 /** Profile fields shared by live and nearby cards. */
 function cardBase(id: string, d: Record<string, unknown>, dist: number) {
   return {

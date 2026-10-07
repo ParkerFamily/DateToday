@@ -12,7 +12,6 @@ import { LIVE_SESSION_MS, liveSessionExpiry, nextNightlyReset } from '@/constant
 import { copy } from '@/constants/copy';
 import {
     ENERGY_OPTIONS,
-    energyLabel,
     parsePlanIdea,
     PLACE_OPTIONS,
     placePlanIdea,
@@ -430,9 +429,8 @@ export default function LiveHomeScreen() {
   onStopRef.current = onStop;
   const liveMeta = [
     formatActivities(liveSession?.activities ?? activities),
-    energyLabel(liveSession?.energy),
     foodBit || null,
-    `within ${radiusLabel} mi`,
+    `${radiusLabel} mi`,
   ]
     .filter(Boolean)
     .join(' · ');

@@ -1,7 +1,8 @@
 import { AppText } from '@/components/ui/AppText';
 import { colors, radii, spacing } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
@@ -13,6 +14,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
+
+const EDIT_HINT_KEY = 'dt.hint.liveEditSeen';
 
 interface LiveStatusBarProps {
   /** e.g. "Free until 1 AM"; Live itself has no visible countdown. */
@@ -39,39 +42,52 @@ export function LiveStatusBar({
 }: LiveStatusBarProps) {
   const insets = useSafeAreaInsets();
   const pulse = useSharedValue(1);
+  // The edit control reads as a plain icon once someone has used it.
+  const [showEditLabel, setShowEditLabel] = useState(false);
 
   useEffect(() => {
     pulse.value = withRepeat(withTiming(0.35, { duration: 900, easing: Easing.inOut(Easing.quad) }), -1, true);
     return () => cancelAnimation(pulse);
   }, [pulse]);
 
+  useEffect(() => {
+    let alive = true;
+    void AsyncStorage.getItem(EDIT_HINT_KEY)
+      .then((seen) => {
+        if (alive && !seen) setShowEditLabel(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const dotAnim = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  const edit = () => {
+    if (showEditLabel) {
+      setShowEditLabel(false);
+      void AsyncStorage.setItem(EDIT_HINT_KEY, '1').catch(() => undefined);
+    }
+    onEdit();
+  };
 
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + 6 }]}>
       <View style={styles.row}>
         <Animated.View style={[styles.dot, dotAnim]} />
-        <View style={styles.copy}>
-          <AppText style={styles.title} numberOfLines={1}>
-            {datePlanned ? 'DATE PLANNED' : 'YOU’RE LIVE'}
-          </AppText>
-          <AppText style={styles.meta} numberOfLines={1}>
-            {meta}
-          </AppText>
-          {freeUntil ? (
-            <AppText style={styles.freeUntil} numberOfLines={1}>
-              {freeUntil}
-            </AppText>
-          ) : null}
-        </View>
+        <AppText style={styles.title} numberOfLines={1}>
+          {datePlanned ? 'DATE PLANNED' : 'YOU’RE LIVE'}
+        </AppText>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Edit tonight"
-          onPress={onEdit}
+          onPress={edit}
           hitSlop={6}
-          style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.iconBtn, showEditLabel && styles.iconBtnLabeled, pressed && styles.pressed]}
         >
           <Ionicons name="options-outline" size={rs(18)} color={colors.text} />
+          {showEditLabel ? <AppText style={styles.editText}>Edit</AppText> : null}
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -88,42 +104,60 @@ export function LiveStatusBar({
           )}
         </Pressable>
       </View>
+      <View style={styles.detailRow}>
+        <AppText style={styles.meta} numberOfLines={1}>
+          {meta}
+        </AppText>
+        {freeUntil ? (
+          <AppText style={styles.freeUntil} numberOfLines={1}>
+            {meta ? ` · ${freeUntil}` : freeUntil}
+          </AppText>
+        ) : null}
+      </View>
       {!isBoosted ? (
-        <Pressable onPress={onBoost} hitSlop={6}>
-          <AppText style={styles.boost}>Get seen first tonight · Boost →</AppText>
+        <Pressable onPress={onBoost} hitSlop={6} style={styles.indent}>
+          <AppText style={styles.boost}>Boost your visibility tonight →</AppText>
         </Pressable>
       ) : (
-        <AppText style={styles.boosted}>BOOSTED · FRONT OF THE LINE</AppText>
+        <AppText style={[styles.boosted, styles.indent]}>BOOSTED · FRONT OF THE LINE</AppText>
       )}
     </View>
   );
 }
 
+const DOT = 10;
+const DOT_GAP = 10;
+
 const styles = ScaledSheet.create({
   wrap: {
     paddingHorizontal: spacing.lg,
     paddingBottom: 10,
-    gap: 6,
-    backgroundColor: '#07120D',
+    gap: 4,
+    backgroundColor: '#0B0B0E',
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(34,229,139,0.35)',
+    borderBottomColor: colors.border,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.live },
-  copy: { flex: 1, minWidth: 0 },
-  title: { color: colors.live, fontSize: 13, fontWeight: '800', letterSpacing: 1 },
-  freeUntil: { color: colors.text, fontSize: 12, fontWeight: '600', marginTop: 2 },
-  meta: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: DOT_GAP },
+  dot: { width: DOT, height: DOT, borderRadius: DOT / 2, backgroundColor: colors.live },
+  title: { flex: 1, minWidth: 0, color: colors.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 },
+  indent: { marginLeft: DOT + DOT_GAP },
+  detailRow: { flexDirection: 'row', alignItems: 'center', marginLeft: DOT + DOT_GAP },
+  meta: { flexShrink: 1, color: colors.textSecondary, fontSize: 12 },
+  freeUntil: { flexShrink: 0, color: colors.text, fontSize: 12, fontWeight: '600' },
   iconBtn: {
-    width: 34,
+    minWidth: 34,
     height: 34,
     borderRadius: 17,
+    flexDirection: 'row',
+    gap: 4,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.elevated,
     borderWidth: 1,
     borderColor: colors.border,
   },
+  iconBtnLabeled: { paddingHorizontal: 10 },
+  editText: { color: colors.text, fontSize: 12, fontWeight: '700' },
   offBtn: {
     height: 34,
     paddingHorizontal: 12,
@@ -135,6 +169,6 @@ const styles = ScaledSheet.create({
   },
   offText: { color: colors.text, fontSize: 12, fontWeight: '700' },
   pressed: { opacity: 0.75 },
-  boost: { color: colors.brandBright, fontSize: 12, fontWeight: '700' },
-  boosted: { color: colors.live, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
+  boost: { color: colors.textSecondary, fontSize: 11, fontWeight: '600' },
+  boosted: { color: colors.brandBright, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
 });
