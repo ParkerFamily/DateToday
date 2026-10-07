@@ -111,12 +111,12 @@ const MatchesTabIcon = memo(function MatchesTabIcon({
 });
 
 export default function TabsLayout() {
-  // TEMPORARY: Testing if these hooks are causing the lag
-  // useMatchesSubscription();
-  // useLiveSessionResync();
-  // useLiveActivitySync();
-  // useTonightNudgeOptIn();
-  // useNearbyPresence();
+  // Re-enabled after fixing unbounded Firestore queries
+  useMatchesSubscription();
+  useLiveSessionResync();
+  useLiveActivitySync();
+  useTonightNudgeOptIn();
+  useNearbyPresence();
   const insets = useSafeAreaInsets();
   const liveSession = useSessionStore((s) => s.liveSession);
   // Memoize expensive computations - don't recalculate on every render
