@@ -99,7 +99,12 @@ export async function sendInterest(toUid: string): Promise<InterestResult> {
 
 /** People I've already hearted (so the Live feed doesn't show them again). */
 export function subscribeSentInterests(uid: string, onChange: (toUids: Set<string>) => void) {
-  const q = query(collection(getDb(), 'interests'), where('fromUid', '==', uid));
+  const q = query(
+    collection(getDb(), 'interests'), 
+    where('fromUid', '==', uid),
+    orderBy('createdAt', 'desc'),
+    limit(500)
+  );
   let alive = true;
   let retry: ReturnType<typeof setTimeout> | null = null;
   let unsub = () => {};
@@ -128,7 +133,12 @@ export function subscribeReceivedInterests(
   onChange: (rows: ReceivedInterest[]) => void,
   onError?: (error: Error) => void,
 ) {
-  const q = query(collection(getDb(), 'interests'), where('toUid', '==', uid));
+  const q = query(
+    collection(getDb(), 'interests'), 
+    where('toUid', '==', uid),
+    orderBy('createdAt', 'desc'),
+    limit(100)
+  );
   return onSnapshot(
     q,
     (snap) => {
@@ -190,16 +200,17 @@ export function subscribeMatches(
   onChange: (matches: MatchDoc[]) => void,
   onError?: (error: Error) => void,
 ) {
-  const q = query(collection(getDb(), 'matches'), where('userIds', 'array-contains', uid));
+  const q = query(
+    collection(getDb(), 'matches'), 
+    where('userIds', 'array-contains', uid),
+    orderBy('lastActivityAt', 'desc'),
+    limit(100)
+  );
   return onSnapshot(
     q,
     (snap) => {
       const rows = snap.docs.map((d) => parseMatch(d.id, d.data({ serverTimestamps: 'estimate' })));
-      rows.sort(
-        (a, b) =>
-          (b.lastActivityAt?.getTime() ?? b.createdAt?.getTime() ?? 0) -
-          (a.lastActivityAt?.getTime() ?? a.createdAt?.getTime() ?? 0),
-      );
+      // Already sorted by lastActivityAt desc from query
       onChange(rows);
     },
     (error) => onError?.(error),

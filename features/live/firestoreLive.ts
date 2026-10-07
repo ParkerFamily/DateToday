@@ -403,7 +403,12 @@ function wantsToSee(viewer: Record<string, unknown>, other: Record<string, unkno
 
 /** Fires whenever someone goes live, updates, or ends — used to refresh the feed in realtime. */
 export function subscribeActiveLiveSessions(onChange: () => void) {
-  const q = query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'));
+  const q = query(
+    collection(getDb(), 'liveSessions'), 
+    where('status', '==', 'active'),
+    orderBy('createdAt', 'desc'),
+    limit(200)
+  );
   let first = true;
   return onSnapshot(
     q,
