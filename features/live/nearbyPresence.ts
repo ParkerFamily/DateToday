@@ -41,7 +41,7 @@ async function currentCoords(allowPrompt: boolean): Promise<{ latitude: number; 
   const { updateLocationCompletion } = await import('@/features/profile/updateLocationCompletion');
   await updateLocationCompletion(granted);
   if (perm.status !== 'granted') return null;
-  const last = await Location.getLastKnownPositionAsync({ maxAge: 30 * 60 * 1000 }).catch(() => null);
+  const last = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60 * 1000 }).catch(() => null);
   if (last) return last.coords;
   const fresh = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(
     () => null,
@@ -76,6 +76,7 @@ async function sync(force = false) {
   lastCoords = coords;
   removed = false;
   await live.publishNearbyPresence(coords);
+  await live.refreshLiveLocation(coords).catch(() => undefined);
 }
 
 /** Keeps the signed-in user's non-live "nearby" presence fresh while the app is open. */

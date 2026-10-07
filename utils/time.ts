@@ -32,9 +32,9 @@ export function parseDateOnly(value: string): Date {
   return new Date(year, month, day);
 }
 
+/** Stored locations are rounded to ~0.5 mi, so whole miles is as precise as it honestly gets. */
 export function formatDistanceMiles(miles: number): string {
-  if (miles < 0.1) return 'Nearby';
-  if (miles < 10) return `${miles.toFixed(1)} mi`;
+  if (miles < 1) return 'Under 1 mi';
   return `${Math.round(miles)} mi`;
 }
 

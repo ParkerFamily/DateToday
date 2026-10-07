@@ -51,6 +51,38 @@ function approxCoord(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Where this phone is right now; the stored copy is rounded and can be hours old. */
+async function deviceCoords(): Promise<{ latitude: number; longitude: number } | null> {
+  try {
+    const Location = await import('expo-location');
+    const perm = await Location.getForegroundPermissionsAsync();
+    if (perm.status !== 'granted') return null;
+    const last = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60 * 1000 }).catch(() => null);
+    if (last) return last.coords;
+    const fresh = await Promise.race([
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null),
+      new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+    ]);
+    return fresh?.coords ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps an active Live beacon where the person actually is, so others see a true distance. */
+export async function refreshLiveLocation(coords: { latitude: number; longitude: number }): Promise<void> {
+  const uid = getFirebaseAuth().currentUser?.uid;
+  if (!uid) return;
+  const ref = doc(getDb(), 'liveSessions', uid);
+  const snap = await getDoc(ref);
+  const d = snap.data();
+  if (!d || d.status !== 'active') return;
+  const lat = approxCoord(coords.latitude);
+  const lng = approxCoord(coords.longitude);
+  if (Number(d.latitude) === lat && Number(d.longitude) === lng) return;
+  await setDoc(ref, { latitude: lat, longitude: lng, updatedAt: serverTimestamp() }, { merge: true });
+}
+
 function milesBetween(
   a: { latitude: number; longitude: number },
   b: { latitude: number; longitude: number },
@@ -463,9 +495,11 @@ export async function fetchFirestoreDiscoveryFeed(
     myRadius = browseRadiusMiles;
   }
 
-  const myLat = Number(mine.latitude);
-  const myLng = Number(mine.longitude);
+  const here = await deviceCoords();
+  const myLat = here?.latitude ?? Number(mine.latitude);
+  const myLng = here?.longitude ?? Number(mine.longitude);
   if (!Number.isFinite(myLat) || !Number.isFinite(myLng)) return [];
+  if (here && mine.status === 'active') void refreshLiveLocation(here).catch(() => undefined);
 
   // TODO: Replace with server-side geohash/geospatial indexing for scalability.
   // Currently fetching all active sessions and filtering client-side by distance.

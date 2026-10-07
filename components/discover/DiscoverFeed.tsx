@@ -718,9 +718,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       : heroH * 0.92;
   const lowCount = tonightCount <= 3;
   const distanceLabel =
-    card.hideDistance || card.distanceMiles < 0.1
+    card.hideDistance
       ? 'Nearby'
-      : `Nearby · ${formatDistanceMiles(card.distanceMiles)} away`;
+      : `Nearby · ${formatDistanceMiles(card.distanceMiles).replace('Under', 'under')} away`;
   const bottomPad = showClose ? 120 + insets.bottom : 100 + insets.bottom;
 
   return (
