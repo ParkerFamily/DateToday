@@ -371,35 +371,44 @@ export default function PublicProfileScreen() {
             </>
           ) : null}
 
-          <AppText variant="label" style={styles.section}>
-            Video prompts
-          </AppText>
-          <View style={styles.videos}>
-            <PromptVideoTile
-              uri={profile.aboutVideoUrl}
-              eyebrow="About You"
-              caption={aboutCaption}
-              onPress={() => {
-                if (!profile.aboutVideoUrl) {
-                  if (isSelf) router.push('/settings/media');
-                  return;
-                }
-                openAt(photos.length);
-              }}
-            />
-            <PromptVideoTile
-              uri={profile.tonightVideoUrl}
-              eyebrow="Tonight"
-              caption={tonightCaption}
-              onPress={() => {
-                if (!profile.tonightVideoUrl) {
-                  if (isSelf) router.push('/settings/media');
-                  return;
-                }
-                openAt(photos.length + (profile.aboutVideoUrl ? 1 : 0));
-              }}
-            />
-          </View>
+          {/* Empty "Tap to record" slots are only for your own profile; others just show what they recorded. */}
+          {isSelf || profile.aboutVideoUrl || profile.tonightVideoUrl ? (
+            <>
+              <AppText variant="label" style={styles.section}>
+                Video prompts
+              </AppText>
+              <View style={styles.videos}>
+                {isSelf || profile.aboutVideoUrl ? (
+                  <PromptVideoTile
+                    uri={profile.aboutVideoUrl}
+                    eyebrow="About You"
+                    caption={aboutCaption}
+                    onPress={() => {
+                      if (!profile.aboutVideoUrl) {
+                        router.push('/settings/media');
+                        return;
+                      }
+                      openAt(photos.length);
+                    }}
+                  />
+                ) : null}
+                {isSelf || profile.tonightVideoUrl ? (
+                  <PromptVideoTile
+                    uri={profile.tonightVideoUrl}
+                    eyebrow="Tonight"
+                    caption={tonightCaption}
+                    onPress={() => {
+                      if (!profile.tonightVideoUrl) {
+                        router.push('/settings/media');
+                        return;
+                      }
+                      openAt(photos.length + (profile.aboutVideoUrl ? 1 : 0));
+                    }}
+                  />
+                ) : null}
+              </View>
+            </>
+          ) : null}
 
           {!isSelf ? (
             <>
