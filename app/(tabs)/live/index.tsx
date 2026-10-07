@@ -25,6 +25,7 @@ import {
 import { PlacePicker, SelectedPlaceCard } from '@/components/plan/PlacePicker';
 import type { PlanCategory } from '@/features/places/search';
 import { useProfileCompletion } from '@/hooks/useProfileCompletion';
+import { openStep } from '@/features/profile/completionSteps';
 import {
     clearTonightBoost,
 } from '@/lib/commerce/sessionCommerce';
@@ -141,7 +142,7 @@ export default function LiveHomeScreen() {
   const plusFilters = canUseAdvancedFilters(entitlements);
   const discoverFilters = useDiscoverFilters();
   const filterCount = activeFilterLabels(discoverFilters, { plus: plusFilters }).length;
-  const { readyForLive, missing } = useProfileCompletion();
+  const { readyForLive, missing, missingKeys } = useProfileCompletion();
 
   const live = useMemo(
     () => (liveSession ? isLiveSessionActive(liveSession, now) : false),
@@ -207,34 +208,30 @@ export default function LiveHomeScreen() {
 
   const activateLive = async () => {
     if (!readyForLive) {
+      const next = missingKeys[0];
       Alert.alert(
-        'Finish setup to Go Live',
+        missing.length === 1 ? 'One thing left to Go Live' : 'Finish setup to Go Live',
         missing.slice(0, 4).join('\n') || 'Complete your profile first.',
         [
           { text: 'Not now', style: 'cancel' },
           {
-            text: 'Finish profile',
-            onPress: () => router.push('/(tabs)/profile'),
+            text: next ? 'Fix it' : 'Finish profile',
+            onPress: () => (next ? openStep(next, router) : router.push('/(tabs)/profile')),
           },
         ],
       );
       return;
     }
-    try {
-      setLoading(true);
-      const { expiresAt, label } = buildExpiration(untilPick.value, laterTonightHour);
 
+    setLoading(true);
+
+    try {
+      const { expiresAt, label } = buildExpiration(untilPick.value, laterTonightHour);
       let latitude = 33.7838;
       let longitude = -84.383;
 
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        latitude = position.coords.latitude;
-        longitude = position.coords.longitude;
-      } else if (isBackendConfigured()) {
+      if (status !== 'granted' && isBackendConfigured()) {
         // Never go live at a made-up spot — people nearby would see the wrong distance.
         Alert.alert(
           'Turn on location to go Live',
@@ -246,8 +243,22 @@ export default function LiveHomeScreen() {
         );
         return;
       }
+      if (status === 'granted') {
+        const position =
+          (await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+          ])) ?? (await Location.getLastKnownPositionAsync().catch(() => null));
+        if (position?.coords) {
+          latitude = position.coords.latitude;
+          longitude = position.coords.longitude;
+        } else if (isBackendConfigured()) {
+          Alert.alert('Couldn’t find your location', 'Check your signal and try again.');
+          return;
+        }
+      }
 
-      // Firebase is primary — always publish a real beacon (no silent local-only pool).
+      // Publish session
       if (isBackendConfigured()) {
         const session = await startLiveSession({
           latitude,
@@ -314,7 +325,14 @@ export default function LiveHomeScreen() {
       setPingResults(0, 0);
       setSheet('none');
     } catch (error) {
-      Alert.alert('Could not go live', friendlyError(error, 'Try again'));
+      Alert.alert(
+        'Could not go live',
+        friendlyError(error, 'Could not go live right now'),
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Try Again', onPress: () => void activateLive() },
+        ],
+      );
     } finally {
       setLoading(false);
     }
@@ -336,7 +354,15 @@ export default function LiveHomeScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       setLeaving(false);
-      Alert.alert('Could not go offline', friendlyError(error, 'Try again'));
+      const errorMessage = friendlyError(error, 'Could not go offline right now');
+      Alert.alert(
+        'Could not go offline',
+        errorMessage,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Try Again', onPress: () => void goOffline() },
+        ],
+      );
     }
   };
 

@@ -13,7 +13,6 @@ const complete: ProfileCompletionRequirements = {
   mainPhoto: true,
   videos: true,
   location: true,
-  communityStandards: true,
 };
 
 describe('profileCompletion', () => {
@@ -29,7 +28,7 @@ describe('profileCompletion', () => {
       videos: false,
       location: false,
     };
-    expect(completionPercent(partial)).toBe(75);
+    expect(completionPercent(partial)).toBe(71);
     expect(isProfileReadyForLive(partial)).toBe(false);
     expect(missingLiveRequirements(partial)).toEqual(['Allow location access']);
   });

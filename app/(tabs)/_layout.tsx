@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { Platform, Text, View, type ColorValue } from 'react-native';
+import React, { memo, useEffect, useMemo, useRef } from 'react';
+import { AppState, Platform, Text, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,7 +21,7 @@ import { useSessionStore } from '@/store/session';
 import { isLiveSessionActive } from '@/utils/time';
 import { ScaledSheet, rs } from '@/lib/scale';
 
-function LiveTabIcon({
+const LiveTabIcon = memo(function LiveTabIcon({
   color,
   size,
   focused,
@@ -31,8 +31,12 @@ function LiveTabIcon({
   focused: boolean;
 }) {
   const liveSession = useSessionStore((s) => s.liveSession);
-  const live = liveSession ? isLiveSessionActive(liveSession, new Date()) : false;
-  const pulse = useSharedValue(1);
+  const live = useMemo(
+    () => liveSession ? isLiveSessionActive(liveSession, new Date()) : false,
+    [liveSession?.id, liveSession?.expiresAt]
+  );
+  const pulseRef = useRef(useSharedValue(1));
+  const pulse = pulseRef.current;
 
   useEffect(() => {
     if (!live) {
@@ -40,12 +44,32 @@ function LiveTabIcon({
       pulse.value = 1;
       return;
     }
+    
+    if (AppState.currentState !== 'active') return;
+    
     pulse.value = withRepeat(
       withTiming(1.18, { duration: 900, easing: Easing.inOut(Easing.quad) }),
       -1,
       true,
     );
-    return () => cancelAnimation(pulse);
+    
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && live) {
+        pulse.value = withRepeat(
+          withTiming(1.18, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+          -1,
+          true,
+        );
+      } else {
+        cancelAnimation(pulse);
+        pulse.value = 1;
+      }
+    });
+    
+    return () => {
+      cancelAnimation(pulse);
+      sub.remove();
+    };
   }, [live, pulse]);
 
   const anim = useAnimatedStyle(() => ({
@@ -61,9 +85,9 @@ function LiveTabIcon({
       />
     </Animated.View>
   );
-}
+});
 
-function MatchesTabIcon({
+const MatchesTabIcon = memo(function MatchesTabIcon({
   color,
   size,
   focused,
@@ -84,9 +108,10 @@ function MatchesTabIcon({
       ) : null}
     </View>
   );
-}
+});
 
 export default function TabsLayout() {
+  // Re-enabled after fixing unbounded Firestore queries
   useMatchesSubscription();
   useLiveSessionResync();
   useLiveActivitySync();
@@ -94,7 +119,11 @@ export default function TabsLayout() {
   useNearbyPresence();
   const insets = useSafeAreaInsets();
   const liveSession = useSessionStore((s) => s.liveSession);
-  const live = liveSession ? isLiveSessionActive(liveSession, new Date()) : false;
+  // Memoize expensive computations - don't recalculate on every render
+  const live = useMemo(
+    () => liveSession ? isLiveSessionActive(liveSession, new Date()) : false,
+    [liveSession?.id, liveSession?.expiresAt]
+  );
   const tabPadBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 8);
   const tabBarHeight = rs(52) + tabPadBottom;
 
@@ -125,6 +154,7 @@ export default function TabsLayout() {
           title: live ? 'Pinging' : 'Live',
           tabBarActiveTintColor: live ? colors.live : colors.brandBright,
           tabBarIcon: (props) => <LiveTabIcon {...props} />,
+          lazy: false,
         }}
       />
       <Tabs.Screen name="pings/index" options={{ href: null }} />
@@ -133,6 +163,7 @@ export default function TabsLayout() {
         options={{
           title: 'Matches',
           tabBarIcon: (props) => <MatchesTabIcon {...props} />,
+          lazy: false,
         }}
       />
       <Tabs.Screen
@@ -142,6 +173,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={rs(size)} color={color} />
           ),
+          lazy: false,
         }}
       />
       <Tabs.Screen name="index" options={{ href: null }} />

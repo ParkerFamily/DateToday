@@ -353,11 +353,19 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
     }
   }
 
+  const hasLegalConsent = Boolean(
+    (d.consent as { acceptedAt?: string } | undefined)?.acceptedAt ||
+      d.communityStandardsAcceptedAt ||
+      storedCompletion.communityStandards ||
+      d.termsVersion,
+  );
+
   const profileCompletion: Record<string, boolean> = {
     ...storedCompletion,
     ...(d.onboardingComplete === true ? { onboardingComplete: true } : {}),
     ...(d.setupSkipped === true ? { setupSkipped: true } : {}),
     ...(ageConfirmed ? { age: true } : {}),
+    ...(hasLegalConsent ? { communityStandards: true } : {}),
   };
 
   const profile: Profile = {
@@ -424,12 +432,7 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
     firestorePath: `users/${uid}`,
     dateOfBirth,
     privacyControls: (d.privacyControls as SavedOnboarding['privacyControls']) ?? null,
-    hasLegalConsent: Boolean(
-      (d.consent as { acceptedAt?: string } | undefined)?.acceptedAt ||
-        d.communityStandardsAcceptedAt ||
-        storedCompletion.communityStandards ||
-        d.termsVersion,
-    ),
+    hasLegalConsent,
   };
   } catch (error) {
     console.error('[DateToday] Error loading user profile:', error);

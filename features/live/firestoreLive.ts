@@ -33,6 +33,19 @@ import type {
 import { analytics } from '@/lib/analytics';
 import { isStaleLive } from '@/features/live/freeUntil';
 
+/** Timeout wrapper for Firebase operations to prevent infinite hanging. */
+function withTimeout<T>(promise: Promise<T>, timeoutMs = 15000, operation = 'Firebase operation'): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`${operation} timed out after ${timeoutMs}ms. Check your internet connection.`)),
+        timeoutMs
+      )
+    ),
+  ]);
+}
+
 /** ~0.7 mi precision — enough for distance, not a street pin. */
 function approxCoord(n: number): number {
   return Math.round(n * 100) / 100;
@@ -145,20 +158,24 @@ function publicCardFields(u: Record<string, unknown>) {
 export async function publishNearbyPresence(coords: { latitude: number; longitude: number }): Promise<void> {
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return;
-  const userSnap = await getDoc(doc(getDb(), 'users', uid));
+  const userSnap = await withTimeout(getDoc(doc(getDb(), 'users', uid)), 10000, 'Fetch user profile');
   const u = (userSnap.data() ?? {}) as Record<string, unknown>;
   if (!u.mainPhotoUrl || !u.displayName) return;
-  await setDoc(
-    doc(getDb(), 'nearbyProfiles', uid),
-    {
-      userId: uid,
-      latitude: approxCoord(coords.latitude),
-      longitude: approxCoord(coords.longitude),
-      lastActiveAt: serverTimestamp(),
-      ...publicCardFields(u),
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
+  await withTimeout(
+    setDoc(
+      doc(getDb(), 'nearbyProfiles', uid),
+      {
+        userId: uid,
+        latitude: approxCoord(coords.latitude),
+        longitude: approxCoord(coords.longitude),
+        lastActiveAt: serverTimestamp(),
+        ...publicCardFields(u),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    ),
+    10000,
+    'Update nearby presence'
   );
 }
 
@@ -177,7 +194,11 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('Sign in to Go Live.');
 
-  const userSnap = await getDoc(doc(getDb(), 'users', uid));
+  const userSnap = await withTimeout(
+    getDoc(doc(getDb(), 'users', uid)),
+    10000,
+    'Fetch your profile'
+  );
   const u = (userSnap.data() ?? {}) as Record<string, unknown>;
   const nowIso = new Date().toISOString();
   const lat = approxCoord(input.latitude);
@@ -219,7 +240,11 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     updatedAt: serverTimestamp(),
   };
 
-  await setDoc(doc(getDb(), 'liveSessions', uid), payload, { merge: true });
+  await withTimeout(
+    setDoc(doc(getDb(), 'liveSessions', uid), payload, { merge: true }),
+    15000,
+    'Go live'
+  );
   analytics.track('go_live_completed');
   void publishNearbyPresence({ latitude: input.latitude, longitude: input.longitude }).catch(() => undefined);
 
@@ -252,14 +277,18 @@ export async function endFirestoreLiveSession(uid?: string): Promise<void> {
   const auth = getFirebaseAuth();
   const id = uid ?? auth.currentUser?.uid;
   if (!id) return;
-  await setDoc(
-    doc(getDb(), 'liveSessions', id),
-    {
-      status: 'ended',
-      endedAt: new Date().toISOString(),
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
+  await withTimeout(
+    setDoc(
+      doc(getDb(), 'liveSessions', id),
+      {
+        status: 'ended',
+        endedAt: new Date().toISOString(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    ),
+    10000,
+    'End live session'
   );
   analytics.track('go_live_ended');
 }
@@ -288,7 +317,11 @@ export async function updateMyLiveSession(patch: LiveSessionPatch): Promise<void
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return;
   const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
-  await setDoc(doc(getDb(), 'liveSessions', uid), { ...clean, updatedAt: serverTimestamp() }, { merge: true });
+  await withTimeout(
+    setDoc(doc(getDb(), 'liveSessions', uid), { ...clean, updatedAt: serverTimestamp() }, { merge: true }),
+    10000,
+    'Update live session'
+  );
 }
 
 /**
@@ -299,21 +332,27 @@ export async function refreshLiveProfileFields(fields: Record<string, unknown>):
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return;
   const [live, nearby] = await Promise.all([
-    getDoc(doc(getDb(), 'liveSessions', uid)),
-    getDoc(doc(getDb(), 'nearbyProfiles', uid)),
+    withTimeout(getDoc(doc(getDb(), 'liveSessions', uid)), 8000, 'Check live session'),
+    withTimeout(getDoc(doc(getDb(), 'nearbyProfiles', uid)), 8000, 'Check nearby profile'),
   ]);
   const patch = { ...fields, updatedAt: serverTimestamp() };
   await Promise.all([
     live.exists() && live.data()?.status === 'active'
-      ? setDoc(doc(getDb(), 'liveSessions', uid), patch, { merge: true })
+      ? withTimeout(setDoc(doc(getDb(), 'liveSessions', uid), patch, { merge: true }), 8000, 'Update live profile')
       : null,
-    nearby.exists() ? setDoc(doc(getDb(), 'nearbyProfiles', uid), patch, { merge: true }) : null,
+    nearby.exists() 
+      ? withTimeout(setDoc(doc(getDb(), 'nearbyProfiles', uid), patch, { merge: true }), 8000, 'Update nearby profile')
+      : null,
   ]);
 }
 
 /** The signed-in user's session if it's still active — restores "live" after the OS killed the app. */
 export async function fetchMyActiveLiveSession(uid: string): Promise<LiveSession | null> {
-  const snap = await getDoc(doc(getDb(), 'liveSessions', uid));
+  const snap = await withTimeout(
+    getDoc(doc(getDb(), 'liveSessions', uid)),
+    10000,
+    'Restore live session'
+  );
   if (!snap.exists()) return null;
   const d = snap.data() as Record<string, unknown>;
   const expiresAt = tsToIso(d.expiresAt);
@@ -364,7 +403,12 @@ function wantsToSee(viewer: Record<string, unknown>, other: Record<string, unkno
 
 /** Fires whenever someone goes live, updates, or ends — used to refresh the feed in realtime. */
 export function subscribeActiveLiveSessions(onChange: () => void) {
-  const q = query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'));
+  const q = query(
+    collection(getDb(), 'liveSessions'), 
+    where('status', '==', 'active'),
+    orderBy('createdAt', 'desc'),
+    limitTo(200)
+  );
   let first = true;
   return onSnapshot(
     q,
@@ -391,13 +435,21 @@ export async function fetchFirestoreDiscoveryFeed(
   const me = auth.currentUser?.uid;
   if (!me) return [];
 
-  const mySnap = await getDoc(doc(getDb(), 'liveSessions', me));
+  const mySnap = await withTimeout(
+    getDoc(doc(getDb(), 'liveSessions', me)),
+    10000,
+    'Load your location'
+  );
   let mine = mySnap.data();
   let myRadius: number;
   if (mine && mine.status === 'active') {
     myRadius = Number(mine.radiusMiles ?? 10);
   } else {
-    mine = (await getDoc(doc(getDb(), 'nearbyProfiles', me))).data();
+    mine = (await withTimeout(
+      getDoc(doc(getDb(), 'nearbyProfiles', me)),
+      10000,
+      'Load your profile'
+    )).data();
     if (!mine) return [];
     myRadius = browseRadiusMiles;
   }
@@ -406,8 +458,16 @@ export async function fetchFirestoreDiscoveryFeed(
   const myLng = Number(mine.longitude);
   if (!Number.isFinite(myLat) || !Number.isFinite(myLng)) return [];
 
-  const q = query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'));
-  const snap = await getDocs(q);
+  // TODO: Replace with server-side geohash/geospatial indexing for scalability.
+  // Currently fetching all active sessions and filtering client-side by distance.
+  // Generous limit (200) prevents runaway reads but reduces discoverability in dense cities.
+  const q = query(
+    collection(getDb(), 'liveSessions'), 
+    where('status', '==', 'active'),
+    orderBy('startedAt', 'desc'),
+    limitTo(200)
+  );
+  const snap = await withTimeout(getDocs(q), 12000, 'Find people nearby');
   const now = Date.now();
   const cards: DiscoveryCard[] = [];
 

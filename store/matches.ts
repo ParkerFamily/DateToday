@@ -95,19 +95,14 @@ export function useMatchesSubscription() {
 export function usePendingLikes() {
   const likedMe = useMatchesStore((s) => s.likedMe);
   const loaded = useMatchesStore((s) => s.loaded);
-  // Matches change on every chat message; key on who's matched so likes don't recompute per message.
-  const matchedKey = useMatchesStore((s) =>
-    s.matches
-      .flatMap((m) => m.userIds)
-      .sort()
-      .join(','),
-  );
+  const matches = useMatchesStore((s) => s.matches);
   const blocked = useHiddenUserMap();
+  
   return useMemo(() => {
     if (!likedMe || !loaded) return null;
-    const matched = new Set(matchedKey.split(','));
-    return likedMe.filter((r) => r.fromUid && !matched.has(r.fromUid) && !blocked[r.fromUid]);
-  }, [likedMe, loaded, matchedKey, blocked]);
+    const matchedIds = new Set(matches.flatMap((m) => m.userIds));
+    return likedMe.filter((r) => r.fromUid && !matchedIds.has(r.fromUid) && !blocked[r.fromUid]);
+  }, [likedMe, loaded, matches, blocked]);
 }
 
 /** Matches minus anyone I've blocked. */
@@ -121,5 +116,5 @@ export function useVisibleMatches() {
 export function useUnreadMatchCount() {
   const uid = useSessionStore((s) => s.userId) ?? '';
   const visible = useVisibleMatches();
-  return visible.reduce((sum, m) => sum + (m.unread[uid] ?? 0), 0);
+  return useMemo(() => visible.reduce((sum, m) => sum + (m.unread[uid] ?? 0), 0), [visible, uid]);
 }

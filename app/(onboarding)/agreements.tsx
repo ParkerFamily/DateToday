@@ -7,6 +7,8 @@ import { colors, spacing } from '@/constants/theme';
 import { needsEmailOtp } from '@/features/auth/emailOtp';
 import { currentUserIsSocial } from '@/features/auth/social';
 import { recordLegalConsent } from '@/features/consent/recordConsent';
+import { acceptTermsForAccount } from '@/features/consent/hasAgreed';
+import { hasEnteredApp } from '@/utils/accountEntry';
 import { isBackendConfigured } from '@/lib/env';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
@@ -18,6 +20,7 @@ import { ScaledSheet } from '@/lib/scale';
 const ACCOUNT_HREF = '/(onboarding)/account' as Href;
 const EMAIL_VERIFY_HREF = '/(onboarding)/email-verify' as Href;
 const GENDER_HREF = '/(onboarding)/gender' as Href;
+const LIVE_HREF = '/(tabs)/live' as Href;
 
 function nextAfterAgreements(skipAccount: boolean): Href {
   if (!skipAccount) return ACCOUNT_HREF;
@@ -33,6 +36,7 @@ export default function AgreementsScreen() {
   const alreadyAccepted = useOnboardingDraft((s) => s.legalConsentAccepted);
   const authProvider = useOnboardingDraft((s) => s.authProvider);
   const userId = useSessionStore((s) => s.userId);
+  const existingAccount = useSessionStore((s) => hasEnteredApp(s.profile));
   const [terms, setTerms] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [guidelines, setGuidelines] = useState(false);
@@ -49,9 +53,9 @@ export default function AgreementsScreen() {
 
   useEffect(() => {
     if (alreadyAccepted) {
-      router.replace(nextAfterAgreements(skipAccount));
+      router.replace(existingAccount ? LIVE_HREF : nextAfterAgreements(skipAccount));
     }
-  }, [alreadyAccepted, router, skipAccount]);
+  }, [alreadyAccepted, existingAccount, router, skipAccount]);
 
   const onContinue = async () => {
     if (!allChecked) {
@@ -63,6 +67,11 @@ export default function AgreementsScreen() {
     }
     try {
       setSaving(true);
+      if (existingAccount) {
+        await acceptTermsForAccount();
+        router.replace(LIVE_HREF);
+        return;
+      }
       acceptLegalConsent();
       if (isBackendConfigured() && (userId || currentUserIsSocial())) {
         await recordLegalConsent('onboarding_agreements');

@@ -14,7 +14,6 @@ export function missingLiveRequirements(
     mainPhoto: 'Add a main photo',
     videos: 'Record 2 video prompts (About You + Tonight)',
     location: 'Allow location access',
-    communityStandards: 'Accept community standards',
   };
 
   return (Object.keys(requirements) as (keyof ProfileCompletionRequirements)[])

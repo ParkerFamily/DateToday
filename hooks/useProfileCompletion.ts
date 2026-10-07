@@ -1,3 +1,4 @@
+import { missingStepKeys } from '@/features/profile/completionSteps';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import type { ProfileCompletionRequirements } from '@/types';
@@ -35,10 +36,6 @@ function deriveRequirements(): ProfileCompletionRequirements {
       Boolean(completion.videos) ||
       Boolean(profile?.aboutVideoUrl && profile?.tonightVideoUrl),
     location: locationGranted || Boolean(completion.location),
-    communityStandards:
-      Boolean(completion.communityStandards) ||
-      Boolean(draft.legalConsentAccepted) ||
-      Boolean(completion.onboardingComplete),
   };
 }
 
@@ -47,7 +44,6 @@ export function useProfileCompletion() {
   const preferences = useSessionStore((s) => s.preferences);
   const locationGranted = useSessionStore((s) => s.locationGranted);
   const draftDob = useOnboardingDraft((s) => s.dateOfBirth);
-  const legalConsentAccepted = useOnboardingDraft((s) => s.legalConsentAccepted);
 
   const requirements = useMemo((): ProfileCompletionRequirements => {
     const completion = profile?.profileCompletion ?? {};
@@ -61,17 +57,14 @@ export function useProfileCompletion() {
         Boolean(completion.videos) ||
         Boolean(profile?.aboutVideoUrl && profile?.tonightVideoUrl),
       location: locationGranted || Boolean(completion.location),
-      communityStandards:
-        Boolean(completion.communityStandards) ||
-        Boolean(legalConsentAccepted) ||
-        Boolean(completion.onboardingComplete),
     };
-  }, [profile, preferences, locationGranted, draftDob, legalConsentAccepted]);
+  }, [profile, preferences, locationGranted, draftDob]);
 
   return {
     requirements,
     percent: completionPercent(requirements),
     missing: missingLiveRequirements(requirements),
+    missingKeys: missingStepKeys(requirements),
     readyForLive: isProfileReadyForLive(requirements),
   };
 }

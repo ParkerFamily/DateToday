@@ -10,6 +10,7 @@ import { installNotificationActions, isNotificationAction } from '@/features/not
 import * as Notifications from 'expo-notifications';
 import { loadUserProfile } from '@/features/profile/saveOnboarding';
 import { ensureLocationPermissionAsked } from '@/features/auth/postAuth';
+import { hasAgreedToTerms } from '@/features/consent/hasAgreed';
 import { isBackendConfigured } from '@/lib/env';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
@@ -85,21 +86,23 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
   setProfileHydration('loading');
   
   try {
-    console.log('[DateToday] Hydrating user profile for', uid);
+    if (__DEV__) console.log('[DateToday] Hydrating user profile for', uid);
     const saved = await loadUserProfile(uid);
     
     if (!saved) {
-      console.log('[DateToday] No saved profile found for', uid);
+      if (__DEV__) console.log('[DateToday] No saved profile found for', uid);
       setProfileHydration('done');
       return;
     }
     
-    console.log('[DateToday] Profile loaded successfully:', {
-      userId: saved.profile.userId,
-      displayName: saved.profile.displayName,
-      verificationStatus: saved.profile.verificationStatus,
-      hasPhoto: Boolean(saved.profile.mainPhotoUrl),
-    });
+    if (__DEV__) {
+      console.log('[DateToday] Profile loaded successfully:', {
+        userId: saved.profile.userId,
+        displayName: saved.profile.displayName,
+        verificationStatus: saved.profile.verificationStatus,
+        hasPhoto: Boolean(saved.profile.mainPhotoUrl),
+      });
+    }
     
     setProfile(saved.profile);
     setPreferences(saved.preferences);
@@ -115,15 +118,29 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
       void ensureLocationPermissionAsked();
     }
     
-    const { usePrivacyControls } = await import('@/store/privacyControls');
+    // Parallelize independent operations for faster hydration
+    const [
+      { usePrivacyControls },
+      { useBlocksStore },
+      { refreshBlockedUsers },
+      { restoreLiveSession },
+      { hydrateTonightBoostForSession }
+    ] = await Promise.all([
+      import('@/store/privacyControls'),
+      import('@/store/blocks'),
+      import('@/features/safety/api'),
+      import('@/features/live/restoreLiveSession'),
+      import('@/lib/commerce/sessionCommerce')
+    ]);
+    
     usePrivacyControls.getState().hydrate(saved.privacyControls ?? undefined);
-    const { useBlocksStore } = await import('@/store/blocks');
-    await useBlocksStore.getState().hydrate();
-    const { refreshBlockedUsers } = await import('@/features/safety/api');
-    await refreshBlockedUsers().catch(() => undefined);
-    const { restoreLiveSession } = await import('@/features/live/restoreLiveSession');
-    await restoreLiveSession(uid);
-    const { hydrateTonightBoostForSession } = await import('@/lib/commerce/sessionCommerce');
+    
+    await Promise.all([
+      useBlocksStore.getState().hydrate(),
+      refreshBlockedUsers().catch(() => undefined),
+      restoreLiveSession(uid),
+    ]);
+    
     const restored = useSessionStore.getState().liveSession;
     if (restored && !restored.isBoosted) await hydrateTonightBoostForSession(restored);
   } catch (error) {
@@ -141,19 +158,33 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const userId = useSessionStore((s) => s.userId);
   const profile = useSessionStore((s) => s.profile);
   const profileHydration = useSessionStore((s) => s.profileHydration);
+  const draftAgreed = useOnboardingDraft((s) => s.legalConsentAccepted);
+  const agreed = hasAgreedToTerms(profile, draftAgreed);
 
   useEffect(() => {
     let mounted = true;
 
     async function bootstrap() {
-      // Local block list applies even before auth finishes.
-      void import('@/store/blocks').then((m) => m.useBlocksStore.getState().hydrate());
-      await pullOtaUpdate();
+      // Parallelize OTA update and blocks hydration
+      await Promise.all([
+        pullOtaUpdate(),
+        import('@/store/blocks').then((m) => m.useBlocksStore.getState().hydrate()),
+      ]);
+      
       SplashScreen.hideAsync().catch(() => undefined);
       try {
         if (!isBackendConfigured()) {
           if (mounted) setReady(true);
           return;
+        }
+
+        // Sync location permission state on startup (just the session state, not Firestore yet)
+        try {
+          const Location = await import('expo-location');
+          const perm = await Location.getForegroundPermissionsAsync();
+          useSessionStore.getState().setLocationGranted(perm.status === 'granted');
+        } catch {
+          // Location check failed, skip
         }
 
         // Wait for AsyncStorage auth restore — do NOT trust currentUser alone.
@@ -162,6 +193,16 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
         if (user) {
           await hydrateSignedInUser(user.uid, user.email ?? null);
+          
+          // NOW update Firestore location completion after profile is loaded
+          try {
+            const Location = await import('expo-location');
+            const perm = await Location.getForegroundPermissionsAsync();
+            const { updateLocationCompletion } = await import('@/features/profile/updateLocationCompletion');
+            await updateLocationCompletion(perm.status === 'granted');
+          } catch {
+            // Location update failed, skip
+          }
           // Purchases must never wipe auth — skip entirely on Android (IAP deferred).
           if (Platform.OS !== 'android') {
             try {
@@ -202,7 +243,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
       void (async () => {
         if (!user) {
-          console.log('[DateToday] Auth state changed: signed out');
+          if (__DEV__) console.log('[DateToday] Auth state changed: signed out');
           useSessionStore.getState().setAuth(null, null);
           return;
         }
@@ -210,21 +251,23 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         const prev = useSessionStore.getState().userId;
         const currentProfile = useSessionStore.getState().profile;
         
-        console.log('[DateToday] Auth state changed:', {
-          newUid: user.uid,
-          prevUid: prev,
-          hasProfile: Boolean(currentProfile),
-          profileUserId: currentProfile?.userId,
-        });
+        if (__DEV__) {
+          console.log('[DateToday] Auth state changed:', {
+            newUid: user.uid,
+            prevUid: prev,
+            hasProfile: Boolean(currentProfile),
+            profileUserId: currentProfile?.userId,
+          });
+        }
         
         if (prev === user.uid && currentProfile) {
           // Same session — don't clobber a loaded profile on token refresh.
-          console.log('[DateToday] Same user, keeping existing profile');
+          if (__DEV__) console.log('[DateToday] Same user, keeping existing profile');
           useSessionStore.getState().setAuth(user.uid, user.email ?? null);
           return;
         }
         
-        console.log('[DateToday] Hydrating user profile after auth change');
+        if (__DEV__) console.log('[DateToday] Hydrating user profile after auth change');
         await hydrateSignedInUser(user.uid, user.email ?? null);
         
         if (Platform.OS === 'android') return;
@@ -288,6 +331,12 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       'likes',
     ]);
 
+    if (entered && !agreed) {
+      const onAgreements = inOnboarding && String(segments[1] ?? '') === 'agreements';
+      if (!onAgreements && root !== 'legal') router.replace('/(onboarding)/agreements');
+      return;
+    }
+
     if (entered) {
       if (allowedWhileEntered.has(root)) return;
       // Allow short onboarding editors opened from Settings (videos / verify).
@@ -305,7 +354,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     if (!inOnboarding) {
       router.replace('/(onboarding)/name');
     }
-  }, [ready, userId, profile, profileHydration, segments, router]);
+  }, [ready, userId, profile, profileHydration, segments, router, agreed]);
 
   const entered = hasEnteredApp(profile);
 
@@ -405,7 +454,7 @@ export default function RootLayout() {
               screenOptions={{
                 headerShown: false,
                 contentStyle: { backgroundColor: colors.background },
-                animation: 'fade',
+                animation: 'none',
               }}
             >
               <Stack.Screen name="index" />

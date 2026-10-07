@@ -330,7 +330,6 @@ export interface ProfileCompletionRequirements {
   mainPhoto: boolean;
   videos: boolean;
   location: boolean;
-  communityStandards: boolean;
 }
 
 export type EntitlementKey =

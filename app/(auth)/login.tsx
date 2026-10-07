@@ -23,6 +23,7 @@ import { loginSchema, signInWithEmail, type LoginInput } from '@/features/auth/a
 import { colors, spacing } from '@/constants/theme';
 import { isBackendConfigured } from '@/lib/env';
 import { useSessionStore } from '@/store/session';
+import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { continueAfterSocialAuth, ensureLocationPermissionAsked } from '@/features/auth/postAuth';
 import { loadUserProfile } from '@/features/profile/saveOnboarding';
 import { hasEnteredApp } from '@/utils/accountEntry';
@@ -69,6 +70,7 @@ export default function LoginScreen() {
       if (saved && hasEnteredApp(saved.profile)) {
         setProfile(saved.profile);
         setPreferences(saved.preferences);
+        if (saved.hasLegalConsent) useOnboardingDraft.getState().acceptLegalConsent();
         
         // Request location permission if iOS hasn't been asked yet.
         // This ensures the permission shows up in iOS Settings even for existing users.

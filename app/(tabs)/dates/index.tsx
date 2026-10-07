@@ -10,7 +10,8 @@ import { useSessionStore } from '@/store/session';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TypingDots } from '@/components/chat/TypingDots';
 import { useTheirChatState } from '@/features/matches/useTheirChatState';
@@ -29,7 +30,7 @@ function timeAgo(date: Date | null): string {
 }
 
 /** Only the top few rows keep a live typing listener; each one is a Firestore subscription. */
-const LIVE_TYPING_ROWS = 8;
+const LIVE_TYPING_ROWS = 3;
 /** A date stays "upcoming" until a few hours after it starts. */
 const DATE_GRACE_MS = 6 * 60 * 60 * 1000;
 
@@ -45,7 +46,13 @@ function Avatar({ uri, size: sizeProp }: { uri: string | null | undefined; size:
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [uri]);
   return uri && !broken ? (
-    <Image source={{ uri }} style={[styles.avatar, style]} onError={() => setBroken(true)} />
+    <Image 
+      source={{ uri }} 
+      style={[styles.avatar, style]} 
+      onError={() => setBroken(true)}
+      cachePolicy="memory-disk"
+      transition={150}
+    />
   ) : (
     <View style={[styles.avatar, styles.avatarEmpty, style]}>
       <Ionicons name="person" size={size * 0.45} color={colors.textSecondary} />
@@ -210,6 +217,7 @@ export default function MatchesScreen() {
           <ScrollView
             contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 8) + 24, paddingTop: spacing.md }}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
             <View style={styles.panel}>
               <View style={styles.emptyCircle}>
@@ -234,6 +242,10 @@ export default function MatchesScreen() {
             keyExtractor={(row) => row.key}
             contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 8) + 24 }}
             showsVerticalScrollIndicator={false}
+            initialNumToRender={8}
+            maxToRenderPerBatch={5}
+            windowSize={7}
+            removeClippedSubviews={true}
             ListHeaderComponent={
               error ? (
                 <AppText style={styles.reconnecting}>Reconnecting… new messages will appear in a moment.</AppText>

@@ -3,7 +3,9 @@ import {
   collection,
   doc,
   getDocs,
+  limit,
   onSnapshot,
+  orderBy,
   query,
   serverTimestamp,
   where,
@@ -111,7 +113,12 @@ export async function listBlockedUsers(): Promise<BlockedUser[]> {
   if (isBackendConfigured()) {
     try {
       const uid = requireUid();
-      const q = query(collection(getDb(), 'blocks'), where('blockerId', '==', uid));
+      const q = query(
+        collection(getDb(), 'blocks'), 
+        where('blockerId', '==', uid),
+        orderBy('createdAt', 'desc'),
+        limit(200)
+      );
       const snap = await getDocs(q);
       const rows = snap.docs.map((d) => {
         const data = d.data();
