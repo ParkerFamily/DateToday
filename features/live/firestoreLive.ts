@@ -406,7 +406,6 @@ export function subscribeActiveLiveSessions(onChange: () => void) {
   const q = query(
     collection(getDb(), 'liveSessions'), 
     where('status', '==', 'active'),
-    orderBy('createdAt', 'desc'),
     limitTo(200)
   );
   let first = true;
@@ -464,7 +463,6 @@ export async function fetchFirestoreDiscoveryFeed(
   const q = query(
     collection(getDb(), 'liveSessions'), 
     where('status', '==', 'active'),
-    orderBy('startedAt', 'desc'),
     limitTo(200)
   );
   const snap = await withTimeout(getDocs(q), 12000, 'Find people nearby');

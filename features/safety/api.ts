@@ -5,7 +5,6 @@ import {
   getDocs,
   limit,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   where,
@@ -116,7 +115,6 @@ export async function listBlockedUsers(): Promise<BlockedUser[]> {
       const q = query(
         collection(getDb(), 'blocks'), 
         where('blockerId', '==', uid),
-        orderBy('createdAt', 'desc'),
         limit(200)
       );
       const snap = await getDocs(q);

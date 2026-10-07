@@ -1,18 +1,14 @@
 import { DiscoverFeed } from '@/components/discover/DiscoverFeed';
-import { friendlyError } from '@/lib/errors';
-import { syncLiveSessionPatch } from '@/features/live/restoreLiveSession';
 import { LiveStatusBar } from '@/components/live/LiveStatusBar';
-import { QuizPromoCard } from '@/components/profile/QuizPromoCard';
 import { DtIconHero } from '@/components/onboarding/DtIconHero';
+import { PlacePicker, SelectedPlaceCard } from '@/components/plan/PlacePicker';
+import { QuizPromoCard } from '@/components/profile/QuizPromoCard';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { OptionGrid } from '@/components/ui/OptionChip';
 import { Screen } from '@/components/ui/Screen';
-import { copy } from '@/constants/copy';
-import { flowCopy, formatLaterHour } from '@/constants/flow';
-import { colors, gradients, spacing } from '@/constants/theme';
-import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
 import { AFTER_HOURS_TAGS, type AfterHoursTag } from '@/constants/afterHours';
+import { copy } from '@/constants/copy';
 import {
     ENERGY_OPTIONS,
     energyLabel,
@@ -22,23 +18,28 @@ import {
     TRAVEL_OPTIONS,
     type PlaceStyle,
 } from '@/constants/datingTraits';
-import { PlacePicker, SelectedPlaceCard } from '@/components/plan/PlacePicker';
+import { flowCopy, formatLaterHour } from '@/constants/flow';
+import { colors, gradients, spacing } from '@/constants/theme';
+import { FOOD_CUISINES, foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
+import { activeFilterLabels } from '@/features/discover/applyFilters';
+import { freeUntilOptions, needsReconfirm, pickFreeUntil } from '@/features/live/freeUntil';
+import { syncLiveSessionPatch } from '@/features/live/restoreLiveSession';
+import { registerPushTokenAsync } from '@/features/notifications/push';
 import type { PlanCategory } from '@/features/places/search';
-import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import { openStep } from '@/features/profile/completionSteps';
+import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import {
     clearTonightBoost,
 } from '@/lib/commerce/sessionCommerce';
 import { allowedRadiusPresets, canUseAdvancedFilters, isPlusActive } from '@/lib/entitlements';
 import { env, isBackendConfigured } from '@/lib/env';
-import { registerPushTokenAsync } from '@/features/notifications/push';
-import { activeFilterLabels } from '@/features/discover/applyFilters';
-import { useDiscoverFilters } from '@/store/discoverFilters';
+import { friendlyError } from '@/lib/errors';
+import { rs, ScaledSheet } from '@/lib/scale';
 import { endLiveSession, startLiveSession } from '@/services/api';
+import { useDiscoverFilters } from '@/store/discoverFilters';
 import { useSessionStore } from '@/store/session';
 import type { RadiusMiles, TonightActivity, TonightEnergy, TravelPref } from '@/types';
 import { isLiveSessionActive } from '@/utils/time';
-import { freeUntilOptions, needsReconfirm, pickFreeUntil } from '@/features/live/freeUntil';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -56,7 +57,6 @@ import {
     View,
 } from 'react-native';
 import Animated, {
-    cancelAnimation,
     Easing,
     FadeIn,
     FadeInDown,
@@ -65,10 +65,9 @@ import Animated, {
     LayoutAnimationConfig,
     useAnimatedStyle,
     useSharedValue,
-    withTiming,
+    withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScaledSheet, rs } from '@/lib/scale';
 
 const LATER_HOURS = [18, 19, 20, 21] as const;
 const PLACE_CATEGORIES: PlanCategory[] = ['drinks', 'dinner', 'coffee', 'activity'];
@@ -458,6 +457,27 @@ export default function LiveHomeScreen() {
   const pickTravel = (value: TravelPref) => {
     void Haptics.selectionAsync();
     setTravel((prev) => (prev === value ? null : value));
+  };
+
+  const saveEdits = () => {
+    if (liveSession) {
+      const { expiresAt, label } = buildExpiration(untilPick.value, liveSession.laterTonightHour ?? null);
+      const patch = {
+        activities: activities as TonightActivity[],
+        foodCuisines: wantsDinner ? foodCuisines : [],
+        radiusMiles: radius,
+        availabilityLabel: label,
+        availableUntil: expiresAt.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        afterHours: afterHoursTags,
+        energy,
+        travel,
+        planIdea,
+      };
+      setLiveSession({ ...liveSession, ...patch });
+      void syncLiveSessionPatch(patch);
+    }
+    setSheet('none');
   };
 
   const pickPlace = (value: PlaceStyle) => {
@@ -859,9 +879,26 @@ export default function LiveHomeScreen() {
         </Animated.View>
       ) : null}
 
-      <Modal visible={sheet !== 'none'} animationType="slide" transparent>
+      <Modal
+        visible={sheet !== 'none'}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSheet('none')}
+      >
         <View style={styles.sheetBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setSheet('none')}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          />
           <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <ScrollView
+              style={styles.sheetScroll}
+              contentContainerStyle={styles.sheetContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
             {sheet === 'food' ? (
               <>
                 <AppText variant="title">Dinner preference</AppText>
@@ -991,36 +1028,14 @@ export default function LiveHomeScreen() {
                   values={afterHoursTags}
                   onToggle={(value) => toggleAfterHours(value as AfterHoursTag)}
                 />
-                <Button
-                  label="Save"
-                  onPress={() => {
-                    if (liveSession) {
-                      const { expiresAt, label } = buildExpiration(
-                        untilPick.value,
-                        liveSession.laterTonightHour ?? null,
-                      );
-                      const patch = {
-                        activities: activities as TonightActivity[],
-                        foodCuisines: wantsDinner ? foodCuisines : [],
-                        radiusMiles: radius,
-                        availabilityLabel: label,
-                        availableUntil: expiresAt.toISOString(),
-                        expiresAt: expiresAt.toISOString(),
-                        afterHours: afterHoursTags,
-                        energy,
-                        travel,
-                        planIdea,
-                      };
-                      setLiveSession({ ...liveSession, ...patch });
-                      void syncLiveSessionPatch(patch);
-                    }
-                    setSheet('none');
-                  }}
-                />
               </>
             ) : null}
+            </ScrollView>
 
-            <Button label="Done" variant="ghost" onPress={() => setSheet('none')} />
+            <View style={styles.sheetFooter}>
+              {sheet === 'edit' && live ? <Button label="Save" onPress={saveEdits} /> : null}
+              <Button label="Done" variant="ghost" onPress={() => setSheet('none')} />
+            </View>
           </View>
         </View>
       </Modal>
@@ -1446,6 +1461,9 @@ const styles = ScaledSheet.create({
     gap: spacing.md,
     maxHeight: '88%',
   },
+  sheetScroll: { flexGrow: 0, flexShrink: 1 },
+  sheetContent: { gap: spacing.md },
+  sheetFooter: { gap: spacing.sm },
   sheetHint: { marginBottom: 4, lineHeight: 18 },
   sheetTitle: { marginTop: spacing.sm },
 });

@@ -103,7 +103,6 @@ export function subscribeSentInterests(uid: string, onChange: (toUids: Set<strin
   const q = query(
     collection(getDb(), 'interests'), 
     where('fromUid', '==', uid),
-    orderBy('createdAt', 'desc'),
     limit(500)
   );
   let alive = true;
@@ -137,8 +136,7 @@ export function subscribeReceivedInterests(
   const q = query(
     collection(getDb(), 'interests'), 
     where('toUid', '==', uid),
-    orderBy('createdAt', 'desc'),
-    limit(100)
+    limit(500)
   );
   return onSnapshot(
     q,
@@ -204,8 +202,7 @@ export function subscribeMatches(
   const q = query(
     collection(getDb(), 'matches'), 
     where('userIds', 'array-contains', uid),
-    orderBy('lastActivityAt', 'desc'),
-    limit(100)
+    limit(500)
   );
   return onSnapshot(
     q,
