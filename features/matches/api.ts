@@ -3,6 +3,7 @@ import {
   collection,
   doc,
   getDoc,
+  limit,
   limitToLast,
   onSnapshot,
   orderBy,
