@@ -1,5 +1,5 @@
 import { getFirebaseAuth } from '@/lib/firebase/client';
-import { env } from '@/lib/env';
+import { env, isBackendConfigured } from '@/lib/env';
 import { analytics } from '@/lib/analytics';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 
@@ -15,12 +15,11 @@ async function authHeader(): Promise<string> {
   return `Bearer ${token}`;
 }
 
-/** Off until the datetd.com sending domain is verified in Resend. */
-const EMAIL_OTP_ENABLED = false;
+const EMAIL_OTP_ENABLED = true;
 
 /** Google/Apple emails are already verified by the provider. */
 export function needsEmailOtp(): boolean {
-  if (!EMAIL_OTP_ENABLED) return false;
+  if (!EMAIL_OTP_ENABLED || !isBackendConfigured()) return false;
   const user = getFirebaseAuth().currentUser;
   if (!user?.email) return false;
   if (user.emailVerified) return false;

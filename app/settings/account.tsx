@@ -9,6 +9,7 @@ import { TextField } from '@/components/ui/TextField';
 import { SettingsGroup, SettingsHeader, SettingsRow } from '@/components/settings/SettingsUI';
 import { spacing } from '@/constants/theme';
 import { sendPasswordReset } from '@/features/auth/api';
+import { confirmEmailOtp, needsEmailOtp, sendEmailOtp } from '@/features/auth/emailOtp';
 import { linkCredentialToCurrentUser } from '@/features/auth/linking';
 import { getAppleCredential, getGoogleIdTokenNative, isAppleSignInAvailable } from '@/features/auth/social';
 import { useSessionStore } from '@/store/session';
@@ -30,6 +31,11 @@ export default function AccountInformationScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [needsVerify, setNeedsVerify] = useState(needsEmailOtp);
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState('');
+  const [verifyBusy, setVerifyBusy] = useState(false);
 
   useEffect(() => {
     void isAppleSignInAvailable().then(setAppleOk).catch(() => setAppleOk(false));
@@ -102,6 +108,34 @@ export default function AccountInformationScreen() {
     ]);
   };
 
+  const sendCode = async () => {
+    try {
+      setVerifyBusy(true);
+      await sendEmailOtp();
+      setCodeSent(true);
+      Alert.alert('Check your email', `We sent a 6-digit code to ${displayEmail}.`);
+    } catch (error) {
+      Alert.alert('Couldn’t send code', friendlyError(error, 'Try again in a moment.'));
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
+
+  const confirmCode = async () => {
+    try {
+      setVerifyBusy(true);
+      await confirmEmailOtp(code);
+      setNeedsVerify(false);
+      setVerifyOpen(false);
+      setCode('');
+      Alert.alert('Email verified ✓', 'Your email is confirmed.');
+    } catch (error) {
+      Alert.alert('Couldn’t verify', friendlyError(error, 'Check the code and try again.'));
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
+
   const showApple = Platform.OS === 'ios' && (appleOk || has('apple.com'));
   const backend = isBackendConfigured();
 
@@ -114,9 +148,56 @@ export default function AccountInformationScreen() {
         </AppText>
 
         <SettingsGroup title="Signed in as">
-          <SettingsRow label="Email" detail={displayEmail ?? 'Not available'} onPress={() => undefined} />
+          <SettingsRow
+            label="Email"
+            detail={
+              needsVerify ? `${displayEmail} · Not verified — tap to verify` : (displayEmail ?? 'Not available')
+            }
+            onPress={() => (needsVerify ? setVerifyOpen((v) => !v) : undefined)}
+          />
           <SettingsRow label="User ID" detail={uid ?? '—'} last onPress={() => undefined} />
         </SettingsGroup>
+
+        {needsVerify && verifyOpen ? (
+          <View style={styles.passwordForm}>
+            <AppText variant="secondary">
+              We’ll email a 6-digit code to {displayEmail}. Verifying lets Google sign-in attach to this account
+              automatically and keeps DateToday real.
+            </AppText>
+            {codeSent ? (
+              <>
+                <TextField
+                  label="6-digit code"
+                  keyboardType="number-pad"
+                  autoComplete="one-time-code"
+                  textContentType="oneTimeCode"
+                  maxLength={6}
+                  placeholder="123456"
+                  value={code}
+                  onChangeText={setCode}
+                  editable={!verifyBusy}
+                />
+                <Button
+                  label={verifyBusy ? 'Verifying…' : 'Verify code'}
+                  disabled={verifyBusy || code.replace(/\s/g, '').length < 6}
+                  onPress={() => void confirmCode()}
+                />
+                <Button
+                  label="Resend code"
+                  variant="ghost"
+                  disabled={verifyBusy}
+                  onPress={() => void sendCode()}
+                />
+              </>
+            ) : (
+              <Button
+                label={verifyBusy ? 'Sending…' : 'Email me a code'}
+                disabled={verifyBusy}
+                onPress={() => void sendCode()}
+              />
+            )}
+          </View>
+        ) : null}
 
         {backend ? (
           <SettingsGroup title="Sign-in methods">

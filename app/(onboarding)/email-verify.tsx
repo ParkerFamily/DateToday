@@ -33,6 +33,7 @@ export default function EmailVerifyScreen() {
   const [sending, setSending] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [verified, setVerified] = useState(draft.emailVerified);
+  const [canSkip, setCanSkip] = useState(false);
 
   useEffect(() => {
     if (!needsEmailOtp() || draft.emailVerified) {
@@ -48,8 +49,10 @@ export default function EmailVerifyScreen() {
       setSending(true);
       await sendEmailOtp();
       setSent(true);
+      setCanSkip(true);
       Alert.alert('Check your email', `We sent a 6-digit code to ${email}.`);
     } catch (error) {
+      setCanSkip(true);
       Alert.alert(
         'Couldn’t send code',
         friendlyError(error, 'Try again in a moment.'),
@@ -87,10 +90,19 @@ export default function EmailVerifyScreen() {
       footer={
         verified ? (
           <PrimaryCta label="Continue" showArrow onPress={goNext} />
-        ) : sent ? (
-          <Pressable onPress={() => void sendCode()} disabled={sending}>
-            <AppText style={styles.resend}>Resend code</AppText>
-          </Pressable>
+        ) : sent || canSkip ? (
+          <View>
+            {sent ? (
+              <Pressable onPress={() => void sendCode()} disabled={sending}>
+                <AppText style={styles.resend}>Resend code</AppText>
+              </Pressable>
+            ) : null}
+            {canSkip ? (
+              <Pressable onPress={goNext} hitSlop={8}>
+                <AppText style={styles.dismissKb}>Verify later in Settings</AppText>
+              </Pressable>
+            ) : null}
+          </View>
         ) : null
       }
     >
