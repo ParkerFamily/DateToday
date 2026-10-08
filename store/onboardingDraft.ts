@@ -6,7 +6,9 @@ import type {
     TonightActivity,
     VerificationStatus,
 } from '@/types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 export type OnboardingAuthProvider = 'email' | 'google' | 'apple' | null;
 
@@ -48,6 +50,9 @@ export interface OnboardingDraft {
   emailVerified: boolean;
   /** Proof the signup email passed its code (before the account exists). Cleared when the email changes. */
   signupToken: string | null;
+  /** Account this draft belongs to; another account signing in on this phone starts fresh. */
+  ownerUid: string | null;
+  claimFor: (uid: string) => void;
   setSignupToken: (token: string | null) => void;
   setLegalName: (name: string) => void;
   setDisplayName: (name: string) => void;
@@ -116,6 +121,7 @@ const initial = {
   phoneVerified: false,
   emailVerified: false,
   signupToken: null as string | null,
+  ownerUid: null as string | null,
 };
 
 function accountReady(state: typeof initial): boolean {
@@ -148,83 +154,99 @@ export function firstName(name: string | null | undefined): string {
   return (name ?? '').trim().split(/\s+/)[0] ?? '';
 }
 
-export const useOnboardingDraft = create<OnboardingDraft>((set, get) => ({
-  ...initial,
-  setLegalName: (legalName) => set({ legalName }),
-  setDisplayName: (displayName) => set({ displayName }),
-  setDateOfBirth: (dateOfBirth) => set({ dateOfBirth }),
-  setEmail: (email) =>
-    set((state) => ({
-      email,
-      signupToken: state.email.trim().toLowerCase() === email.trim().toLowerCase() ? state.signupToken : null,
-    })),
-  setSignupToken: (signupToken) => set({ signupToken }),
-  setPassword: (password) => set({ password }),
-  setAuthProvider: (authProvider) => set({ authProvider }),
-  applySocialProfile: ({ email, displayName, provider }) =>
-    set((state) => ({
-      authProvider: provider,
-      // Never clobber what the user already typed.
-      email: state.email.trim() || email?.trim() || '',
-      legalName: state.legalName.trim() || displayName?.trim() || '',
-      displayName: state.displayName.trim() || firstName(displayName),
-      password: '',
-    })),
-  setGender: (gender) => set({ gender }),
-  setInterestedIn: (interestedIn) => set({ interestedIn }),
-  toggleVibe: (value) => {
-    const current = get().vibes;
-    if (current.includes(value)) {
-      set({ vibes: current.filter((v) => v !== value) });
-      return;
-    }
-    if (current.length >= 2) return;
-    set({ vibes: [...current, value] });
-  },
-  setInterests: (interests) => set({ interests }),
-  setAgeRange: (minAge, maxAge) => set({ minAge, maxAge }),
-  setRadiusMiles: (radiusMiles) => set({ radiusMiles }),
-  setAboutPromptId: (aboutPromptId) => set({ aboutPromptId, aboutVideoUri: null }),
-  setAboutVideoUri: (aboutVideoUri) => set({ aboutVideoUri }),
-  setTonightVideoUri: (tonightVideoUri) => set({ tonightVideoUri }),
-  setMainPhotoUri: (mainPhotoUri) => set({ mainPhotoUri }),
-  setBio: (bio) => set({ bio }),
-  toggleActivity: (activity) => {
-    const current = get().activities;
-    set({
-      activities: current.includes(activity)
-        ? current.filter((a) => a !== activity)
-        : [...current, activity],
-    });
-  },
-  setAvailableUntilLabel: (availableUntilLabel) => set({ availableUntilLabel }),
-  setLocationEnabled: (locationEnabled) => set({ locationEnabled }),
-  setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
-  setVerification: ({ status, inquiryId }) =>
-    set({
-      verificationStatus: status,
-      personaInquiryId: inquiryId === undefined ? get().personaInquiryId : inquiryId,
-    }),
-  acceptLegalConsent: () => set({ legalConsentAccepted: true }),
-  setPhoneVerified: (phoneE164) => set({ phoneE164, phoneVerified: true }),
-  setEmailVerified: (verified = true) => set({ emailVerified: verified }),
-  profilePercent: () => percentFrom(get()),
-  reset: () =>
-    set({
+export const useOnboardingDraft = create<OnboardingDraft>()(
+  persist(
+    (set, get) => ({
       ...initial,
-      authProvider: null,
-      aboutPromptId: null,
-      aboutVideoUri: null,
-      tonightVideoUri: null,
-      activities: [],
-      vibes: [],
-      interests: [],
-      verificationStatus: 'unverified',
-      personaInquiryId: null,
-      legalConsentAccepted: false,
-      phoneE164: null,
-      phoneVerified: false,
-      emailVerified: false,
-      signupToken: null,
+      claimFor: (uid) => {
+        const owner = get().ownerUid;
+        if (owner === uid) return;
+        if (owner) get().reset();
+        set({ ownerUid: uid });
+      },
+      setLegalName: (legalName) => set({ legalName }),
+      setDisplayName: (displayName) => set({ displayName }),
+      setDateOfBirth: (dateOfBirth) => set({ dateOfBirth }),
+      setEmail: (email) =>
+        set((state) => ({
+          email,
+          signupToken: state.email.trim().toLowerCase() === email.trim().toLowerCase() ? state.signupToken : null,
+        })),
+      setSignupToken: (signupToken) => set({ signupToken }),
+      setPassword: (password) => set({ password }),
+      setAuthProvider: (authProvider) => set({ authProvider }),
+      applySocialProfile: ({ email, displayName, provider }) =>
+        set((state) => ({
+          authProvider: provider,
+          // Never clobber what the user already typed.
+          email: state.email.trim() || email?.trim() || '',
+          legalName: state.legalName.trim() || displayName?.trim() || '',
+          displayName: state.displayName.trim() || firstName(displayName),
+          password: '',
+        })),
+      setGender: (gender) => set({ gender }),
+      setInterestedIn: (interestedIn) => set({ interestedIn }),
+      toggleVibe: (value) => {
+        const current = get().vibes;
+        if (current.includes(value)) {
+          set({ vibes: current.filter((v) => v !== value) });
+          return;
+        }
+        if (current.length >= 2) return;
+        set({ vibes: [...current, value] });
+      },
+      setInterests: (interests) => set({ interests }),
+      setAgeRange: (minAge, maxAge) => set({ minAge, maxAge }),
+      setRadiusMiles: (radiusMiles) => set({ radiusMiles }),
+      setAboutPromptId: (aboutPromptId) => set({ aboutPromptId, aboutVideoUri: null }),
+      setAboutVideoUri: (aboutVideoUri) => set({ aboutVideoUri }),
+      setTonightVideoUri: (tonightVideoUri) => set({ tonightVideoUri }),
+      setMainPhotoUri: (mainPhotoUri) => set({ mainPhotoUri }),
+      setBio: (bio) => set({ bio }),
+      toggleActivity: (activity) => {
+        const current = get().activities;
+        set({
+          activities: current.includes(activity)
+            ? current.filter((a) => a !== activity)
+            : [...current, activity],
+        });
+      },
+      setAvailableUntilLabel: (availableUntilLabel) => set({ availableUntilLabel }),
+      setLocationEnabled: (locationEnabled) => set({ locationEnabled }),
+      setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
+      setVerification: ({ status, inquiryId }) =>
+        set({
+          verificationStatus: status,
+          personaInquiryId: inquiryId === undefined ? get().personaInquiryId : inquiryId,
+        }),
+      acceptLegalConsent: () => set({ legalConsentAccepted: true }),
+      setPhoneVerified: (phoneE164) => set({ phoneE164, phoneVerified: true }),
+      setEmailVerified: (verified = true) => set({ emailVerified: verified }),
+      profilePercent: () => percentFrom(get()),
+      reset: () =>
+        set({
+          ...initial,
+          authProvider: null,
+          aboutPromptId: null,
+          aboutVideoUri: null,
+          tonightVideoUri: null,
+          activities: [],
+          vibes: [],
+          interests: [],
+          verificationStatus: 'unverified',
+          personaInquiryId: null,
+          legalConsentAccepted: false,
+          phoneE164: null,
+          phoneVerified: false,
+          emailVerified: false,
+          signupToken: null,
+        }),
     }),
-}));
+    {
+      name: 'datetoday.onboardingDraft.v1',
+      storage: createJSONStorage(() => AsyncStorage),
+      // Survives Persona / app restarts mid-onboarding. Never keep the password on disk.
+      partialize: ({ password: _password, ...rest }) => rest,
+    },
+  ),
+);

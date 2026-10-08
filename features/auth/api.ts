@@ -179,6 +179,8 @@ export async function signOut() {
       await signOutGoogle();
     }),
   ]);
+  const { useOnboardingDraft } = await import('@/store/onboardingDraft');
+  useOnboardingDraft.getState().reset();
   await firebaseSignOut(getFirebaseAuth());
 }
 

@@ -55,7 +55,7 @@ import { isMatchLimitError, sendInterest, subscribeSentInterests } from '@/featu
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { useHiddenUserMap } from '@/store/blocks';
 import { useDiscoverFilters } from '@/store/discoverFilters';
-import { useMatchesStore } from '@/store/matches';
+import { useMatchesStore, usePendingLikes } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
 import type { DiscoveryCard, FoodCuisine, RadiusMiles, TonightActivity } from '@/types';
 import { formatDistanceMiles, isLiveSessionActive } from '@/utils/time';
@@ -214,6 +214,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   /** Preview: first ♥ is one-way interest; second ♥ simulates mutual match */
   const interestsSentRef = useRef(0);
   const uid = useSessionStore((s) => s.userId);
+  const likeCount = usePendingLikes()?.total ?? 0;
   // A primitive key so new messages / read receipts on matches don't re-render the whole feed.
   const matchedKey = useMatchesStore((s) => {
     const ids: string[] = [];
@@ -971,9 +972,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             <Pressable
               onPress={() => router.push('/likes')}
               style={styles.filterBtn}
-              accessibilityLabel="Who liked you"
+              accessibilityLabel={likeCount ? `Who liked you, ${likeCount} new` : 'Who liked you'}
             >
-              <Ionicons name="heart-outline" size={rs(18)} color={colors.brandBright} />
+              <Ionicons name={likeCount ? 'heart' : 'heart-outline'} size={rs(18)} color={colors.brandBright} />
+              {likeCount ? (
+                <View style={styles.likeBadge} pointerEvents="none">
+                  <AppText style={styles.likeBadgeText}>{likeCount > 99 ? '99+' : likeCount}</AppText>
+                </View>
+              ) : null}
             </Pressable>
           </View>
         </View>
@@ -1405,6 +1411,25 @@ const styles = ScaledSheet.create({
     backgroundColor: 'rgba(9,9,11,0.55)',
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  likeBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brand,
+    borderWidth: 1.5,
+    borderColor: '#050506',
+  },
+  likeBadgeText: {
+    color: colors.text,
+    fontSize: 10,
+    fontWeight: '800',
   },
   boostedTag: {
     position: 'absolute',

@@ -68,16 +68,11 @@ export async function continueAfterSocialAuth(
   const applySocialProfile = useOnboardingDraft.getState().applySocialProfile;
   const setEmail = useOnboardingDraft.getState().setEmail;
 
+  useOnboardingDraft.getState().claimFor(user.id);
   setAuth(user.id, user.email);
   setProfileHydration('loading');
 
-  if (user.provider === 'google' || user.provider === 'apple') {
-    applySocialProfile({
-      email: user.email,
-      displayName: user.displayName ?? null,
-      provider: user.provider,
-    });
-  } else if (user.email) {
+  if (user.provider !== 'google' && user.provider !== 'apple' && user.email) {
     setEmail(user.email);
   }
 
@@ -141,6 +136,15 @@ export async function continueAfterSocialAuth(
     // No Firestore doc yet — fall through to onboarding.
   } finally {
     setProfileHydration('done');
+  }
+
+  // After the saved names are restored: Google/Apple only fill blanks, never replace them.
+  if (user.provider === 'google' || user.provider === 'apple') {
+    applySocialProfile({
+      email: user.email,
+      displayName: user.displayName ?? null,
+      provider: user.provider,
+    });
   }
 
   router.replace('/(onboarding)/name');

@@ -38,6 +38,13 @@ function applyStatusToSession(status: VerificationStatus, inquiryId?: string | n
   }
 }
 
+/** The server saved the name from the verified ID. Only the legal name — the display name is the user's. */
+function applyLegalName(legalName: string) {
+  useOnboardingDraft.getState().setLegalName(legalName);
+  const profile = useSessionStore.getState().profile;
+  if (profile) useSessionStore.getState().setProfile({ ...profile, legalName });
+}
+
 /** In-progress states only — rules reject a client writing 'verified'; the server confirms that. */
 async function writeVerificationDocs(
   uid: string,
@@ -95,7 +102,9 @@ async function confirmViaCloudFunction(inquiryId: string | null): Promise<{
     const json = (await res.json()) as {
       status?: VerificationStatus;
       inquiryId?: string | null;
+      legalName?: string | null;
     };
+    if (json.legalName) applyLegalName(json.legalName);
     return {
       status: (json.status ?? 'pending') as VerificationStatus,
       inquiryId: json.inquiryId ?? inquiryId,

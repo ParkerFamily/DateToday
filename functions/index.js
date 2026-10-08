@@ -22,6 +22,7 @@ const email = require('./email');
 const emailFlows = require('./emailFlows');
 const emailIdentity = require('./emailIdentity');
 const geo = require('./geo');
+const personaName = require('./personaName');
 const functionsV1 = require('firebase-functions/v1');
 
 initializeApp();
@@ -108,7 +109,8 @@ async function findInquiryByReferenceId(apiKey, referenceId) {
   return ranked[0];
 }
 
-async function writeVerification(db, uid, status, inquiryId) {
+/** `legalName` is the name read off the verified ID; it never touches the public display name. */
+async function writeVerification(db, uid, status, inquiryId, legalName = null) {
   const payload = {
     verificationStatus: status,
     personaInquiryId: inquiryId || null,
@@ -117,6 +119,7 @@ async function writeVerification(db, uid, status, inquiryId) {
   };
   if (status === 'verified') {
     payload.verifiedAt = FieldValue.serverTimestamp();
+    if (legalName) payload.legalName = legalName;
   }
   await db.collection('users').doc(uid).set(payload, { merge: true });
   await db.collection('profiles').doc(uid).set(
@@ -334,8 +337,9 @@ exports.confirmPersonaVerification = onRequest(
         return;
       }
 
-      await writeVerification(db, uid, status, id);
-      res.json({ status, inquiryId: id, rawStatus: raw || null });
+      const legalName = status === 'verified' ? personaName.legalNameFromInquiry(inquiry) : null;
+      await writeVerification(db, uid, status, id, legalName);
+      res.json({ status, inquiryId: id, rawStatus: raw || null, legalName });
     } catch (error) {
       console.error(error);
       res.status(500).json({

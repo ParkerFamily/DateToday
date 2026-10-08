@@ -76,7 +76,18 @@ const queryClient = new QueryClient({
   },
 });
 
+async function claimOnboardingDraft(uid: string) {
+  try {
+    const store = useOnboardingDraft.persist;
+    if (!store.hasHydrated()) await store.rehydrate();
+  } catch {
+    /* in-memory draft still works */
+  }
+  useOnboardingDraft.getState().claimFor(uid);
+}
+
 async function hydrateSignedInUser(uid: string, email: string | null) {
+  await claimOnboardingDraft(uid);
   const setAuth = useSessionStore.getState().setAuth;
   const setProfile = useSessionStore.getState().setProfile;
   const setPreferences = useSessionStore.getState().setPreferences;

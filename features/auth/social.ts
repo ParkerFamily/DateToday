@@ -439,8 +439,8 @@ export function syncOnboardingFromFirebaseAuth(): void {
       prefillNames(user.displayName);
       return;
     }
+    // Email accounts: auth displayName is just the email's local part, not a real name.
     if (user.email && !draft.email.trim()) draft.setEmail(user.email);
-    prefillNames(user.displayName);
   } catch {
     // ignore
   }

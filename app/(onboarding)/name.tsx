@@ -25,15 +25,7 @@ export default function NameScreen() {
   useEffect(() => {
     // Prefill once if empty — never re-run over user edits.
     const draft = useOnboardingDraft.getState();
-    if (!draft.legalName.trim()) {
-      // Older drafts stored the legal name in displayName.
-      if (draft.displayName.trim().includes(' ')) {
-        draft.setLegalName(draft.displayName.trim());
-        draft.setDisplayName(firstName(draft.displayName));
-      } else {
-        syncOnboardingFromFirebaseAuth();
-      }
-    }
+    if (!draft.legalName.trim()) syncOnboardingFromFirebaseAuth();
     const after = useOnboardingDraft.getState();
     if (after.displayName.trim() && after.displayName.trim() !== firstName(after.legalName)) {
       displayTouched.current = true;
