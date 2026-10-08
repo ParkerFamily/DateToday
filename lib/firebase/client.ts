@@ -5,10 +5,16 @@ import {
   type Auth,
   type Persistence,
 } from 'firebase/auth';
-import { getFirestore, initializeFirestore, type Firestore } from 'firebase/firestore';
+import {
+  disableNetwork,
+  enableNetwork,
+  getFirestore,
+  initializeFirestore,
+  type Firestore,
+} from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { env } from '@/lib/env';
 
 /**
@@ -104,7 +110,65 @@ export function getDb(): Firestore {
     // Already initialized (Fast Refresh / hot reload)
     db = getFirestore(firebaseApp);
   }
+  if (Platform.OS !== 'web') watchForeground();
   return db;
+}
+
+let reconnecting: Promise<void> | null = null;
+
+/**
+ * Long-polling can stall while the app sleeps; Firestore then fails reads as "offline" and queues
+ * writes forever, even on good Wi-Fi. Turning its network off and on opens a fresh connection.
+ */
+export function reconnectFirestore(): Promise<void> {
+  const d = db;
+  if (!d) return Promise.resolve();
+  reconnecting ??= disableNetwork(d)
+    .catch(() => undefined)
+    .then(() => enableNetwork(d))
+    .catch(() => undefined)
+    .finally(() => {
+      reconnecting = null;
+    });
+  return reconnecting;
+}
+
+export function isConnectionError(error: unknown): boolean {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  if (/unavailable|deadline-exceeded|network-request-failed/.test(code)) return true;
+  const message = error instanceof Error ? error.message : '';
+  return /offline|timed out|network|fetch failed/i.test(message);
+}
+
+/** Runs a Firestore call; if the connection had silently dropped, reconnects and tries again. */
+export async function withReconnect<T>(run: () => Promise<T>, attempts = 2): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await run();
+    } catch (error) {
+      if (i >= attempts || !isConnectionError(error)) throw error;
+      await reconnectFirestore();
+    }
+  }
+}
+
+const STALE_AFTER_BACKGROUND_MS = 20_000;
+let watching = false;
+
+/** Reconnect after the app has been in the background long enough for the stream to go stale. */
+function watchForeground(): void {
+  if (watching) return;
+  watching = true;
+  let backgroundAt: number | null = null;
+  AppState.addEventListener('change', (state) => {
+    if (state === 'background') {
+      backgroundAt = Date.now();
+    } else if (state === 'active' && backgroundAt != null) {
+      const away = Date.now() - backgroundAt;
+      backgroundAt = null;
+      if (away >= STALE_AFTER_BACKGROUND_MS) void reconnectFirestore();
+    }
+  });
 }
 
 export function getFirebaseStorage(): FirebaseStorage {

@@ -177,6 +177,10 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const scrollRef = useRef<ScrollView>(null);
   /** People passed or hearted this Live session — never shown again after a feed refresh. */
   const [handled, setHandled] = useState<Set<string>>(() => new Set());
+  /** People passed this Live session, newest last — rewind brings them back one at a time. */
+  const [passed, setPassed] = useState<string[]>([]);
+  /** Shown first, ahead of the normal ranking, right after a rewind. */
+  const [rewoundId, setRewoundId] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<Set<string>>(() => new Set());
   const [interestedLoading, setInterestedLoading] = useState(false);
   const [interestFlash, setInterestFlash] = useState(false);
@@ -237,6 +241,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   useEffect(() => {
     setHandled(new Set());
+    setPassed([]);
+    setRewoundId(null);
     setBrowseWider(false);
   }, [liveSession?.id]);
 
@@ -357,8 +363,22 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         { priorityPool },
       );
     });
-    return { cards: sorted, outsideFilters: outside.length > 0 };
-  }, [pool, filters, cardScores, priorityPool, plusFoods, myInterests]);
+    const back = rewoundId ? pool.find((c) => c.userId === rewoundId) : undefined;
+    const ordered = back ? [back, ...sorted.filter((c) => c.userId !== back.userId)] : sorted;
+    return { cards: ordered, outsideFilters: outside.length > 0 };
+  }, [pool, filters, cardScores, priorityPool, plusFoods, myInterests, rewoundId]);
+
+  /** Most recent pass that's still in the feed (they may have gone offline or matched since). */
+  const rewindTo = useMemo(() => {
+    const wider = browseWider ? widerQuery.data ?? [] : [];
+    const available = new Set(
+      [...rawFeed.filter((c) => c.distanceMiles <= filters.maxDistanceMiles), ...wider]
+        .filter((c) => !blockedMap[c.userId] && !sentTo.has(c.userId) && !matchedIds.has(c.userId))
+        .map((c) => c.userId),
+    );
+    for (let i = passed.length - 1; i >= 0; i--) if (available.has(passed[i])) return passed[i];
+    return null;
+  }, [passed, rawFeed, widerQuery.data, browseWider, filters.maxDistanceMiles, blockedMap, sentTo, matchedIds]);
 
   const laterTonight = useMemo(() => {
     return nearbyBeforeFilters
@@ -424,7 +444,22 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   const goNext = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (card) markHandled(card.userId);
+    if (!card) return;
+    markHandled(card.userId);
+    setPassed((prev) => [...prev.filter((id) => id !== card.userId), card.userId].slice(-30));
+  };
+
+  const rewind = () => {
+    if (!rewindTo) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+    setPassed((prev) => prev.slice(0, prev.lastIndexOf(rewindTo)));
+    setHandled((prev) => {
+      const next = new Set(prev);
+      next.delete(rewindTo);
+      return next;
+    });
+    setRewoundId(rewindTo);
   };
 
   const showInterestSentThenAdvance = (userId: string) => {
@@ -681,6 +716,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               <Pressable accessibilityRole="button" hitSlop={10} onPress={() => applyRadius(nextRadius)}>
                 <AppText style={styles.tryFarther}>Try {nextRadius} mi instead →</AppText>
               </Pressable>
+            ) : null}
+            {rewindTo ? (
+              <Button
+                label="↺ Back to the last person"
+                variant="secondary"
+                onPress={rewind}
+                style={styles.quietCta}
+              />
             ) : null}
             <Button
               label={flowCopy.adjustFilters}
@@ -1107,6 +1150,18 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           pointerEvents="box-none"
         >
           <Pressable
+            accessibilityLabel="Go back to the last person you passed"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !rewindTo }}
+            onPress={rewind}
+            disabled={!rewindTo || interestFlash}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            android_ripple={{ color: 'rgba(255,255,255,0.2)', radius: 24 }}
+            style={({ pressed }) => [styles.rewindBtn, !rewindTo && styles.rewindOff, pressed && styles.pressed]}
+          >
+            <Ionicons name="arrow-undo" size={rs(20)} color={colors.warning} />
+          </Pressable>
+          <Pressable
             accessibilityLabel="Pass"
             accessibilityRole="button"
             onPress={goNext}
@@ -1128,6 +1183,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           >
             <Ionicons name="heart" size={rs(30)} color={colors.text} />
           </Pressable>
+          {/* Balances the rewind button so X and heart stay centered. */}
+          <View style={styles.rewindSpacer} pointerEvents="none" />
         </View>
 
         {interestFlash ? (
@@ -1567,6 +1624,23 @@ const styles = ScaledSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
+  },
+  rewindBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  rewindOff: {
+    opacity: 0.35,
+  },
+  rewindSpacer: {
+    width: 48,
   },
   likeBtn: {
     width: 72,

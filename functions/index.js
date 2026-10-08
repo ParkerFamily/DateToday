@@ -21,6 +21,7 @@ const authLink = require('./authLink');
 const email = require('./email');
 const emailFlows = require('./emailFlows');
 const emailIdentity = require('./emailIdentity');
+const geo = require('./geo');
 const functionsV1 = require('firebase-functions/v1');
 
 initializeApp();
@@ -1535,6 +1536,7 @@ async function ensureJoinedAt(uid) {
 exports.onLiveSessionStarted = onDocumentWritten('liveSessions/{uid}', async (event) => {
   const before = event.data && event.data.before.exists ? event.data.before.data() : null;
   const after = event.data && event.data.after.exists ? event.data.after.data() : null;
+  if (event.data) await geo.syncGeohash(event.data.after);
   if (!after || after.status !== 'active') return;
   if (before && before.status === 'active' && before.startedAt === after.startedAt) return;
   await ensureJoinedAt(event.params.uid);
@@ -1567,6 +1569,10 @@ exports.liveEngagementSweep = onSchedule({ schedule: 'every 10 minutes', timeout
 
 exports.onNearbyProfileCreated = onDocumentCreated('nearbyProfiles/{uid}', async (event) => {
   await ensureJoinedAt(event.params.uid);
+});
+
+exports.onNearbyProfileWritten = onDocumentWritten('nearbyProfiles/{uid}', async (event) => {
+  if (event.data) await geo.syncGeohash(event.data.after);
 });
 
 /** New chat message → update match preview/unread and notify the other person. */

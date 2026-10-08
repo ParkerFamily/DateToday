@@ -12,12 +12,17 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  endAt,
+  startAt,
   where,
+  type DocumentData,
+  type QueryDocumentSnapshot,
   type Timestamp,
 } from 'firebase/firestore';
+import { geohashForLocation, geohashQueryBounds } from 'geofire-common';
 import { cleanAfterHoursTags, type AfterHoursTag } from '@/constants/afterHours';
 import { cleanEnergy, cleanPlanIdea, cleanTravel, traitFields } from '@/constants/datingTraits';
-import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
+import { getDb, getFirebaseAuth, withReconnect } from '@/lib/firebase/client';
 import { calculateAge } from '@/utils/time';
 import type {
   DiscoveryCard,
@@ -53,6 +58,49 @@ function approxCoord(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Must match `geohashOf` in functions/index.js, which backfills docs written by older app versions. */
+export function geohashOf(latitude: number, longitude: number): string {
+  return geohashForLocation([latitude, longitude], 9);
+}
+
+const METERS_PER_MILE = 1609.344;
+const MAX_PER_GEOHASH_RANGE = 300;
+
+type Snap = QueryDocumentSnapshot<DocumentData>;
+
+/**
+ * Docs stored within `miles` of a point, searched by geohash so busy places elsewhere can't crowd
+ * out the viewer's area. Results can sit slightly past `miles`; callers still check real distance.
+ */
+async function docsNear(
+  name: 'liveSessions' | 'nearbyProfiles',
+  center: { latitude: number; longitude: number },
+  miles: number,
+  legacy: () => Promise<Snap[]>,
+): Promise<Snap[]> {
+  try {
+    const bounds = geohashQueryBounds([center.latitude, center.longitude], miles * METERS_PER_MILE);
+    const snaps = await Promise.all(
+      bounds.map(([start, end]) =>
+        getDocs(
+          query(
+            collection(getDb(), name),
+            orderBy('geohash'),
+            startAt(start),
+            endAt(end),
+            limitTo(MAX_PER_GEOHASH_RANGE),
+          ),
+        ),
+      ),
+    );
+    const byId = new Map<string, Snap>();
+    for (const s of snaps) for (const d of s.docs) byId.set(d.id, d);
+    return [...byId.values()];
+  } catch {
+    return legacy();
+  }
+}
+
 /** Where this phone is right now; the stored copy is rounded and can be hours old. */
 async function deviceCoords(): Promise<{ latitude: number; longitude: number } | null> {
   try {
@@ -83,7 +131,11 @@ export async function refreshLiveLocation(coords: { latitude: number; longitude:
   const lat = approxCoord(coords.latitude);
   const lng = approxCoord(coords.longitude);
   if (Number(d.latitude) === lat && Number(d.longitude) === lng) return;
-  await setDoc(ref, { latitude: lat, longitude: lng, updatedAt: serverTimestamp() }, { merge: true });
+  await setDoc(
+    ref,
+    { latitude: lat, longitude: lng, geohash: geohashOf(lat, lng), updatedAt: serverTimestamp() },
+    { merge: true },
+  );
 }
 
 function milesBetween(
@@ -210,13 +262,16 @@ export async function publishNearbyPresence(coords: { latitude: number; longitud
   const userSnap = await withTimeout(getDoc(doc(getDb(), 'users', uid)), 10000, 'Fetch user profile');
   const u = (userSnap.data() ?? {}) as Record<string, unknown>;
   if (!u.mainPhotoUrl || !u.displayName) return;
+  const latitude = approxCoord(coords.latitude);
+  const longitude = approxCoord(coords.longitude);
   await withTimeout(
     setDoc(
       doc(getDb(), 'nearbyProfiles', uid),
       {
         userId: uid,
-        latitude: approxCoord(coords.latitude),
-        longitude: approxCoord(coords.longitude),
+        latitude,
+        longitude,
+        geohash: geohashOf(latitude, longitude),
         lastActiveAt: serverTimestamp(),
         ...publicCardFields(u),
         updatedAt: serverTimestamp(),
@@ -243,10 +298,8 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('Sign in to Go Live.');
 
-  const userSnap = await withTimeout(
-    getDoc(doc(getDb(), 'users', uid)),
-    10000,
-    'Fetch your profile'
+  const userSnap = await withReconnect(() =>
+    withTimeout(getDoc(doc(getDb(), 'users', uid)), 8000, 'Fetch your profile'),
   );
   const u = (userSnap.data() ?? {}) as Record<string, unknown>;
   const nowIso = new Date().toISOString();
@@ -276,6 +329,7 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     radiusMiles: input.radiusMiles,
     latitude: lat,
     longitude: lng,
+    geohash: geohashOf(lat, lng),
     availableFrom: input.availableFrom ?? null,
     availableUntil: input.availableUntil ?? input.expiresAt,
     availabilityLabel: input.availabilityLabel ?? null,
@@ -296,10 +350,8 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
     updatedAt: serverTimestamp(),
   };
 
-  await withTimeout(
-    setDoc(doc(getDb(), 'liveSessions', uid), payload, { merge: true }),
-    15000,
-    'Go live'
+  await withReconnect(() =>
+    withTimeout(setDoc(doc(getDb(), 'liveSessions', uid), payload, { merge: true }), 12000, 'Go live'),
   );
   analytics.track('go_live_completed');
   // Keeps them discoverable once Live ends — only if they allow showing up when not Live.
@@ -341,18 +393,17 @@ export async function endFirestoreLiveSession(uid?: string): Promise<void> {
   const auth = getFirebaseAuth();
   const id = uid ?? auth.currentUser?.uid;
   if (!id) return;
-  await withTimeout(
-    setDoc(
-      doc(getDb(), 'liveSessions', id),
-      {
-        status: 'ended',
-        endedAt: new Date().toISOString(),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
+  const endedAt = new Date().toISOString();
+  await withReconnect(() =>
+    withTimeout(
+      setDoc(
+        doc(getDb(), 'liveSessions', id),
+        { status: 'ended', endedAt, updatedAt: serverTimestamp() },
+        { merge: true },
+      ),
+      10000,
+      'End live session',
     ),
-    10000,
-    'End live session'
   );
   analytics.track('go_live_ended');
 }
@@ -381,10 +432,12 @@ export async function updateMyLiveSession(patch: LiveSessionPatch): Promise<void
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return;
   const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
-  await withTimeout(
-    setDoc(doc(getDb(), 'liveSessions', uid), { ...clean, updatedAt: serverTimestamp() }, { merge: true }),
-    10000,
-    'Update live session'
+  await withReconnect(() =>
+    withTimeout(
+      setDoc(doc(getDb(), 'liveSessions', uid), { ...clean, updatedAt: serverTimestamp() }, { merge: true }),
+      10000,
+      'Update live session',
+    ),
   );
 }
 
@@ -501,10 +554,8 @@ export async function fetchFirestoreDiscoveryFeed(
   const me = auth.currentUser?.uid;
   if (!me) return [];
 
-  const mySnap = await withTimeout(
-    getDoc(doc(getDb(), 'liveSessions', me)),
-    10000,
-    'Load your location'
+  const mySnap = await withReconnect(() =>
+    withTimeout(getDoc(doc(getDb(), 'liveSessions', me)), 10000, 'Load your location'),
   );
   let mine = mySnap.data();
   let myRadius: number;
@@ -529,21 +580,26 @@ export async function fetchFirestoreDiscoveryFeed(
   if (!Number.isFinite(myLat) || !Number.isFinite(myLng)) return [];
   if (here && !myTrip && mine.status === 'active') void refreshLiveLocation(here).catch(() => undefined);
 
-  // TODO: Replace with server-side geohash/geospatial indexing for scalability.
-  // Currently fetching all active sessions and filtering client-side by distance.
-  // Generous limit (200) prevents runaway reads but reduces discoverability in dense cities.
-  const q = query(
-    collection(getDb(), 'liveSessions'), 
-    where('status', '==', 'active'),
-    limitTo(200)
+  const center = { latitude: myLat, longitude: myLng };
+  const found = await withTimeout(
+    docsNear('liveSessions', center, myRadius, async () =>
+      (await getDocs(query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'), limitTo(200)))).docs,
+    ),
+    12000,
+    'Find people nearby',
   );
-  const snap = await withTimeout(getDocs(q), 12000, 'Find people nearby');
   const now = Date.now();
   const cards: DiscoveryCard[] = [];
+  // Closest first, so the card limit never drops someone nearer than a person kept.
+  const liveDocs = found
+    .map((s) => ({ s, dist: milesBetween(center, { latitude: Number(s.get('latitude')), longitude: Number(s.get('longitude')) }) }))
+    .filter((x) => Number.isFinite(x.dist))
+    .sort((a, b) => a.dist - b.dist);
 
-  for (const docSnap of snap.docs) {
+  for (const { s: docSnap } of liveDocs) {
     if (docSnap.id === me) continue;
     const d = docSnap.data() as Record<string, unknown>;
+    if (d.status !== 'active') continue;
     const expiresAt = tsToIso(d.expiresAt);
     if (new Date(expiresAt).getTime() <= now) continue;
     const startedAt = d.startedAt ? tsToIso(d.startedAt) : null;
@@ -599,7 +655,14 @@ export async function fetchFirestoreDiscoveryFeed(
   }
 
   const liveIds = new Set(cards.map((c) => c.userId));
-  const nearby = await fetchNearbyCards(me, mine, myRadius, liveIds, limit, away).catch(() => []);
+  const nearby = await fetchNearbyCards(
+    me,
+    { ...mine, latitude: myLat, longitude: myLng },
+    myRadius,
+    liveIds,
+    limit,
+    away,
+  ).catch(() => []);
   cards.push(...nearby);
 
   const stats = await fetchUserStats(cards.map((c) => c.userId)).catch(() => new Map());
@@ -704,17 +767,26 @@ async function fetchNearbyCards(
 ): Promise<DiscoveryCard[]> {
   const myLat = Number(mine.latitude);
   const myLng = Number(mine.longitude);
-  const since = FsTimestamp.fromMillis(Date.now() - NEARBY_ACTIVE_DAYS * 24 * 60 * 60 * 1000);
-  const snap = await getDocs(
-    query(
-      collection(getDb(), 'nearbyProfiles'),
-      where('lastActiveAt', '>=', since),
-      orderBy('lastActiveAt', 'desc'),
-      limitTo(200),
-    ),
+  const sinceMs = Date.now() - NEARBY_ACTIVE_DAYS * 24 * 60 * 60 * 1000;
+  const found = await docsNear('nearbyProfiles', { latitude: myLat, longitude: myLng }, myRadius, async () =>
+    (
+      await getDocs(
+        query(
+          collection(getDb(), 'nearbyProfiles'),
+          where('lastActiveAt', '>=', FsTimestamp.fromMillis(sinceMs)),
+          orderBy('lastActiveAt', 'desc'),
+          limitTo(200),
+        ),
+      )
+    ).docs,
   );
+  const activeAt = (s: Snap) => {
+    const t = s.get('lastActiveAt') as Timestamp | undefined;
+    return typeof t?.toMillis === 'function' ? t.toMillis() : 0;
+  };
+  const recent = found.filter((s) => activeAt(s) >= sinceMs).sort((a, b) => activeAt(b) - activeAt(a));
   const out: DiscoveryCard[] = [];
-  for (const docSnap of snap.docs) {
+  for (const docSnap of recent) {
     if (docSnap.id === me || skip.has(docSnap.id)) continue;
     const d = docSnap.data() as Record<string, unknown>;
     const lat = Number(d.latitude);
