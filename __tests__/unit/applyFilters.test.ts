@@ -213,6 +213,15 @@ describe('applyDiscoverFilters', () => {
     expect(run({ lastMinute: true, closeByMiles: 1 }, false)).toEqual(['fresh', 'near', 'short']);
   });
 
+  it('measures Close by from where a traveling viewer really is', () => {
+    const people = [
+      card('trip-center', { distanceMiles: 0.5, awayMiles: 550 }),
+      card('no-location', { distanceMiles: 0.5, awayMiles: null }),
+      card('really-near', { distanceMiles: 6, awayMiles: 0.9 }),
+    ];
+    expect(ids(applyDiscoverFilters(people, f({ closeByMiles: 1 }), { plus: true }))).toEqual(['really-near']);
+  });
+
   it('matches tonight vibe: energy, plan in mind, getting there', () => {
     const people = [
       card('social', { energy: 'social', travel: 'can_travel', planIdea: 'Rooftop drinks' }),

@@ -80,6 +80,13 @@ describe('cardStatusTags', () => {
     expect(labels(c)).toEqual(['Close by', 'Free all night']);
   });
 
+  it('never says Close by in Travel Mode unless you really are close', () => {
+    const base = { startedAt: minsAgo(5), distanceMiles: 1.2 };
+    expect(labels(card({ ...base, awayMiles: 550 }))).not.toContain('Close by');
+    expect(labels(card({ ...base, awayMiles: null }))).not.toContain('Close by');
+    expect(labels(card({ ...base, awayMiles: 0.8 }))).toContain('Close by');
+  });
+
   it('needs a real sample before claiming fast replies', () => {
     expect(repliesFast({ replies: 3, fastReplies: 3 })).toBe(false);
     expect(repliesFast({ replies: 10, fastReplies: 7 })).toBe(true);

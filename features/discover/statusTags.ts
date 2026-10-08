@@ -1,6 +1,6 @@
 import { CLOSE_BY_MILES } from '@/constants/afterHours';
 import { formatHeight, INTENT_OPTIONS } from '@/features/discover/applyFilters';
-import { isUpcomingTraveler, tripLabel } from '@/features/travel/trip';
+import { isUpcomingTraveler, shownDistanceMiles, tripLabel } from '@/features/travel/trip';
 import type { DiscoveryCard } from '@/types';
 
 export const ACTIVE_NOW_MS = 20 * 60 * 1000;
@@ -96,7 +96,8 @@ export function cardStatusTags(card: DiscoveryCard, now: Date = new Date(), max 
 
   // Travelers are placed at a city center, so distance says nothing about where they are.
   if (tier !== 2 && !card.trip) {
-    if (card.distanceMiles <= CLOSE_BY_MILES) tags.push({ key: 'nearby', label: 'Close by', tone: 'brand' });
+    const miles = shownDistanceMiles(card);
+    if (miles != null && miles <= CLOSE_BY_MILES) tags.push({ key: 'nearby', label: 'Close by', tone: 'brand' });
     if (tier === 0 && ms(card.freeUntil || card.liveUntil) - nowMs >= FREE_TONIGHT_MS) {
       tags.push({ key: 'tonight', label: 'Free all night', tone: 'brand' });
     }

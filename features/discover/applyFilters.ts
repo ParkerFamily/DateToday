@@ -16,7 +16,7 @@ import {
 import { ENERGY_OPTIONS, hasSpotInMind, TRAIT_KEYS, TRAITS, TRAVEL_OPTIONS } from '@/constants/datingTraits';
 import { isBroadInterest, normalizeInterests, sharedInterests } from '@/constants/interests';
 import { foodLabel } from '@/constants/tonightVibe';
-import { isUpcomingTraveler } from '@/features/travel/trip';
+import { isUpcomingTraveler, shownDistanceMiles } from '@/features/travel/trip';
 import type { DiscoverFilterValues } from '@/store/discoverFilters';
 import type { DiscoveryCard } from '@/types';
 
@@ -95,6 +95,12 @@ export function isRecentlyActive(c: DiscoveryCard, now: Date = new Date()): bool
   if (!isNearbyOnly(c)) return true;
   const seen = c.lastActiveAt ? new Date(c.lastActiveAt).getTime() : NaN;
   return now.getTime() - seen <= RECENTLY_ACTIVE_MS;
+}
+
+/** Really within `miles` of the viewer. Travelers sit at a city center, so they never count. */
+function isCloseBy(c: DiscoveryCard, miles: number): boolean {
+  const d = shownDistanceMiles(c);
+  return !c.trip && d != null && d <= miles;
 }
 
 /** In range but not live — matchable, never counted as free tonight. */
@@ -187,7 +193,7 @@ export function applyDiscoverFilters(
       if (f.stillOut && !(c.afterHours ?? []).includes('still_out')) return false;
     }
 
-    if (f.closeByMiles != null && (c.trip || c.distanceMiles > f.closeByMiles)) return false;
+    if (f.closeByMiles != null && !isCloseBy(c, f.closeByMiles)) return false;
     if (f.lastMinute) {
       const started = c.startedAt ? new Date(c.startedAt).getTime() : NaN;
       if (notOutTonight || !(nowMs - started <= JUST_LIVE_MS)) return false;
@@ -319,7 +325,7 @@ export function matchedFilterLabels(
     const e = ENERGY_OPTIONS.find((o) => o.value === c.energy)!;
     out.push(`${e.emoji} ${e.label}`);
   }
-  if (plus && f.closeByMiles != null && !c.trip && c.distanceMiles <= f.closeByMiles) {
+  if (plus && f.closeByMiles != null && isCloseBy(c, f.closeByMiles)) {
     out.push(`📍 Under ${f.closeByMiles} mi`);
   }
   if (f.planInMind && hasSpotInMind(c.planIdea)) out.push('📍 Has a plan');

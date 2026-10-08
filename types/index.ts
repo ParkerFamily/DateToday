@@ -252,7 +252,13 @@ export interface DiscoveryCard extends ProfileTraits {
   displayName: string;
   age: number;
   neighborhoodLabel: string | null;
+  /** From where the viewer is browsing (their trip city's center in Travel Mode). Drives radius and ranking. */
   distanceMiles: number;
+  /**
+   * Only set while the viewer is in Travel Mode: miles from where they really are, or null if their
+   * location is off. Shown instead of distanceMiles, which would read as "1 mi" from the city center.
+   */
+  awayMiles?: number | null;
   hideDistance?: boolean;
   verificationStatus: VerificationStatus;
   datingIntention: DatingIntention | null;

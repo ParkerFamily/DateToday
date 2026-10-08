@@ -522,11 +522,12 @@ export async function fetchFirestoreDiscoveryFeed(
 
   // Travel Mode browses the trip city, not wherever the phone is.
   const myTrip = mine.status === 'active' ? cleanTrip(mine.trip) : null;
-  const here = myTrip ? null : await deviceCoords();
+  const here = await deviceCoords();
+  const away = travelAway(myTrip, here);
   const myLat = myTrip?.latitude ?? here?.latitude ?? Number(mine.latitude);
   const myLng = myTrip?.longitude ?? here?.longitude ?? Number(mine.longitude);
   if (!Number.isFinite(myLat) || !Number.isFinite(myLng)) return [];
-  if (here && mine.status === 'active') void refreshLiveLocation(here).catch(() => undefined);
+  if (here && !myTrip && mine.status === 'active') void refreshLiveLocation(here).catch(() => undefined);
 
   // TODO: Replace with server-side geohash/geospatial indexing for scalability.
   // Currently fetching all active sessions and filtering client-side by distance.
@@ -574,6 +575,7 @@ export async function fetchFirestoreDiscoveryFeed(
 
     cards.push({
       ...cardBase(docSnap.id, d, dist),
+      ...awayFields(away, lat, lng),
       liveSessionId: docSnap.id,
       liveUntil: expiresAt,
       freeUntil: d.availableUntil ? tsToIso(d.availableUntil) : null,
@@ -597,7 +599,7 @@ export async function fetchFirestoreDiscoveryFeed(
   }
 
   const liveIds = new Set(cards.map((c) => c.userId));
-  const nearby = await fetchNearbyCards(me, mine, myRadius, liveIds, limit).catch(() => []);
+  const nearby = await fetchNearbyCards(me, mine, myRadius, liveIds, limit, away).catch(() => []);
   cards.push(...nearby);
 
   const stats = await fetchUserStats(cards.map((c) => c.userId)).catch(() => new Map());
@@ -628,15 +630,38 @@ export async function fetchFirestoreNearbyBrowse(radiusMiles: number, limit = 40
   const mine = live && live.status === 'active' ? live : nearbySnap.data();
   if (!mine) return [];
   const myTrip = mine === live ? cleanTrip(live?.trip) : null;
-  const here = myTrip ? null : await deviceCoords();
+  const here = await deviceCoords();
   const latitude = myTrip?.latitude ?? here?.latitude ?? Number(mine.latitude);
   const longitude = myTrip?.longitude ?? here?.longitude ?? Number(mine.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
 
-  const cards = await fetchNearbyCards(me, { ...mine, latitude, longitude }, radiusMiles, new Set(), limit);
+  const cards = await fetchNearbyCards(
+    me,
+    { ...mine, latitude, longitude },
+    radiusMiles,
+    new Set(),
+    limit,
+    travelAway(myTrip, here),
+  );
   const stats = await fetchUserStats(cards.map((c) => c.userId)).catch(() => new Map<string, UserStats>());
   for (const c of cards) Object.assign(c, stats.get(c.userId));
   return cards;
+}
+
+/** Travel Mode only: where the viewer really is (`from` is null if location is off). Never written anywhere. */
+type TravelAway = { from: { latitude: number; longitude: number } | null } | null;
+
+function travelAway(
+  trip: TravelTrip | null,
+  here: { latitude: number; longitude: number } | null,
+): TravelAway {
+  return trip ? { from: here } : null;
+}
+
+function awayFields(away: TravelAway, lat: number, lng: number): Pick<DiscoveryCard, 'awayMiles'> {
+  if (!away) return {};
+  if (!away.from) return { awayMiles: null };
+  return { awayMiles: Math.round(milesBetween(away.from, { latitude: lat, longitude: lng }) * 10) / 10 };
 }
 
 /** Profile fields shared by live and nearby cards. */
@@ -675,6 +700,7 @@ async function fetchNearbyCards(
   myRadius: number,
   skip: Set<string>,
   limit: number,
+  away: TravelAway = null,
 ): Promise<DiscoveryCard[]> {
   const myLat = Number(mine.latitude);
   const myLng = Number(mine.longitude);
@@ -699,6 +725,7 @@ async function fetchNearbyCards(
     if (!wantsToSee(mine, d) || !wantsToSee(d, mine)) continue;
     out.push({
       ...cardBase(docSnap.id, d, dist),
+      ...awayFields(away, lat, lng),
       liveSessionId: '',
       liveUntil: '',
       availabilityLabel: null,

@@ -60,7 +60,7 @@ import { useSessionStore } from '@/store/session';
 import type { DiscoveryCard, FoodCuisine, RadiusMiles, TonightActivity } from '@/types';
 import { formatDistanceMiles, isLiveSessionActive } from '@/utils/time';
 import { freeUntilLabel } from '@/features/live/freeUntil';
-import { isUpcomingTraveler, tripLabel } from '@/features/travel/trip';
+import { isUpcomingTraveler, shownDistanceMiles, tripLabel } from '@/features/travel/trip';
 import { tonightCompatibility } from '@/utils/tonightCompatibility';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -141,6 +141,18 @@ function carouselItemsFor(card: DiscoveryCard): CarouselItem[] {
     if (restPhotos[i]) out.push(restPhotos[i]);
   }
   return out;
+}
+
+/**
+ * Distance words for someone who isn't a traveler, or null to show none. While the viewer is in
+ * Travel Mode without a known location, say which city they're in rather than a made-up distance.
+ */
+function distanceText(c: DiscoveryCard, tripCity: string | null): string | null {
+  const miles = shownDistanceMiles(c);
+  if (c.hideDistance || miles == null) {
+    return c.awayMiles === undefined ? null : `In ${tripCity ?? 'this city'}`;
+  }
+  return formatDistanceMiles(miles);
 }
 
 function planWord(a: string): string {
@@ -297,10 +309,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         !matchedIds.has(c.userId),
     );
   }, [widerQuery.data, rawFeed, blockedMap, handled, sentTo, matchedIds]);
-  const widerCount = useMemo(
-    () => applyDiscoverFilters(widerExtra, filters, { plus: plusFoods, myInterests }).length,
-    [widerExtra, filters, plusFoods, myInterests],
-  );
+  const widerCount = widerExtra.length;
   const pool = useMemo(
     () => (browseWider ? [...nearbyBeforeFilters, ...widerExtra] : nearbyBeforeFilters),
     [browseWider, nearbyBeforeFilters, widerExtra],
@@ -320,11 +329,15 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     return scores;
   }, [pool, myVibe, myInterests]);
 
-  const cards = useMemo(() => {
+  // Once everyone who matches the filters has been seen, keep going with everyone else (and say so).
+  const { cards, outsideFilters } = useMemo(() => {
     const list = applyDiscoverFilters(pool, filters, { plus: plusFoods, myInterests });
+    const matching = new Set(list.map((c) => c.userId));
+    const outside = list.length ? [] : pool.filter((c) => !matching.has(c.userId));
+    const shown = list.length ? list : outside;
 
     // Live now, then free later tonight, then nearby people who aren't live.
-    return [...list].sort((a, b) => {
+    const sorted = [...shown].sort((a, b) => {
       const ta = feedTier(a);
       const tb = feedTier(b);
       if (ta !== tb) return ta - tb;
@@ -344,6 +357,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         { priorityPool },
       );
     });
+    return { cards: sorted, outsideFilters: outside.length > 0 };
   }, [pool, filters, cardScores, priorityPool, plusFoods, myInterests]);
 
   const laterTonight = useMemo(() => {
@@ -352,7 +366,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       .sort((a, b) => (a.laterTonightHour ?? 99) - (b.laterTonightHour ?? 99));
   }, [nearbyBeforeFilters]);
 
-  const filtersTight = cards.length === 0 && nearbyBeforeFilters.length > 0;
+  const tripCity = liveSession?.trip?.city ?? null;
   const tonightCount = cards.filter((c) => feedTier(c) < 2).length;
   const nearbyCount = cards.length - tonightCount;
 
@@ -644,80 +658,54 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         >
           {showClose ? <CloseButton onPress={() => dismissToLive(router)} /> : null}
           <View style={styles.quiet}>
-            {filtersTight ? (
-              <>
-                <AppText style={styles.quietTitle}>{flowCopy.loosenFiltersTitle}</AppText>
-                <AppText variant="secondary" style={styles.quietBody}>
-                  {nearbyBeforeFilters.length}{' '}
-                  {flowCopy.loosenFiltersBody}
-                </AppText>
+            <AppText style={styles.teaserEyebrow}>{flowCopy.youreLiveWatching}</AppText>
+            <AppText style={styles.quietTitle}>{flowCopy.watchingArea}</AppText>
+            <AppText style={[styles.quietBody, styles.quietLead]}>{flowCopy.noLiveMatchesYet}</AppText>
+            <AppText variant="secondary" style={styles.quietBody}>
+              {flowCopy.notifyWhenNearby}
+            </AppText>
+            <AppText variant="label" style={styles.radiusLabel}>
+              {flowCopy.expandRadius}
+            </AppText>
+            <View style={styles.radiusRow}>
+              {radiusPresets.map((mi) => (
+                <OptionChip
+                  key={mi}
+                  label={mi > widerRadius ? `${mi} mi ✦` : `${mi} mi`}
+                  selected={radiusMi === mi}
+                  onPress={() => applyRadius(mi)}
+                />
+              ))}
+            </View>
+            {nextRadius ? (
+              <Pressable accessibilityRole="button" hitSlop={10} onPress={() => applyRadius(nextRadius)}>
+                <AppText style={styles.tryFarther}>Try {nextRadius} mi instead →</AppText>
+              </Pressable>
+            ) : null}
+            <Button
+              label={flowCopy.adjustFilters}
+              variant="secondary"
+              onPress={() => router.push('/filters')}
+              style={styles.quietCta}
+            />
+            {widerCount > 0 ? (
+              <View style={styles.widerBlock}>
+                <AppText style={styles.widerTitle}>{flowCopy.notLiveYetTitle}</AppText>
                 <Button
-                  label={flowCopy.showNearby}
+                  label={flowCopy.recentlyActiveNearby}
+                  variant="secondary"
                   onPress={() => {
-                    useDiscoverFilters.getState().reset();
-                    void feedQuery.refetch();
+                    void Haptics.selectionAsync();
+                    setBrowseWider(true);
                   }}
                   style={styles.quietCta}
                 />
-                <Button
-                  label={flowCopy.adjustFilters}
-                  variant="secondary"
-                  onPress={() => router.push('/filters')}
-                  style={styles.quietCta}
-                />
-              </>
-            ) : (
-              <>
-                <AppText style={styles.teaserEyebrow}>{flowCopy.youreLiveWatching}</AppText>
-                <AppText style={styles.quietTitle}>{flowCopy.watchingArea}</AppText>
-                <AppText style={[styles.quietBody, styles.quietLead]}>{flowCopy.noLiveMatchesYet}</AppText>
-                <AppText variant="secondary" style={styles.quietBody}>
-                  {flowCopy.notifyWhenNearby}
+                <AppText variant="secondary" style={styles.widerMeta}>
+                  {widerCount === 1 ? '1 person' : `${widerCount} people`} within {widerRadius} mi · you
+                  stay Live while you browse
                 </AppText>
-                <AppText variant="label" style={styles.radiusLabel}>
-                  {flowCopy.expandRadius}
-                </AppText>
-                <View style={styles.radiusRow}>
-                  {radiusPresets.map((mi) => (
-                    <OptionChip
-                      key={mi}
-                      label={mi > widerRadius ? `${mi} mi ✦` : `${mi} mi`}
-                      selected={radiusMi === mi}
-                      onPress={() => applyRadius(mi)}
-                    />
-                  ))}
-                </View>
-                {nextRadius ? (
-                  <Pressable accessibilityRole="button" hitSlop={10} onPress={() => applyRadius(nextRadius)}>
-                    <AppText style={styles.tryFarther}>Try {nextRadius} mi instead →</AppText>
-                  </Pressable>
-                ) : null}
-                <Button
-                  label={flowCopy.adjustFilters}
-                  variant="secondary"
-                  onPress={() => router.push('/filters')}
-                  style={styles.quietCta}
-                />
-                {widerCount > 0 ? (
-                  <View style={styles.widerBlock}>
-                    <AppText style={styles.widerTitle}>{flowCopy.notLiveYetTitle}</AppText>
-                    <Button
-                      label={flowCopy.recentlyActiveNearby}
-                      variant="secondary"
-                      onPress={() => {
-                        void Haptics.selectionAsync();
-                        setBrowseWider(true);
-                      }}
-                      style={styles.quietCta}
-                    />
-                    <AppText variant="secondary" style={styles.widerMeta}>
-                      {widerCount === 1 ? '1 person' : `${widerCount} people`} within {widerRadius} mi · you
-                      stay Live while you browse
-                    </AppText>
-                  </View>
-                ) : null}
-              </>
-            )}
+              </View>
+            ) : null}
 
             {laterTonight.length > 0 ? (
               <View style={styles.laterBlock}>
@@ -760,7 +748,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                         {p.laterTonightHour != null
                           ? `Free after ${formatLaterHour(p.laterTonightHour)}`
                           : 'Later tonight'}{' '}
-                        · {p.trip ? tripLabel(p.trip) : p.hideDistance ? 'Nearby' : formatDistanceMiles(p.distanceMiles)}
+                        · {p.trip ? tripLabel(p.trip) : distanceText(p, tripCity) ?? 'Nearby'}
                       </AppText>
                     </View>
                   </Pressable>
@@ -790,11 +778,16 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       : heroH * 0.92;
   const lowCount = tonightCount <= 3;
   // Travelers sit at a city center: say they're visiting, never "nearby".
+  // In Travel Mode, distance is from where you really are, so it's never "nearby".
   const distanceLabel = card.trip
     ? 'Visiting'
-    : card.hideDistance
-      ? 'Nearby'
-      : `Nearby · ${formatDistanceMiles(card.distanceMiles).replace('Under', 'under')} away`;
+    : card.awayMiles !== undefined
+      ? card.hideDistance || card.awayMiles == null
+        ? distanceText(card, tripCity)
+        : `${formatDistanceMiles(card.awayMiles)} away`
+      : card.hideDistance
+        ? 'Nearby'
+        : `Nearby · ${formatDistanceMiles(card.distanceMiles).replace('Under', 'under')} away`;
   const upcomingTrip = isUpcomingTraveler(card);
   const bottomPad = showClose ? 120 + insets.bottom : 100 + insets.bottom;
 
@@ -833,6 +826,20 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           </View>
         </View>
         <FilterBar />
+        {outsideFilters ? (
+          <Pressable
+            onPress={() => router.push('/filters')}
+            style={styles.outsideBanner}
+            accessibilityRole="button"
+            accessibilityLabel="You've seen everyone who matches your filters. Showing people outside them. Edit filters."
+          >
+            <Ionicons name="options-outline" size={rs(16)} color={colors.brandBright} />
+            <AppText style={styles.goLiveText}>
+              You’ve seen everyone who matches your filters, so we’re showing people outside them.
+            </AppText>
+            <AppText style={styles.outsideCta}>EDIT</AppText>
+          </Pressable>
+        ) : null}
         {!live ? (
           <Pressable
             onPress={() => router.navigate('/(tabs)/live')}
@@ -936,7 +943,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                         <AppText style={styles.place} numberOfLines={1}>
                           {[
                             card.activities[0] ? planWord(card.activities[0]) : null,
-                            card.hideDistance || card.trip ? null : formatDistanceMiles(card.distanceMiles),
+                            card.trip ? null : distanceText(card, tripCity),
                             upcomingTrip ? null : freeUntilLabel(card.freeUntil),
                           ]
                             .filter(Boolean)
@@ -1378,6 +1385,20 @@ const styles = ScaledSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(34,229,139,0.35)',
   },
+  outsideBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: spacing.lg,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radii.input,
+    backgroundColor: 'rgba(167,139,250,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(167,139,250,0.4)',
+  },
+  outsideCta: { color: colors.brandBright, fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
   goLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22E58B' },
   goLiveText: { flex: 1, color: colors.white, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   goLiveCta: { color: '#22E58B', fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },

@@ -122,6 +122,14 @@ export const POPULAR_CITIES: CityPick[] = [
   { name: 'Dallas', region: 'Texas', lat: 32.777, lng: -96.797 },
 ];
 
+/**
+ * How far someone really is from the viewer. In Travel Mode that's from the viewer's actual location
+ * (null when unknown), never from the trip city's center.
+ */
+export function shownDistanceMiles(card: { distanceMiles: number; awayMiles?: number | null }): number | null {
+  return card.awayMiles === undefined ? card.distanceMiles : card.awayMiles;
+}
+
 /** Traveler whose trip hasn't started: they aren't out in that city tonight. */
 export function isUpcomingTraveler(card: { trip?: TripBadge | null }, now: Date = new Date()): boolean {
   return Boolean(card.trip && tripPhase(card.trip, now) === 'upcoming');
