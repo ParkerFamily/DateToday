@@ -73,8 +73,19 @@ import {
     Pressable,
     ScrollView,
     StyleSheet,
+    useWindowDimensions,
     View,
 } from 'react-native';
+import { Gesture, GestureDetector, ScrollView as GestureScrollView } from 'react-native-gesture-handler';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaledSheet, rs } from '@/lib/scale';
@@ -142,6 +153,12 @@ function carouselItemsFor(card: DiscoveryCard): CarouselItem[] {
   }
   return out;
 }
+
+/** Fraction of the screen width a card must travel to count as a like / pass. */
+const SWIPE_LINE = 0.28;
+/** Points per second: a quick flick decides even if the card didn't travel far. */
+const SWIPE_FLING = 900;
+const SPRING_BACK = { damping: 18, stiffness: 220 };
 
 /**
  * Distance words for someone who isn't a traveler, or null to show none. While the viewer is in
@@ -501,12 +518,15 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     });
   };
 
-  /** Moves on the instant you tap; the server answers in the background (match screen if mutual). */
-  const onInterested = () => {
-    if (!card) return;
+  /**
+   * Moves on the instant you tap; the server answers in the background (match screen if mutual).
+   * False when nothing was sent (daily match limit), so a swipe can spring back.
+   */
+  const onInterested = (): boolean => {
+    if (!card) return false;
     if (!canMatchToday(entitlements, useMatchesStore.getState().matches).ok) {
       openUpgrade(router, 'match');
-      return;
+      return false;
     }
     const target = card;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -516,7 +536,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       interestsSentRef.current += 1;
       if (interestsSentRef.current === 1) flashInterestSent();
       else openMatch(target, `preview-${target.userId}`);
-      return;
+      return true;
     }
     flashInterestSent();
     void (async () => {
@@ -546,7 +566,58 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         Alert.alert('Could not send interest', friendlyError(error, 'Try again'));
       }
     })();
+    return true;
   };
+
+  const { width: screenW } = useWindowDimensions();
+  const dragX = useSharedValue(0);
+  useEffect(() => {
+    dragX.value = 0;
+  }, [card?.userId, dragX]);
+
+  /** A swipe released past the line: right is a heart, left a pass. */
+  const decideSwipe = (dir: 1 | -1) => {
+    if (dir === -1) goNext();
+    else if (!onInterested()) dragX.value = withSpring(0, SPRING_BACK);
+  };
+
+  // Horizontal only: vertical drags fail fast so the profile still scrolls.
+  const cardSwipe = Gesture.Pan()
+    .enabled(Boolean(card))
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-14, 14])
+    .onUpdate((e) => {
+      dragX.value = e.translationX;
+    })
+    .onEnd((e) => {
+      const line = screenW * SWIPE_LINE;
+      const dir =
+        e.translationX > line || e.velocityX > SWIPE_FLING
+          ? 1
+          : e.translationX < -line || e.velocityX < -SWIPE_FLING
+            ? -1
+            : 0;
+      if (dir === 0) {
+        dragX.value = withSpring(0, SPRING_BACK);
+        return;
+      }
+      dragX.value = withTiming(dir * screenW * 1.5, { duration: 170 }, (finished) => {
+        if (finished) runOnJS(decideSwipe)(dir);
+      });
+    });
+
+  const swipeCardStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: dragX.value },
+      { rotate: `${(dragX.value / Math.max(screenW, 1)) * 8}deg` },
+    ],
+  }));
+  const likeStampStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(dragX.value, [20, screenW * SWIPE_LINE], [0, 1], Extrapolation.CLAMP),
+  }));
+  const passStampStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(dragX.value, [-screenW * SWIPE_LINE, -20], [1, 0], Extrapolation.CLAMP),
+  }));
 
   if (live && discoveryPaused) {
     return (
@@ -902,245 +973,255 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           </Pressable>
         ) : null}
 
-        <ScrollView
-          ref={scrollRef}
-          style={styles.scroll}
-          onLayout={(e) => setScrollH(e.nativeEvent.layout.height)}
-          contentContainerStyle={{ paddingBottom: bottomPad }}
-          showsVerticalScrollIndicator={false}
-          scrollEventThrottle={16}
-        >
-          <View style={[styles.hero, { height: mediaH }]}>
-            <MediaCarousel
-              items={mediaItems}
-              height={mediaH}
-              resetKey={card.userId}
-              overlay={
-                <>
-                  <LinearGradient
-                    colors={
-                      tonight
-                        ? ['rgba(124,58,237,0.22)', 'rgba(20,8,36,0)', 'rgba(16,6,30,0.97)']
-                        : ['transparent', 'rgba(5,5,6,0.1)', 'rgba(5,5,6,0.96)']
-                    }
-                    locations={[0, 0.45, 1]}
-                    style={styles.fade}
-                    pointerEvents="none"
-                  />
-                  {tonight ? <View style={styles.tonightFrame} pointerEvents="none" /> : null}
-                  <View style={[styles.topBar, { top: rs(20) }]} pointerEvents="box-none">
-                    {showClose ? (
-                      <CloseButton onPress={() => dismissToLive(router)} />
-                    ) : (
-                      <View style={styles.topSpacer} />
-                    )}
-                    <View style={styles.topBadges} pointerEvents="none">
-                      {tonight ? (
-                        <View style={styles.tonightBadge}>
-                          {card.trip ? (
-                            <Ionicons name="airplane" size={rs(13)} color="#fff" />
-                          ) : tier === 0 ? (
-                            <Ionicons name="flash" size={rs(13)} color="#fff" />
-                          ) : (
-                            <View style={styles.laterDot} />
-                          )}
-                          <AppText style={[styles.tonightBadgeText, styles.shrinkText]} numberOfLines={1}>
-                            {availabilityText(card).toUpperCase()}
-                          </AppText>
+        <GestureDetector gesture={cardSwipe}>
+          <Animated.View style={[styles.scroll, swipeCardStyle]}>
+            <GestureScrollView
+              ref={scrollRef}
+              style={styles.scroll}
+              onLayout={(e) => setScrollH(e.nativeEvent.layout.height)}
+              contentContainerStyle={{ paddingBottom: bottomPad }}
+              showsVerticalScrollIndicator={false}
+              scrollEventThrottle={16}
+            >
+              <View style={[styles.hero, { height: mediaH }]}>
+                <MediaCarousel
+                  items={mediaItems}
+                  height={mediaH}
+                  resetKey={card.userId}
+                  overlay={
+                    <>
+                      <LinearGradient
+                        colors={
+                          tonight
+                            ? ['rgba(124,58,237,0.22)', 'rgba(20,8,36,0)', 'rgba(16,6,30,0.97)']
+                            : ['transparent', 'rgba(5,5,6,0.1)', 'rgba(5,5,6,0.96)']
+                        }
+                        locations={[0, 0.45, 1]}
+                        style={styles.fade}
+                        pointerEvents="none"
+                      />
+                      {tonight ? <View style={styles.tonightFrame} pointerEvents="none" /> : null}
+                      <View style={[styles.topBar, { top: rs(20) }]} pointerEvents="box-none">
+                        {showClose ? (
+                          <CloseButton onPress={() => dismissToLive(router)} />
+                        ) : (
+                          <View style={styles.topSpacer} />
+                        )}
+                        <View style={styles.topBadges} pointerEvents="none">
+                          {tonight ? (
+                            <View style={styles.tonightBadge}>
+                              {card.trip ? (
+                                <Ionicons name="airplane" size={rs(13)} color="#fff" />
+                              ) : tier === 0 ? (
+                                <Ionicons name="flash" size={rs(13)} color="#fff" />
+                              ) : (
+                                <View style={styles.laterDot} />
+                              )}
+                              <AppText style={[styles.tonightBadgeText, styles.shrinkText]} numberOfLines={1}>
+                                {availabilityText(card).toUpperCase()}
+                              </AppText>
+                            </View>
+                          ) : null}
+                          <View style={styles.distanceBadge}>
+                            <Ionicons name={card.trip ? 'airplane' : 'location'} size={rs(12)} color="#fff" />
+                            <AppText style={styles.distanceBadgeText}>{distanceLabel}</AppText>
+                          </View>
+                        </View>
+                      </View>
+                      {card.isBoosted ? (
+                        <View style={styles.boostedTag} pointerEvents="none">
+                          <AppText style={styles.boostedTagText}>BOOSTED</AppText>
                         </View>
                       ) : null}
-                      <View style={styles.distanceBadge}>
-                        <Ionicons name={card.trip ? 'airplane' : 'location'} size={rs(12)} color="#fff" />
-                        <AppText style={styles.distanceBadgeText}>{distanceLabel}</AppText>
+                      <View style={styles.heroMeta} pointerEvents="box-none">
+                        {compat?.cue ? (
+                          <View style={styles.compatCue}>
+                            <AppText style={styles.compatText}>{compat.cue}</AppText>
+                          </View>
+                        ) : null}
+                        <AppText style={styles.name}>
+                          {card.displayName}, {card.age}
+                        </AppText>
+                        <View style={styles.verifyRow}>
+                          <VerificationTag status={card.verificationStatus} compact />
+                          <MatchPill otherUid={card.userId} theirLevel={card.quizLevel ?? 0} />
+                        </View>
+                        {tonight ? (
+                          <View style={styles.statusLine}>
+                            {card.trip ? (
+                              <Ionicons name="airplane" size={rs(14)} color={colors.brandBright} />
+                            ) : tier === 0 ? (
+                              <Ionicons name="flash" size={rs(14)} color={colors.brandBright} />
+                            ) : (
+                              <View style={styles.laterDot} />
+                            )}
+                            <AppText
+                              style={[styles.statusLineStrong, card.trip && styles.shrinkText]}
+                              numberOfLines={1}
+                            >
+                              {availabilityText(card).toUpperCase()}
+                            </AppText>
+                            <AppText style={styles.place} numberOfLines={1}>
+                              {[
+                                card.activities[0] ? planWord(card.activities[0]) : null,
+                                card.trip ? null : distanceText(card, tripCity),
+                                upcomingTrip ? null : freeUntilLabel(card.freeUntil),
+                              ]
+                                .filter(Boolean)
+                                .map((bit) => ` · ${bit}`)
+                                .join('')}
+                            </AppText>
+                          </View>
+                        ) : (
+                          <>
+                            <View style={styles.statusLine}>
+                              {activity?.online ? <View style={styles.onlineDot} /> : null}
+                              <AppText style={styles.place}>
+                                {activity?.label}
+                              </AppText>
+                            </View>
+                          </>
+                        )}
                       </View>
-                    </View>
+                    </>
+                  }
+                />
+              </View>
+
+              {vibeChips.length || statusTags.length || card.activities.length ? (
+                <View style={styles.block}>
+                  <View style={styles.promptHead}>
+                    <Ionicons name="sparkles" size={rs(14)} color={colors.brandBright} />
+                    <AppText style={styles.promptHeadText}>TONIGHT’S VIBE</AppText>
                   </View>
-                  {card.isBoosted ? (
-                    <View style={styles.boostedTag} pointerEvents="none">
-                      <AppText style={styles.boostedTagText}>BOOSTED</AppText>
+                  {card.activities.length || (isAfterHours() && card.afterHours?.length) ? (
+                    <View style={styles.detailChips}>
+                      {card.activities.map((a) => (
+                        <View key={a} style={[styles.detailChip, styles.vibeChip]}>
+                          <AppText style={styles.detailChipText}>
+                            {ACTIVITY_EMOJI[a] ? `${ACTIVITY_EMOJI[a]} ` : ''}
+                            {openToLabel(a)}
+                          </AppText>
+                        </View>
+                      ))}
+                      {isAfterHours()
+                        ? (card.afterHours ?? []).map((t) => (
+                            <View key={t} style={[styles.detailChip, styles.nightPill]}>
+                              <AppText style={styles.detailChipText}>
+                                🌙 {AFTER_HOURS_TAGS.find((o) => o.value === t)?.label}
+                              </AppText>
+                            </View>
+                          ))
+                        : null}
                     </View>
                   ) : null}
-                  <View style={styles.heroMeta} pointerEvents="box-none">
-                    {compat?.cue ? (
-                      <View style={styles.compatCue}>
-                        <AppText style={styles.compatText}>{compat.cue}</AppText>
-                      </View>
-                    ) : null}
-                    <AppText style={styles.name}>
-                      {card.displayName}, {card.age}
-                    </AppText>
-                    <View style={styles.verifyRow}>
-                      <VerificationTag status={card.verificationStatus} compact />
-                      <MatchPill otherUid={card.userId} theirLevel={card.quizLevel ?? 0} />
+                  {vibeChips.length ? (
+                    <View style={styles.detailChips}>
+                      {vibeChips.map((v) => (
+                        <View key={v} style={[styles.detailChip, styles.vibeChip]}>
+                          <AppText style={styles.detailChipText}>{v}</AppText>
+                        </View>
+                      ))}
                     </View>
-                    {tonight ? (
-                      <View style={styles.statusLine}>
-                        {card.trip ? (
-                          <Ionicons name="airplane" size={rs(14)} color={colors.brandBright} />
-                        ) : tier === 0 ? (
-                          <Ionicons name="flash" size={rs(14)} color={colors.brandBright} />
-                        ) : (
-                          <View style={styles.laterDot} />
-                        )}
-                        <AppText
-                          style={[styles.statusLineStrong, card.trip && styles.shrinkText]}
-                          numberOfLines={1}
+                  ) : null}
+                  {statusTags.length ? (
+                    <View style={styles.detailChips}>
+                      {statusTags.map((t) => (
+                        <View
+                          key={t.key}
+                          style={[
+                            styles.statusPill,
+                            t.tone === 'live'
+                              ? styles.statusLive
+                              : t.tone === 'brand'
+                                ? styles.statusBrand
+                                : null,
+                          ]}
                         >
-                          {availabilityText(card).toUpperCase()}
-                        </AppText>
-                        <AppText style={styles.place} numberOfLines={1}>
-                          {[
-                            card.activities[0] ? planWord(card.activities[0]) : null,
-                            card.trip ? null : distanceText(card, tripCity),
-                            upcomingTrip ? null : freeUntilLabel(card.freeUntil),
-                          ]
-                            .filter(Boolean)
-                            .map((bit) => ` · ${bit}`)
-                            .join('')}
-                        </AppText>
+                          {t.key === 'availability' ? <View style={styles.statusDot} /> : null}
+                          <AppText style={styles.statusText}>{t.label}</AppText>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {card.bio?.trim() ? (
+                <View style={styles.block}>
+                  <View style={styles.promptHead}>
+                    <Ionicons name="person-circle-outline" size={rs(14)} color={colors.brandBright} />
+                    <AppText style={styles.promptHeadText}>BIO</AppText>
+                  </View>
+                  <AppText style={styles.bioText}>{card.bio.trim()}</AppText>
+                </View>
+              ) : null}
+
+              {commonInterests.length || otherInterests.length ? (
+                <View style={styles.block}>
+                  <View style={styles.promptHead}>
+                    <Ionicons name="heart" size={rs(14)} color={colors.brandBright} />
+                    <AppText style={styles.promptHeadText}>
+                      {commonInterests.length
+                        ? `INTERESTS · ${commonInterests.length} IN COMMON`
+                        : 'INTERESTS'}
+                    </AppText>
+                  </View>
+                  <View style={styles.detailChips}>
+                    {commonInterests.map((i) => (
+                      <View key={i} style={[styles.detailChip, styles.sharedChip]}>
+                        <AppText style={styles.detailChipText}>♥ {i}</AppText>
                       </View>
-                    ) : (
-                      <>
-                        <View style={styles.statusLine}>
-                          {activity?.online ? <View style={styles.onlineDot} /> : null}
-                          <AppText style={styles.place}>
-                            {activity?.label}
-                          </AppText>
-                        </View>
-                      </>
-                    )}
+                    ))}
+                    {otherInterests.map((i) => (
+                      <View key={i} style={styles.detailChip}>
+                        <AppText style={styles.detailChipText}>{i}</AppText>
+                      </View>
+                    ))}
                   </View>
-                </>
-              }
-            />
-          </View>
-
-          {vibeChips.length || statusTags.length || card.activities.length ? (
-            <View style={styles.block}>
-              <View style={styles.promptHead}>
-                <Ionicons name="sparkles" size={rs(14)} color={colors.brandBright} />
-                <AppText style={styles.promptHeadText}>TONIGHT’S VIBE</AppText>
-              </View>
-              {card.activities.length || (isAfterHours() && card.afterHours?.length) ? (
-                <View style={styles.detailChips}>
-                  {card.activities.map((a) => (
-                    <View key={a} style={[styles.detailChip, styles.vibeChip]}>
-                      <AppText style={styles.detailChipText}>
-                        {ACTIVITY_EMOJI[a] ? `${ACTIVITY_EMOJI[a]} ` : ''}
-                        {openToLabel(a)}
-                      </AppText>
-                    </View>
-                  ))}
-                  {isAfterHours()
-                    ? (card.afterHours ?? []).map((t) => (
-                        <View key={t} style={[styles.detailChip, styles.nightPill]}>
-                          <AppText style={styles.detailChipText}>
-                            🌙 {AFTER_HOURS_TAGS.find((o) => o.value === t)?.label}
-                          </AppText>
-                        </View>
-                      ))
-                    : null}
                 </View>
               ) : null}
-              {vibeChips.length ? (
-                <View style={styles.detailChips}>
-                  {vibeChips.map((v) => (
-                    <View key={v} style={[styles.detailChip, styles.vibeChip]}>
-                      <AppText style={styles.detailChipText}>{v}</AppText>
-                    </View>
-                  ))}
+
+              {lifestyle.length ? (
+                <View style={styles.block}>
+                  <View style={styles.promptHead}>
+                    <Ionicons name="person-outline" size={rs(14)} color={colors.brandBright} />
+                    <AppText style={styles.promptHeadText}>LIFESTYLE</AppText>
+                  </View>
+                  <View style={styles.detailChips}>
+                    {lifestyle.map((t) => (
+                      <View key={t} style={styles.detailChip}>
+                        <AppText style={styles.detailChipText}>{t}</AppText>
+                      </View>
+                    ))}
+                  </View>
                 </View>
               ) : null}
-              {statusTags.length ? (
-                <View style={styles.detailChips}>
-                  {statusTags.map((t) => (
-                    <View
-                      key={t.key}
-                      style={[
-                        styles.statusPill,
-                        t.tone === 'live'
-                          ? styles.statusLive
-                          : t.tone === 'brand'
-                            ? styles.statusBrand
-                            : null,
-                      ]}
-                    >
-                      {t.key === 'availability' ? <View style={styles.statusDot} /> : null}
-                      <AppText style={styles.statusText}>{t.label}</AppText>
-                    </View>
-                  ))}
+
+              {matched.length ? (
+                <View style={styles.block}>
+                  <View style={styles.matchedHead}>
+                    <Ionicons name="checkmark-circle" size={rs(13)} color={colors.brandBright} />
+                    <AppText style={styles.matchedTitle}>MATCHES YOUR FILTERS</AppText>
+                  </View>
+                  <View style={styles.matchedChips}>
+                    {matched.map((m) => (
+                      <View key={m} style={styles.matchedChip}>
+                        <AppText style={styles.matchedText}>{m}</AppText>
+                      </View>
+                    ))}
+                  </View>
                 </View>
               ) : null}
-            </View>
-          ) : null}
-
-          {card.bio?.trim() ? (
-            <View style={styles.block}>
-              <View style={styles.promptHead}>
-                <Ionicons name="person-circle-outline" size={rs(14)} color={colors.brandBright} />
-                <AppText style={styles.promptHeadText}>BIO</AppText>
-              </View>
-              <AppText style={styles.bioText}>{card.bio.trim()}</AppText>
-            </View>
-          ) : null}
-
-          {commonInterests.length || otherInterests.length ? (
-            <View style={styles.block}>
-              <View style={styles.promptHead}>
-                <Ionicons name="heart" size={rs(14)} color={colors.brandBright} />
-                <AppText style={styles.promptHeadText}>
-                  {commonInterests.length
-                    ? `INTERESTS · ${commonInterests.length} IN COMMON`
-                    : 'INTERESTS'}
-                </AppText>
-              </View>
-              <View style={styles.detailChips}>
-                {commonInterests.map((i) => (
-                  <View key={i} style={[styles.detailChip, styles.sharedChip]}>
-                    <AppText style={styles.detailChipText}>♥ {i}</AppText>
-                  </View>
-                ))}
-                {otherInterests.map((i) => (
-                  <View key={i} style={styles.detailChip}>
-                    <AppText style={styles.detailChipText}>{i}</AppText>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {lifestyle.length ? (
-            <View style={styles.block}>
-              <View style={styles.promptHead}>
-                <Ionicons name="person-outline" size={rs(14)} color={colors.brandBright} />
-                <AppText style={styles.promptHeadText}>LIFESTYLE</AppText>
-              </View>
-              <View style={styles.detailChips}>
-                {lifestyle.map((t) => (
-                  <View key={t} style={styles.detailChip}>
-                    <AppText style={styles.detailChipText}>{t}</AppText>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {matched.length ? (
-            <View style={styles.block}>
-              <View style={styles.matchedHead}>
-                <Ionicons name="checkmark-circle" size={rs(13)} color={colors.brandBright} />
-                <AppText style={styles.matchedTitle}>MATCHES YOUR FILTERS</AppText>
-              </View>
-              <View style={styles.matchedChips}>
-                {matched.map((m) => (
-                  <View key={m} style={styles.matchedChip}>
-                    <AppText style={styles.matchedText}>{m}</AppText>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-        </ScrollView>
+            </GestureScrollView>
+            <Animated.View style={[styles.stamp, styles.likeStamp, likeStampStyle]} pointerEvents="none">
+              <AppText style={[styles.stampText, styles.likeStampText]}>LIKE</AppText>
+            </Animated.View>
+            <Animated.View style={[styles.stamp, styles.passStamp, passStampStyle]} pointerEvents="none">
+              <AppText style={[styles.stampText, styles.passStampText]}>NOPE</AppText>
+            </Animated.View>
+          </Animated.View>
+        </GestureDetector>
 
         <View
           style={[
@@ -1186,8 +1267,6 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           >
             <Ionicons name="heart" size={rs(30)} color={colors.text} />
           </Pressable>
-          {/* Balances the rewind button so X and heart stay centered. */}
-          <View style={styles.rewindSpacer} pointerEvents="none" />
         </View>
 
         {interestFlash ? (
@@ -1606,6 +1685,7 @@ const styles = ScaledSheet.create({
     bottom: 0,
     flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
     gap: 28,
     paddingTop: 12,
     backgroundColor: 'rgba(5,5,6,0.88)',
@@ -1631,7 +1711,6 @@ const styles = ScaledSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,176,32,0.16)',
@@ -1646,8 +1725,35 @@ const styles = ScaledSheet.create({
   rewindOff: {
     opacity: 0.45,
   },
-  rewindSpacer: {
-    width: 56,
+  stamp: {
+    position: 'absolute',
+    top: 36,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderWidth: 4,
+    borderRadius: 10,
+    zIndex: 20,
+  },
+  likeStamp: {
+    left: 24,
+    borderColor: colors.brandBright,
+    transform: [{ rotate: '-14deg' }],
+  },
+  passStamp: {
+    right: 24,
+    borderColor: colors.danger,
+    transform: [{ rotate: '14deg' }],
+  },
+  stampText: {
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: 2,
+  },
+  likeStampText: {
+    color: colors.brandBright,
+  },
+  passStampText: {
+    color: colors.danger,
   },
   likeBtn: {
     width: 72,

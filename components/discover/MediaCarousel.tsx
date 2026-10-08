@@ -7,7 +7,6 @@ import { useFocusEffect } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { AppText } from '@/components/ui/AppText';
 import { rs } from '@/lib/scale';
 
@@ -15,11 +14,9 @@ export type CarouselItem =
   | { kind: 'photo'; uri: string }
   | { kind: 'video'; uri: string; label: string; prompt: string };
 
-const SWIPE_MIN = 40;
-
 /**
- * Tinder-style media: tap the right side for next, left for previous, or swipe sideways.
- * Vertical drags fall through to the parent ScrollView; Pressable children in `overlay` keep their taps.
+ * Tinder-style media: tap the right side for next, left for previous. Sideways swipes belong to the
+ * card (like / pass); Pressable children in `overlay` keep their taps.
  */
 export function MediaCarousel({
   items,
@@ -67,64 +64,52 @@ export function MediaCarousel({
     step(rel < 0.35 ? -1 : 1);
   };
 
-  const swipe = Gesture.Pan()
-    .runOnJS(true)
-    .activeOffsetX([-15, 15])
-    .failOffsetY([-12, 12])
-    .onEnd((e) => {
-      if (count < 2) return;
-      if (e.translationX <= -SWIPE_MIN) step(1);
-      else if (e.translationX >= SWIPE_MIN) step(-1);
-    });
-
   const item = items[Math.min(index, Math.max(0, count - 1))];
 
   return (
-    <GestureDetector gesture={swipe}>
-      <View ref={frame} onLayout={measure} style={{ height }}>
-        <Pressable
-          onPress={onTap}
-          style={StyleSheet.absoluteFill}
-          accessibilityRole="adjustable"
-          accessibilityLabel={`Photo ${index + 1} of ${count}`}
-          accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-          onAccessibilityAction={(e) => step(e.nativeEvent.actionName === 'increment' ? 1 : -1)}
-        >
-          {item?.kind === 'video' ? (
-            <CarouselVideo key={`${resetKey}-${index}`} item={item} overlay={overlay} />
-          ) : (
-            <>
-              {item ? (
-                <Image
-                  source={{ uri: item.uri }}
-                  style={StyleSheet.absoluteFill}
-                  cachePolicy="memory-disk"
-                  contentFit="cover"
-                  transition={120}
-                />
-              ) : (
-                <View style={[StyleSheet.absoluteFill, styles.empty]} />
-              )}
-              {overlay}
-            </>
-          )}
-        </Pressable>
-        {count > 1 ? (
+    <View ref={frame} onLayout={measure} style={{ height }}>
+      <Pressable
+        onPress={onTap}
+        style={StyleSheet.absoluteFill}
+        accessibilityRole="adjustable"
+        accessibilityLabel={`Photo ${index + 1} of ${count}`}
+        accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+        onAccessibilityAction={(e) => step(e.nativeEvent.actionName === 'increment' ? 1 : -1)}
+      >
+        {item?.kind === 'video' ? (
+          <CarouselVideo key={`${resetKey}-${index}`} item={item} overlay={overlay} />
+        ) : (
           <>
-            <LinearGradient
-              colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0)']}
-              style={styles.barsScrim}
-              pointerEvents="none"
-            />
-            <View style={styles.bars} pointerEvents="none">
-              {items.map((_, i) => (
-                <View key={i} style={[styles.bar, i === index && styles.barOn]} />
-              ))}
-            </View>
+            {item ? (
+              <Image
+                source={{ uri: item.uri }}
+                style={StyleSheet.absoluteFill}
+                cachePolicy="memory-disk"
+                contentFit="cover"
+                transition={120}
+              />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, styles.empty]} />
+            )}
+            {overlay}
           </>
-        ) : null}
-      </View>
-    </GestureDetector>
+        )}
+      </Pressable>
+      {count > 1 ? (
+        <>
+          <LinearGradient
+            colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0)']}
+            style={styles.barsScrim}
+            pointerEvents="none"
+          />
+          <View style={styles.bars} pointerEvents="none">
+            {items.map((_, i) => (
+              <View key={i} style={[styles.bar, i === index && styles.barOn]} />
+            ))}
+          </View>
+        </>
+      ) : null}
+    </View>
   );
 }
 
