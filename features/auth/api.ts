@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { z } from 'zod';
 import {
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   updateProfile,
@@ -16,6 +17,7 @@ import { isAtLeast18 } from '@/utils/time';
 import { analytics } from '@/lib/analytics';
 import { recordLegalConsent } from '@/features/consent/recordConsent';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
+import { completePendingLink, type LinkProvider } from '@/features/auth/linking';
 
 export const signUpSchema = z
   .object({
@@ -104,7 +106,22 @@ export async function signInWithEmail(input: LoginInput) {
     },
     { merge: true },
   );
-  return { user: { id: cred.user.uid, email: cred.user.email } };
+  // Logged in to connect a waiting Google/Apple sign-in to this same account.
+  let linked: LinkProvider | null = null;
+  let linkError: unknown = null;
+  try {
+    linked = await completePendingLink();
+  } catch (error) {
+    linkError = error;
+  }
+  return { user: { id: cred.user.uid, email: cred.user.email }, linked, linkError };
+}
+
+/** Firebase emails a reset link. Says nothing about whether the email has an account. */
+export async function sendPasswordReset(email: string) {
+  assertFirebaseConfigured();
+  const parsed = z.string().email('Enter a valid email').parse(email.trim());
+  await sendPasswordResetEmail(getFirebaseAuth(), parsed);
 }
 
 const SIGNED_OUT_KEY = 'dt.auth.signedOut';

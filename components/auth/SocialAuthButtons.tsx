@@ -10,8 +10,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import { useRouter } from 'expo-router';
+import { LinkRequiredError, PROVIDER_LABEL } from '@/features/auth/linking';
 import {
   finishGoogleSignIn,
+  type SocialAuthResult,
   googleConfigured,
   isAppleSignInAvailable,
   isExpoGo,
@@ -25,23 +28,55 @@ import { colors, radii } from '@/constants/theme';
 import { ScaledSheet, rs } from '@/lib/scale';
 
 type Props = {
-  onSuccess: (result: {
-    user: {
-      id: string;
-      email: string | null;
-      displayName: string | null;
-      isNewUser: boolean;
-      provider: 'google' | 'apple';
-    };
-  }) => void;
+  onSuccess: (result: SocialAuthResult) => void;
   disabled?: boolean;
 };
+
+/** Tells people what happened to their sign-in methods, then hands off. */
+export function announceSocialResult(result: SocialAuthResult) {
+  const { linked, passwordRemoved, provider } = result.user;
+  if (linked) {
+    Alert.alert(
+      `${PROVIDER_LABEL[linked]} connected`,
+      `You can sign in with ${PROVIDER_LABEL[linked]} or ${PROVIDER_LABEL[provider]} from now on. Same account either way.`,
+    );
+  } else if (passwordRemoved) {
+    Alert.alert(
+      `Signed in with ${PROVIDER_LABEL[provider]}`,
+      `Same DateToday account. ${PROVIDER_LABEL[provider]} replaced your old password, so sign in with ${PROVIDER_LABEL[provider]} — or set a new password in Settings › Account information.`,
+    );
+  }
+}
+
+/** Success and failure handling shared by every Google/Apple button. */
+function useSocialHandlers(onSuccess: Props['onSuccess']) {
+  const router = useRouter();
+  const succeed = (result: SocialAuthResult) => {
+    announceSocialResult(result);
+    onSuccess(result);
+  };
+  const fail = (error: unknown, title: string, fallback = 'Try again') => {
+    if (error instanceof LinkRequiredError) {
+      // Same email as an existing account: log in that way first, then this one gets linked to it.
+      router.replace({
+        pathname: '/(auth)/login',
+        params: { link: error.provider, email: error.email, methods: error.methods.join(',') },
+      });
+      return;
+    }
+    const message = error instanceof Error ? error.message : '';
+    if (/cancel/i.test(message)) return;
+    Alert.alert(title, friendlyError(error, fallback));
+  };
+  return { succeed, fail };
+}
 
 /**
  * AuthSession Google — iOS only (reverse-client-id scheme).
  * Android must use native Google Sign-In; Web-client AuthSession rejects custom schemes.
  */
 function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
+  const { succeed, fail } = useSocialHandlers(onSuccess);
   const [busy, setBusy] = useState<'apple' | 'google' | null>(null);
   const [appleOk, setAppleOk] = useState(false);
   const [request, response, promptAsync] = useGoogleAuthRequest();
@@ -65,18 +100,15 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
     void (async () => {
       try {
         setBusy('google');
-        const result = await finishGoogleSignIn(String(idToken));
-        onSuccess(result);
+        succeed(await finishGoogleSignIn(String(idToken)));
       } catch (error) {
-        Alert.alert(
-          'Google sign-in failed',
-          friendlyError(error, 'Try again'),
-        );
+        fail(error, 'Google sign-in failed');
       } finally {
         setBusy(null);
       }
     })();
-  }, [response, onSuccess]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [response]);
 
   return (
     <SocialAuthChrome
@@ -88,10 +120,9 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
       onApple={async () => {
         try {
           setBusy('apple');
-          onSuccess(await signInWithApple());
+          succeed(await signInWithApple());
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Try again';
-          if (!/cancel/i.test(message)) Alert.alert('Apple sign-in failed', friendlyError(error, 'Try again'));
+          fail(error, 'Apple sign-in failed');
         } finally {
           setBusy(null);
         }
@@ -108,7 +139,7 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
           setBusy('google');
           if (!expoGo) {
             try {
-              onSuccess(await signInWithGoogleNative());
+              succeed(await signInWithGoogleNative());
               return;
             } catch (nativeError) {
               const msg = nativeError instanceof Error ? nativeError.message : '';
@@ -124,10 +155,7 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
           }
           await promptAsync();
         } catch (error) {
-          Alert.alert(
-            'Google sign-in failed',
-            friendlyError(error, 'Try again'),
-          );
+          fail(error, 'Google sign-in failed');
         } finally {
           setBusy(null);
         }
@@ -138,6 +166,7 @@ function SocialAuthWithGoogleSession({ onSuccess, disabled }: Props) {
 
 /** Native Google only — Android + iOS without iosClientId. */
 function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
+  const { succeed, fail } = useSocialHandlers(onSuccess);
   const [busy, setBusy] = useState<'apple' | 'google' | null>(null);
   const [appleOk, setAppleOk] = useState(false);
   const expoGo = isExpoGo();
@@ -156,10 +185,9 @@ function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
       onApple={async () => {
         try {
           setBusy('apple');
-          onSuccess(await signInWithApple());
+          succeed(await signInWithApple());
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Try again';
-          if (!/cancel/i.test(message)) Alert.alert('Apple sign-in failed', friendlyError(error, 'Try again'));
+          fail(error, 'Apple sign-in failed');
         } finally {
           setBusy(null);
         }
@@ -183,15 +211,10 @@ function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
         }
         try {
           setBusy('google');
-          onSuccess(await signInWithGoogleNative());
+          succeed(await signInWithGoogleNative());
         } catch (error) {
-          const raw = error instanceof Error ? error.message : '';
-          if (/cancel/i.test(raw)) return;
-          console.warn('[DateToday] Google sign-in failed', error);
-          Alert.alert(
-            'Google sign-in failed',
-            friendlyError(error, 'Google sign-in didn’t work. Try again, or sign up with email.'),
-          );
+          if (!(error instanceof LinkRequiredError)) console.warn('[DateToday] Google sign-in failed', error);
+          fail(error, 'Google sign-in failed', 'Google sign-in didn’t work. Try again, or sign up with email.');
         } finally {
           setBusy(null);
         }

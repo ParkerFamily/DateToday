@@ -65,10 +65,17 @@ export default function AccountScreen() {
       router.push(afterAuthHref());
     } catch (error) {
       if (isEmailInUse(error)) {
-        Alert.alert('You already have an account', 'That email is already signed up. Log in instead.', [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Log in', onPress: () => router.replace('/(auth)/login') },
-        ]);
+        Alert.alert(
+          'You already have an account',
+          'That email is already on DateToday. Log in with your password, or with Google or Apple if that’s how you signed up. You can add a password later in Settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Log in',
+              onPress: () => router.replace({ pathname: '/(auth)/login', params: { email: draft.email.trim() } }),
+            },
+          ],
+        );
       } else {
         Alert.alert('Could not create account', friendlyError(error, 'Try again'));
       }

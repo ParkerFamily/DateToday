@@ -17,6 +17,7 @@ const { activateLive, nearbyLive } = require('./nearbyLive');
 const liveEngagement = require('./liveEngagement');
 const calendar = require('./calendar');
 const likes = require('./likes');
+const authLink = require('./authLink');
 
 initializeApp();
 
@@ -964,6 +965,25 @@ exports.getLikes = onRequest({ cors: true, memory: '512MiB' }, async (req, res) 
   } catch (error) {
     console.error('getLikes failed', error && error.message);
     res.status(error.status || 500).json({ error: 'Couldn’t load your likes right now.' });
+  }
+});
+
+/**
+ * Before Google/Apple sign-in. Body: { provider: 'google' | 'apple', idToken }.
+ * Returns { action: 'signin' } or { action: 'link', methods } when the email already has a
+ * DateToday account that should be logged into first so this sign-in gets linked, not swapped in.
+ */
+exports.authPrecheck = onRequest({ cors: true }, async (req, res) => {
+  try {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json(await authLink.authPrecheck(getAuth(), req.body));
+  } catch (error) {
+    if (!error.status) console.error('authPrecheck failed', error && error.message);
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Try again.' });
   }
 });
 

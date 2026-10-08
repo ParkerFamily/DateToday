@@ -9,13 +9,21 @@ import {
   OAuthProvider,
   signInWithCredential,
   getAdditionalUserInfo,
+  type AuthCredential,
   type UserCredential,
 } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
 import { assertFirebaseConfigured, env } from '@/lib/env';
 import { analytics } from '@/lib/analytics';
 import { firstName, useOnboardingDraft } from '@/store/onboardingDraft';
+import {
+  completePendingLink,
+  LinkRequiredError,
+  precheckSocialSignIn,
+  setPendingLink,
+  type LinkProvider,
+} from '@/features/auth/linking';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -26,6 +34,10 @@ export type SocialAuthResult = {
     displayName: string | null;
     isNewUser: boolean;
     provider: 'google' | 'apple';
+    /** Another sign-in method that was waiting got connected to this account. */
+    linked?: LinkProvider | null;
+    /** Firebase replaced this account's password with this sign-in (same account, old password gone). */
+    passwordRemoved?: boolean;
   };
 };
 
@@ -111,18 +123,65 @@ async function ensureUserDoc(
   }
 }
 
-function toResult(
+/**
+ * Google/Apple sign-in that never forks or overwrites an existing account: if the email already
+ * belongs to a DateToday account that this sign-in isn't part of, hold it and ask the person to
+ * log in the existing way so it can be linked to the same UID.
+ */
+async function signInGuarded(
+  provider: LinkProvider,
+  idToken: string,
+  credential: AuthCredential,
+): Promise<UserCredential> {
+  const check = await precheckSocialSignIn(provider, idToken);
+  if (check.action === 'link') {
+    setPendingLink(check.email, provider, credential);
+    throw new LinkRequiredError(check.email, provider, check.methods);
+  }
+  try {
+    return await signInWithCredential(getFirebaseAuth(), credential);
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    const email = (error as { customData?: { email?: string } }).customData?.email;
+    if (code === 'auth/account-exists-with-different-credential' && email) {
+      setPendingLink(email, provider, credential);
+      throw new LinkRequiredError(email.toLowerCase(), provider, []);
+    }
+    throw error;
+  }
+}
+
+/** Shared tail of every Google/Apple sign-in (including "use Google anyway"). */
+export async function finishSocialSignIn(
   cred: UserCredential,
-  extras: { provider: 'google' | 'apple'; displayName?: string | null },
-): SocialAuthResult {
+  provider: LinkProvider,
+  displayName?: string | null,
+): Promise<SocialAuthResult> {
   const isNewUser = Boolean(getAdditionalUserInfo(cred)?.isNewUser);
+  const before = isNewUser
+    ? null
+    : await getDoc(doc(getDb(), 'users', cred.user.uid))
+        .then((s) => s.data())
+        .catch(() => null);
+  const providerIds = cred.user.providerData.map((p) => p.providerId);
+  const hadPassword = Array.isArray(before?.providerIds) && before.providerIds.includes('password');
+  const name = displayName || cred.user.displayName;
+  await ensureUserDoc(cred.user.uid, cred.user.email, name, provider, {
+    photoURL: cred.user.photoURL,
+    providerIds,
+    isNewUser,
+  });
+  const linked = await completePendingLink().catch(() => null);
+  analytics.track('signup_completed', { provider });
   return {
     user: {
       id: cred.user.uid,
       email: cred.user.email,
-      displayName: extras.displayName ?? cred.user.displayName,
+      displayName: name,
       isNewUser,
-      provider: extras.provider,
+      provider,
+      linked,
+      passwordRemoved: hadPassword && !providerIds.includes('password'),
     },
   };
 }
@@ -132,8 +191,12 @@ export async function isAppleSignInAvailable(): Promise<boolean> {
   return AppleAuthentication.isAvailableAsync();
 }
 
-/** Sign in with Apple → Firebase Auth. iOS only. */
-export async function signInWithApple(): Promise<SocialAuthResult> {
+/** Apple's sheet → a Firebase credential (iOS only). Used to sign in and to connect Apple in Settings. */
+export async function getAppleCredential(): Promise<{
+  credential: AuthCredential;
+  idToken: string;
+  displayName: string | null;
+}> {
   assertFirebaseConfigured();
   if (Platform.OS !== 'ios') {
     throw new Error('Sign in with Apple is only available on iPhone.');
@@ -167,22 +230,18 @@ export async function signInWithApple(): Promise<SocialAuthResult> {
     idToken: apple.identityToken,
     rawNonce,
   });
-
-  analytics.track('signup_started', { provider: 'apple' });
-  const cred = await signInWithCredential(getFirebaseAuth(), credential);
   const name = [apple.fullName?.givenName, apple.fullName?.familyName]
     .filter(Boolean)
     .join(' ');
+  return { credential, idToken: apple.identityToken, displayName: name || null };
+}
 
-  const displayName = name || cred.user.displayName;
-  const isNewUser = Boolean(getAdditionalUserInfo(cred)?.isNewUser);
-  await ensureUserDoc(cred.user.uid, cred.user.email, displayName, 'apple', {
-    photoURL: cred.user.photoURL,
-    providerIds: cred.user.providerData.map((p) => p.providerId),
-    isNewUser,
-  });
-  analytics.track('signup_completed', { provider: 'apple' });
-  return toResult(cred, { provider: 'apple', displayName });
+/** Sign in with Apple → Firebase Auth. iOS only. */
+export async function signInWithApple(): Promise<SocialAuthResult> {
+  const { credential, idToken, displayName } = await getAppleCredential();
+  analytics.track('signup_started', { provider: 'apple' });
+  const cred = await signInGuarded('apple', idToken, credential);
+  return finishSocialSignIn(cred, 'apple', displayName);
 }
 
 /**
@@ -193,6 +252,11 @@ export async function signInWithApple(): Promise<SocialAuthResult> {
  * webClientId must be the Web OAuth client (type 3) — required for idToken.
  */
 export async function signInWithGoogleNative(): Promise<SocialAuthResult> {
+  return finishGoogleSignIn(await getGoogleIdTokenNative());
+}
+
+/** Native Google account picker → Google ID token. Used to sign in and to connect Google in Settings. */
+export async function getGoogleIdTokenNative(): Promise<string> {
   assertFirebaseConfigured();
   if (isExpoGo()) {
     throw new Error(
@@ -244,8 +308,6 @@ export async function signInWithGoogleNative(): Promise<SocialAuthResult> {
     }
   }
 
-  analytics.track('signup_started', { provider: 'google' });
-
   // Clear stale session so a prior partial sign-in cannot return a user without idToken.
   try {
     await GoogleSignin.signOut();
@@ -295,7 +357,7 @@ export async function signInWithGoogleNative(): Promise<SocialAuthResult> {
     );
   }
 
-  return finishGoogleSignIn(idToken);
+  return idToken;
 }
 
 /**
@@ -333,21 +395,8 @@ export async function finishGoogleSignIn(idToken: string): Promise<SocialAuthRes
 
   analytics.track('signup_started', { provider: 'google' });
   const credential = GoogleAuthProvider.credential(idToken);
-  const cred = await signInWithCredential(getFirebaseAuth(), credential);
-  const isNewUser = Boolean(getAdditionalUserInfo(cred)?.isNewUser);
-  await ensureUserDoc(
-    cred.user.uid,
-    cred.user.email,
-    cred.user.displayName,
-    'google',
-    {
-      photoURL: cred.user.photoURL,
-      providerIds: cred.user.providerData.map((p) => p.providerId),
-      isNewUser,
-    },
-  );
-  analytics.track('signup_completed', { provider: 'google' });
-  return toResult(cred, { provider: 'google', displayName: cred.user.displayName });
+  const cred = await signInGuarded('google', idToken, credential);
+  return finishSocialSignIn(cred, 'google', cred.user.displayName);
 }
 
 export function googleConfigured(): boolean {

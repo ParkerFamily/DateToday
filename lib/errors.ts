@@ -6,7 +6,7 @@ const FIREBASE_MESSAGES: Record<string, string> = {
   // Auth
   'auth/email-already-in-use': 'That email already has an account. Try logging in instead.',
   'auth/credential-already-in-use': 'That account is already linked to another DateToday profile.',
-  'auth/account-exists-with-different-credential':
+  'auth/provider-already-linked': 'That sign-in method is already connected to your account.',  'auth/account-exists-with-different-credential':
     'You already signed up with this email another way. Log in with that method instead.',
   'auth/invalid-email': 'That email address doesn’t look right.',
   'auth/missing-email': 'Enter your email address.',
@@ -48,6 +48,16 @@ function firebaseCode(error: unknown): string | null {
 
 export function isEmailInUse(error: unknown): boolean {
   return firebaseCode(error) === 'auth/email-already-in-use';
+}
+
+/** Wrong password, or no password on that account at all (it signs in with Google/Apple). */
+export function isWrongPassword(error: unknown): boolean {
+  const code = firebaseCode(error);
+  return (
+    code === 'auth/wrong-password' ||
+    code === 'auth/invalid-credential' ||
+    code === 'auth/invalid-login-credentials'
+  );
 }
 
 export function friendlyError(error: unknown, fallback = 'Something went wrong. Try again.'): string {
