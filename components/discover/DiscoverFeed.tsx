@@ -182,7 +182,6 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   /** Shown first, ahead of the normal ranking, right after a rewind. */
   const [rewoundId, setRewoundId] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<Set<string>>(() => new Set());
-  const [interestedLoading, setInterestedLoading] = useState(false);
   const [interestFlash, setInterestFlash] = useState(false);
   const [scrollH, setScrollH] = useState(0);
   const [actionBarH, setActionBarH] = useState(0);
@@ -462,12 +461,26 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     setRewoundId(rewindTo);
   };
 
-  const showInterestSentThenAdvance = (userId: string) => {
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+  }, []);
+  /** Small "Interest sent" pill over the next card — never blocks the buttons. */
+  const flashInterestSent = () => {
     setInterestFlash(true);
-    setTimeout(() => {
-      setInterestFlash(false);
-      markHandled(userId);
-    }, 1100);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setInterestFlash(false), 1200);
+  };
+
+  /** A heart that didn't go through: put them back on top so it can be retried. */
+  const restoreCard = (userId: string) => {
+    setHandled((prev) => {
+      const next = new Set(prev);
+      next.delete(userId);
+      return next;
+    });
+    setRewoundId(userId);
+    setInterestFlash(false);
   };
 
   const openMatch = (target: DiscoveryCard, matchId: string) => {
@@ -488,59 +501,51 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     });
   };
 
-  const onInterested = async () => {
-    if (!card || interestFlash) return;
+  /** Moves on the instant you tap; the server answers in the background (match screen if mutual). */
+  const onInterested = () => {
+    if (!card) return;
     if (!canMatchToday(entitlements, useMatchesStore.getState().matches).ok) {
       openUpgrade(router, 'match');
       return;
     }
-    try {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setInterestedLoading(true);
-      // Never invent mutual matches from demo ids outside explicit mock mode.
-      if (env.useMockData && card.userId.startsWith('demo-')) {
-        interestsSentRef.current += 1;
-        if (interestsSentRef.current === 1) {
-          showInterestSentThenAdvance(card.userId);
-        } else {
-          openMatch(card, `preview-${card.userId}`);
-        }
-        return;
-      }
-      if (isBackendConfigured()) {
-        void registerPushTokenAsync({ prompt: true });
-        const result = await sendInterest(card.userId);
-        if (result.mutual && result.matchId && !result.created) {
-          markHandled(card.userId);
-          router.push({ pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } });
-        } else if (result.mutual && result.matchId) {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          openMatch(card, result.matchId);
-        } else {
-          showInterestSentThenAdvance(card.userId);
-        }
-        return;
-      }
-      const result = await sendPing(card.userId);
-      if (result.mutual && result.matchId) {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        openMatch(card, result.matchId);
-      } else {
-        showInterestSentThenAdvance(card.userId);
-      }
-    } catch (error) {
-      if (isMatchLimitError(error)) {
-        openUpgrade(router, 'match');
-        return;
-      }
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert(
-        'Could not send interest',
-        friendlyError(error, 'Try again'),
-      );
-    } finally {
-      setInterestedLoading(false);
+    const target = card;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    markHandled(target.userId);
+    // Never invent mutual matches from demo ids outside explicit mock mode.
+    if (env.useMockData && target.userId.startsWith('demo-')) {
+      interestsSentRef.current += 1;
+      if (interestsSentRef.current === 1) flashInterestSent();
+      else openMatch(target, `preview-${target.userId}`);
+      return;
     }
+    flashInterestSent();
+    void (async () => {
+      try {
+        let result: { mutual: boolean; matchId?: string | null; created: boolean };
+        if (isBackendConfigured()) {
+          void registerPushTokenAsync({ prompt: true });
+          result = await sendInterest(target.userId);
+        } else {
+          result = { ...(await sendPing(target.userId)), created: true };
+        }
+        if (!result.mutual || !result.matchId) return;
+        setInterestFlash(false);
+        if (!result.created) {
+          router.push({ pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } });
+          return;
+        }
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        openMatch(target, result.matchId);
+      } catch (error) {
+        restoreCard(target.userId);
+        if (isMatchLimitError(error)) {
+          openUpgrade(router, 'match');
+          return;
+        }
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert('Could not send interest', friendlyError(error, 'Try again'));
+      }
+    })();
   };
 
   if (live && discoveryPaused) {
@@ -1154,18 +1159,17 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             accessibilityRole="button"
             accessibilityState={{ disabled: !rewindTo }}
             onPress={rewind}
-            disabled={!rewindTo || interestFlash}
+            disabled={!rewindTo}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             android_ripple={{ color: 'rgba(255,255,255,0.2)', radius: 24 }}
             style={({ pressed }) => [styles.rewindBtn, !rewindTo && styles.rewindOff, pressed && styles.pressed]}
           >
-            <Ionicons name="arrow-undo" size={rs(20)} color={colors.warning} />
+            <Ionicons name="arrow-undo" size={rs(26)} color={colors.warning} />
           </Pressable>
           <Pressable
             accessibilityLabel="Pass"
             accessibilityRole="button"
             onPress={goNext}
-            disabled={interestFlash}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             android_ripple={{ color: 'rgba(255,255,255,0.2)', radius: 32 }}
             style={({ pressed }) => [styles.passBtn, pressed && styles.pressed]}
@@ -1175,8 +1179,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           <Pressable
             accessibilityLabel="Interested"
             accessibilityRole="button"
-            disabled={interestedLoading || interestFlash}
-            onPress={() => void onInterested()}
+            onPress={onInterested}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             android_ripple={{ color: 'rgba(255,255,255,0.3)', radius: 36 }}
             style={({ pressed }) => [styles.likeBtn, pressed && styles.pressed]}
@@ -1188,9 +1191,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         </View>
 
         {interestFlash ? (
-          <View style={styles.interestFlash} pointerEvents="none">
+          <View style={[styles.interestFlash, { bottom: actionBarH + rs(12) }]} pointerEvents="none">
             <AppText style={styles.interestFlashTitle}>{flowCopy.interestSentTitle}</AppText>
-            <AppText style={styles.interestFlashBody}>{flowCopy.interestSentBody}</AppText>
           </View>
         ) : null}
       </View>
@@ -1626,21 +1628,26 @@ const styles = ScaledSheet.create({
     shadowRadius: 8,
   },
   rewindBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.elevated,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: 'rgba(255,176,32,0.16)',
+    borderWidth: 2,
+    borderColor: colors.warning,
+    elevation: 8,
+    shadowColor: colors.warning,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
   },
   rewindOff: {
-    opacity: 0.35,
+    opacity: 0.45,
   },
   rewindSpacer: {
-    width: 48,
+    width: 56,
   },
   likeBtn: {
     width: 72,
@@ -1656,24 +1663,20 @@ const styles = ScaledSheet.create({
     shadowRadius: 12,
   },
   interestFlash: {
-    ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(5,5,6,0.72)',
-    gap: 8,
-    paddingHorizontal: spacing.lg,
+    position: 'absolute',
+    alignSelf: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: colors.brand,
     zIndex: 100,
+    elevation: 12,
   },
   interestFlashTitle: {
     color: colors.text,
-    fontSize: 28,
-    fontWeight: '900',
-    letterSpacing: -0.4,
-  },
-  interestFlashBody: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   pressed: {
     opacity: 0.85,
