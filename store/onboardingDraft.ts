@@ -46,6 +46,9 @@ export interface OnboardingDraft {
   phoneE164: string | null;
   phoneVerified: boolean;
   emailVerified: boolean;
+  /** Proof the signup email passed its code (before the account exists). Cleared when the email changes. */
+  signupToken: string | null;
+  setSignupToken: (token: string | null) => void;
   setLegalName: (name: string) => void;
   setDisplayName: (name: string) => void;
   setDateOfBirth: (dob: string) => void;
@@ -112,6 +115,7 @@ const initial = {
   phoneE164: null as string | null,
   phoneVerified: false,
   emailVerified: false,
+  signupToken: null as string | null,
 };
 
 function accountReady(state: typeof initial): boolean {
@@ -149,7 +153,12 @@ export const useOnboardingDraft = create<OnboardingDraft>((set, get) => ({
   setLegalName: (legalName) => set({ legalName }),
   setDisplayName: (displayName) => set({ displayName }),
   setDateOfBirth: (dateOfBirth) => set({ dateOfBirth }),
-  setEmail: (email) => set({ email }),
+  setEmail: (email) =>
+    set((state) => ({
+      email,
+      signupToken: state.email.trim().toLowerCase() === email.trim().toLowerCase() ? state.signupToken : null,
+    })),
+  setSignupToken: (signupToken) => set({ signupToken }),
   setPassword: (password) => set({ password }),
   setAuthProvider: (authProvider) => set({ authProvider }),
   applySocialProfile: ({ email, displayName, provider }) =>
@@ -216,5 +225,6 @@ export const useOnboardingDraft = create<OnboardingDraft>((set, get) => ({
       phoneE164: null,
       phoneVerified: false,
       emailVerified: false,
+      signupToken: null,
     }),
 }));

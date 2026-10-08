@@ -31,7 +31,9 @@ export const ONBOARD_PROGRESS: Record<string, number> = {
   name: 10,
   birthday: 18,
   agreements: 26,
-  account: 34,
+  account: 32,
+  'email-code': 36,
+  password: 40,
   phone: 42, // legacy key unused
   'email-verify': 42,
   gender: 50,

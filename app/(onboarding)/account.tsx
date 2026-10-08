@@ -1,33 +1,48 @@
 import { ONBOARD_PROGRESS, OnboardingChrome } from '@/components/onboarding/OnboardingChrome';
-import { friendlyError, isEmailInUse } from '@/lib/errors';
+import { friendlyError } from '@/lib/errors';
 import { PrimaryCta } from '@/components/onboarding/OnboardingUI';
 import { TextField } from '@/components/ui/TextField';
-import { signUpWithEmail } from '@/features/auth/api';
+import { AppText } from '@/components/ui/AppText';
 import { needsEmailOtp } from '@/features/auth/emailOtp';
+import { startEmailSignup } from '@/features/auth/emailSignup';
+import { PROVIDER_LABEL, type SignInMethod } from '@/features/auth/linking';
 import { currentUserIsSocial, syncOnboardingFromFirebaseAuth } from '@/features/auth/social';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
+import { colors } from '@/constants/theme';
 import { useRouter, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, View } from 'react-native';
+import { Alert, Keyboard, View } from 'react-native';
 import { ScaledSheet } from '@/lib/scale';
 
 const EMAIL_VERIFY_HREF = '/(onboarding)/email-verify' as Href;
+const EMAIL_CODE_HREF = '/(onboarding)/email-code' as Href;
+const PASSWORD_HREF = '/(onboarding)/password' as Href;
 const GENDER_HREF = '/(onboarding)/gender' as Href;
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+function existingAccountMessage(methods: SignInMethod[]) {
+  const social = methods
+    .filter((m) => m !== 'password')
+    .map((m) => PROVIDER_LABEL[m === 'apple.com' ? 'apple' : 'google']);
+  if (!methods.includes('password') && social.length) {
+    return `That email signs in with ${social.join(' or ')}. Log in with ${social[0]} to pick up where you left off.`;
+  }
+  return 'That email is already on DateToday. Log in with your password instead — or reset it if you forgot.';
+}
+
+/** Step 1 of email signup: just the email. The code and password come next. */
 export default function AccountScreen() {
   const router = useRouter();
   const draft = useOnboardingDraft();
   const userId = useSessionStore((s) => s.userId);
-  const setAuth = useSessionStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);
   const alreadySignedIn =
     Boolean(userId) ||
     draft.authProvider === 'google' ||
     draft.authProvider === 'apple' ||
     currentUserIsSocial();
-
-  const afterAuthHref = () => (needsEmailOtp() ? EMAIL_VERIFY_HREF : GENDER_HREF);
 
   useEffect(() => {
     syncOnboardingFromFirebaseAuth();
@@ -39,46 +54,42 @@ export default function AccountScreen() {
         router.replace('/(onboarding)/agreements');
         return;
       }
-      router.replace(afterAuthHref());
+      router.replace(needsEmailOtp() ? EMAIL_VERIFY_HREF : GENDER_HREF);
     }
   }, [alreadySignedIn, draft.legalConsentAccepted, router]);
 
-  const ready = draft.email.includes('@') && draft.password.length >= 8;
+  const email = draft.email.trim();
+  const valid = EMAIL_RE.test(email);
 
   const next = async () => {
+    Keyboard.dismiss();
     if (!draft.legalConsentAccepted) {
       Alert.alert('Agreements required', 'Please accept Terms & Privacy first.', [
         { text: 'Review', onPress: () => router.replace('/(onboarding)/agreements') },
       ]);
       return;
     }
+    if (draft.signupToken) {
+      router.push(PASSWORD_HREF);
+      return;
+    }
     try {
       setLoading(true);
       draft.setAuthProvider('email');
-      const created = await signUpWithEmail({
-        email: draft.email.trim(),
-        password: draft.password,
-        dateOfBirth: draft.dateOfBirth,
-        ageConfirmed: true,
-      });
-      setAuth(created.user.id, created.user.email ?? null);
-      router.push(afterAuthHref());
-    } catch (error) {
-      if (isEmailInUse(error)) {
-        Alert.alert(
-          'You already have an account',
-          'That email is already on DateToday. Log in with your password, or with Google or Apple if that’s how you signed up. You can add a password later in Settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Log in',
-              onPress: () => router.replace({ pathname: '/(auth)/login', params: { email: draft.email.trim() } }),
-            },
-          ],
-        );
-      } else {
-        Alert.alert('Could not create account', friendlyError(error, 'Try again'));
+      const result = await startEmailSignup(email);
+      if (result.exists) {
+        Alert.alert('You already have an account', existingAccountMessage(result.methods), [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Log in',
+            onPress: () => router.replace({ pathname: '/(auth)/login', params: { email } }),
+          },
+        ]);
+        return;
       }
+      router.push(EMAIL_CODE_HREF);
+    } catch (error) {
+      Alert.alert('Couldn’t send code', friendlyError(error, 'Try again in a moment.'));
     } finally {
       setLoading(false);
     }
@@ -91,8 +102,8 @@ export default function AccountScreen() {
   return (
     <OnboardingChrome
       progress={ONBOARD_PROGRESS.account}
-      title={`Hey ${draft.displayName || 'there'}.`}
-      subtitle="Save your profile so you can come back."
+      title={`What’s your email${draft.displayName ? `, ${draft.displayName}` : ''}?`}
+      subtitle="We’ll send a code to confirm it’s you. You’ll use it to log in."
       onBack="landing"
       showSkipSetup={false}
       footer={
@@ -100,8 +111,8 @@ export default function AccountScreen() {
           label="Continue"
           showArrow={false}
           loading={loading}
-          disabled={!ready}
-          onPress={next}
+          disabled={!valid}
+          onPress={() => void next()}
         />
       }
     >
@@ -109,21 +120,22 @@ export default function AccountScreen() {
         <TextField
           label="Email"
           autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="email"
+          textContentType="emailAddress"
           keyboardType="email-address"
+          returnKeyType="next"
           value={draft.email}
           onChangeText={draft.setEmail}
+          onSubmitEditing={() => (valid ? void next() : undefined)}
         />
-        <TextField
-          label="Password"
-          secureTextEntry
-          value={draft.password}
-          onChangeText={draft.setPassword}
-        />
+        <AppText style={styles.note}>We never show your email on your profile.</AppText>
       </View>
     </OnboardingChrome>
   );
 }
 
 const styles = ScaledSheet.create({
-  form: { gap: 14 },
+  form: { gap: 10 },
+  note: { color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
 });

@@ -18,6 +18,8 @@ const liveEngagement = require('./liveEngagement');
 const calendar = require('./calendar');
 const likes = require('./likes');
 const authLink = require('./authLink');
+const email = require('./email');
+const emailFlows = require('./emailFlows');
 
 initializeApp();
 
@@ -152,6 +154,7 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public', timeoutSecond
     const db = getFirestore();
     const bucket = getStorage().bucket();
     const gone = (p) => p.catch(() => undefined);
+    const accountEmail = (await getAuth().getUser(uid).catch(() => null))?.email || decoded.email || null;
 
     // Pull every public surface first, so a failure partway through never leaves a discoverable
     // account. Every step is idempotent; a retry with the same session finishes the job.
@@ -173,7 +176,7 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public', timeoutSecond
     await deletePrefix(bucket, `users/${uid}/`);
     await anonymizeReports(db, uid);
     await Promise.all(
-      ['notificationPrefs', 'promoLog', 'userStats', 'emailOtps', 'users'].map((c) =>
+      ['notificationPrefs', 'promoLog', 'userStats', 'emailOtps', 'emailLog', 'users'].map((c) =>
         gone(db.collection(c).doc(uid).delete()),
       ),
     );
@@ -194,6 +197,11 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public', timeoutSecond
     await getAuth().deleteUser(uid).catch((e) => {
       if (!e || e.code !== 'auth/user-not-found') throw e;
     });
+
+    if (accountEmail) {
+      await email.removeContact(accountEmail).catch(() => undefined);
+      await email.sendEmail(db, { to: accountEmail, idempotencyKey: `deleted-${uid}`, ...email.T.accountDeleted() });
+    }
 
     res.json({ result: { ok: true } });
   } catch (error) {
@@ -393,7 +401,7 @@ function otpHash(code, salt) {
 }
 
 function randomCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(require('crypto').randomInt(100000, 1000000));
 }
 
 async function requireUser(req) {
@@ -419,59 +427,40 @@ exports.sendEmailOtp = onRequest({ cors: true }, async (req, res) => {
     }
     const decoded = await requireUser(req);
     const uid = decoded.uid;
-    const email = decoded.email;
-    if (!email) {
+    const address = decoded.email;
+    if (!address) {
       res.status(400).json({ error: 'No email on this account.' });
       return;
     }
 
-    const apiKey = process.env.RESEND_API_KEY || '';
-    if (!apiKey) {
-      res.status(500).json({
-        error: 'Email codes are not configured yet (missing RESEND_API_KEY on Cloud Functions).',
-      });
-      return;
-    }
+    const db = getFirestore();
+    await emailFlows.rateLimit(db, `verify|${uid}`, 6, 60 * 60 * 1000);
 
     const code = randomCode();
     const salt = require('crypto').randomBytes(16).toString('hex');
     const hash = otpHash(code, salt);
     const expiresAt = Date.now() + 10 * 60 * 1000;
-    const db = getFirestore();
     await db.collection('emailOtps').doc(uid).set({
       hash,
       salt,
-      email,
+      email: address,
       expiresAt,
       attempts: 0,
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    const from = process.env.RESEND_FROM || 'DateToday <onboarding@resend.dev>';
-    const mailRes = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from,
-        to: [email],
-        subject: 'Your DateToday code',
-        text: `Your DateToday verification code is ${code}. It expires in 10 minutes.`,
-        html: `<p>Your DateToday verification code is <strong style="font-size:24px;letter-spacing:4px">${code}</strong>.</p><p>It expires in 10 minutes.</p>`,
-      }),
-    });
-    const mailJson = await mailRes.json().catch(() => ({}));
-    if (!mailRes.ok) {
-      console.error('Resend error', mailJson);
-      res.status(502).json({
-        error: mailJson?.message || 'Could not send email. Check Resend domain / API key.',
+    const sent = await email.sendEmail(db, { to: address, uid, category: 'security', ...email.T.verifyCode(code) });
+    if (!sent.sent) {
+      res.status(sent.reason === 'suppressed' ? 400 : 502).json({
+        error:
+          sent.reason === 'suppressed'
+            ? 'We can’t deliver email to that address.'
+            : 'Couldn’t send the code. Try again in a moment.',
       });
       return;
     }
 
-    res.json({ result: { ok: true, email } });
+    res.json({ result: { ok: true, email: address } });
   } catch (error) {
     console.error(error);
     res.status(error.status || 500).json({
@@ -544,6 +533,79 @@ exports.confirmEmailOtp = onRequest({ cors: true }, async (req, res) => {
   }
 });
 
+/** POST JSON endpoint. Expected failures carry `status`; anything else is logged and hidden. */
+function jsonEndpoint(handler, { signedIn = false } = {}) {
+  return async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+      }
+      let decoded = null;
+      if (signedIn) {
+        decoded = await requireUser(req).catch((error) => {
+          throw Object.assign(new Error('Sign in again and retry.'), { status: error.status || 401 });
+        });
+      }
+      res.json(await handler(req, { db: getFirestore(), auth: getAuth(), decoded }));
+    } catch (error) {
+      if (!error.status) console.error(error);
+      res.status(error.status || 500).json({ error: error.status ? error.message : 'Something went wrong. Try again.' });
+    }
+  };
+}
+
+exports.startEmailSignup = onRequest({ cors: true }, jsonEndpoint(emailFlows.startEmailSignup));
+exports.confirmEmailSignup = onRequest({ cors: true }, jsonEndpoint(emailFlows.confirmEmailSignup));
+exports.claimSignupEmail = onRequest({ cors: true }, jsonEndpoint(emailFlows.claimSignupEmail, { signedIn: true }));
+exports.sendPasswordResetEmail = onRequest({ cors: true }, jsonEndpoint(emailFlows.sendPasswordReset));
+
+exports.emailUnsubscribe = onRequest({ cors: false }, async (req, res) => {
+  try {
+    await emailFlows.emailUnsubscribe(req, res, { db: getFirestore() });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Something went wrong. Change emails in DateToday › Settings › Notifications.');
+  }
+});
+
+exports.resendWebhook = onRequest({ cors: false }, async (req, res) => {
+  try {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    await emailFlows.resendWebhook(req, res, { db: getFirestore() });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('error');
+  }
+});
+
+/** 6pm New York: "N people liked you" for members with unanswered hearts from the last day. */
+exports.likesDigestDaily = onSchedule(
+  { schedule: '0 18 * * *', timeZone: 'America/New_York', timeoutSeconds: 540 },
+  async () => {
+    const result = await emailFlows.likesDigest({ db: getFirestore(), auth: getAuth() });
+    console.info('likes digest', result);
+  },
+);
+
+exports.onProfileCreatedEmail = onDocumentCreated('profiles/{uid}', async (event) => {
+  await emailFlows
+    .onProfileCreated(getFirestore(), getAuth(), event.params.uid, event.data && event.data.data())
+    .catch((e) => console.error('welcome email failed', String(e)));
+});
+
+exports.onNotificationPrefsWritten = onDocumentWritten('notificationPrefs/{uid}', async (event) => {
+  const before = event.data && event.data.before.exists ? event.data.before.data() : null;
+  const after = event.data && event.data.after.exists ? event.data.after.data() : null;
+  if (!after) return;
+  await emailFlows
+    .onEmailNewsChanged(getFirestore(), getAuth(), event.params.uid, before, after)
+    .catch((e) => console.error('contact sync failed', String(e)));
+});
 
 // ---------------------------------------------------------------------------
 // Push notifications (Expo push service) + interests / matches / chat
@@ -923,6 +985,9 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
         body: `You and ${me.displayName} are into each other. Say hey and plan tonight.`,
         data: { type: 'match', matchId, url: `/chat/${matchId}` },
       });
+      await emailFlows
+        .emailNewMatch(db, getAuth(), { uid: toUid, otherName: me.displayName, matchId })
+        .catch((e) => console.warn('match email failed', String(e)));
     } else if (!outcome.mutual && outcome.firstHeart) {
       await pushToUser(db, toUid, {
         title: 'You’ve got a potential date',
@@ -1675,6 +1740,9 @@ exports.processPushReceipts = onSchedule(
 exports.onUserVerificationChanged = onDocumentUpdated('users/{uid}', async (event) => {
   const before = (event.data && event.data.before.data()) || {};
   const after = (event.data && event.data.after.data()) || {};
+  await emailFlows
+    .onProvidersChanged(getFirestore(), getAuth(), event.params.uid, before, after, event.id)
+    .catch((e) => console.error('sign-in method alert failed', String(e)));
   const next = after.verificationStatus;
   if (before.verificationStatus === next) return;
   // Public cards copy the badge when written; keep them current without waiting for a re-publish.

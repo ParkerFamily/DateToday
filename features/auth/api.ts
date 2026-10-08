@@ -18,6 +18,7 @@ import { analytics } from '@/lib/analytics';
 import { recordLegalConsent } from '@/features/consent/recordConsent';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { completePendingLink, type LinkProvider } from '@/features/auth/linking';
+import { requestPasswordResetEmail } from '@/features/auth/emailSignup';
 
 export const signUpSchema = z
   .object({
@@ -121,7 +122,12 @@ export async function signInWithEmail(input: LoginInput) {
 export async function sendPasswordReset(email: string) {
   assertFirebaseConfigured();
   const parsed = z.string().email('Enter a valid email').parse(email.trim());
-  await sendPasswordResetEmail(getFirebaseAuth(), parsed);
+  try {
+    await requestPasswordResetEmail(parsed);
+  } catch (error) {
+    if (error instanceof Error && /too many|valid email/i.test(error.message)) throw error;
+    await sendPasswordResetEmail(getFirebaseAuth(), parsed);
+  }
 }
 
 const SIGNED_OUT_KEY = 'dt.auth.signedOut';

@@ -14,10 +14,16 @@ import {
 import { spacing } from '@/constants/theme';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import {
+  DEFAULT_EMAIL_PREFS,
   DEFAULT_NOTIFICATION_PREFS,
+  EMAIL_PREF_ROWS,
   NOTIFICATION_PREF_ROWS,
+  setEmailPref,
   setNotificationPref,
+  subscribeEmailPrefs,
   subscribeNotificationPrefs,
+  type EmailPrefKey,
+  type EmailPrefs,
   type NotificationPrefKey,
   type NotificationPrefs,
 } from '@/features/notifications/preferences';
@@ -30,6 +36,7 @@ export default function NotificationSettingsScreen() {
   const [status, setStatus] = useState<'granted' | 'denied' | 'undetermined' | null>(null);
   const [canAskAgain, setCanAskAgain] = useState(true);
   const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
+  const [emailPrefs, setEmailPrefs] = useState<EmailPrefs>(DEFAULT_EMAIL_PREFS);
 
   const refresh = useCallback(async () => {
     const perm = await Notifications.getPermissionsAsync();
@@ -48,8 +55,22 @@ export default function NotificationSettingsScreen() {
 
   useEffect(() => {
     if (!uid) return;
-    return subscribeNotificationPrefs(uid, setPrefs);
+    const unsubPush = subscribeNotificationPrefs(uid, setPrefs);
+    const unsubEmail = subscribeEmailPrefs(uid, setEmailPrefs);
+    return () => {
+      unsubPush();
+      unsubEmail();
+    };
   }, [uid]);
+
+  const toggleEmail = (key: EmailPrefKey, value: boolean) => {
+    if (!uid) return;
+    setEmailPrefs((p) => ({ ...p, [key]: value }));
+    setEmailPref(uid, key, value).catch((error) => {
+      setEmailPrefs((p) => ({ ...p, [key]: !value }));
+      Alert.alert('Couldn’t save', friendlyError(error, 'Try again.'));
+    });
+  };
 
   const turnOn = async () => {
     if (!canAskAgain) {
@@ -106,6 +127,27 @@ export default function NotificationSettingsScreen() {
               last={i === NOTIFICATION_PREF_ROWS.length - 1}
             />
           ))}
+        </SettingsGroup>
+
+        <SettingsGroup title="Email me about">
+          {EMAIL_PREF_ROWS.map((row) => (
+            <SettingsToggleRow
+              key={row.key}
+              label={row.label}
+              detail={row.detail}
+              value={emailPrefs[row.key]}
+              disabled={!uid}
+              onValueChange={(v) => toggleEmail(row.key, v)}
+            />
+          ))}
+          <SettingsToggleRow
+            label="Account & security"
+            detail="Sign-in codes, password resets and new sign-in methods · always on"
+            value
+            disabled
+            onValueChange={() => undefined}
+            last
+          />
         </SettingsGroup>
 
         <LegalP>
