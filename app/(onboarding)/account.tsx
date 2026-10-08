@@ -22,14 +22,18 @@ const GENDER_HREF = '/(onboarding)/gender' as Href;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-function existingAccountMessage(methods: SignInMethod[]) {
+function existingAccountMessage(methods: SignInMethod[], typed: string, accountEmail: string) {
+  const lead =
+    accountEmail.toLowerCase() === typed.toLowerCase()
+      ? 'That email is already on DateToday.'
+      : `That inbox already has an account as ${accountEmail}.`;
   const social = methods
     .filter((m) => m !== 'password')
     .map((m) => PROVIDER_LABEL[m === 'apple.com' ? 'apple' : 'google']);
   if (!methods.includes('password') && social.length) {
-    return `That email signs in with ${social.join(' or ')}. Log in with ${social[0]} to pick up where you left off.`;
+    return `${lead} It signs in with ${social.join(' or ')} — log in with ${social[0]} to pick up where you left off.`;
   }
-  return 'That email is already on DateToday. Log in with your password instead — or reset it if you forgot.';
+  return `${lead} Log in with your password instead, or reset it if you forgot.`;
 }
 
 /** Step 1 of email signup: just the email. The code and password come next. */
@@ -78,11 +82,12 @@ export default function AccountScreen() {
       draft.setAuthProvider('email');
       const result = await startEmailSignup(email);
       if (result.exists) {
-        Alert.alert('You already have an account', existingAccountMessage(result.methods), [
+        const accountEmail = result.email || email;
+        Alert.alert('You already have an account', existingAccountMessage(result.methods, email, accountEmail), [
           { text: 'Cancel', style: 'cancel' },
           {
             text: 'Log in',
-            onPress: () => router.replace({ pathname: '/(auth)/login', params: { email } }),
+            onPress: () => router.replace({ pathname: '/(auth)/login', params: { email: accountEmail } }),
           },
         ]);
         return;

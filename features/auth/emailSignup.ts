@@ -28,7 +28,8 @@ async function post<T>(name: string, body: object, idToken?: string): Promise<T>
   }
 }
 
-export type SignupStart = { exists: true; methods: SignInMethod[] } | { exists: false; sent: true };
+/** `email` is the account's own address — it can differ from what was typed (john.doe@ vs johndoe@gmail.com). */
+export type SignupStart = { exists: true; methods: SignInMethod[]; email?: string } | { exists: false; sent: true };
 
 /** Emails a 6-digit code to a new address, or reports that the address already has an account. */
 export function startEmailSignup(email: string) {

@@ -97,3 +97,24 @@ test('authPrecheck looks the verified email up and answers', async () => {
   );
   await assert.rejects(authLink.authPrecheck(fakeAuth(null), { provider: 'google' }, { getKey }), /Missing/);
 });
+
+test('Google with another spelling of a taken Gmail inbox links to that account', async () => {
+  const auth = {
+    getUserByEmail: async () => {
+      throw Object.assign(new Error('nf'), { code: 'auth/user-not-found' });
+    },
+  };
+  const owner = { uid: 'A', email: 'johndoe@gmail.com', providerData: [{ providerId: 'password' }] };
+  const out = await authLink.authPrecheck(
+    auth,
+    { provider: 'google', idToken: token({ email: 'john.doe@gmail.com' }) },
+    { getKey, findInboxOwner: async () => owner },
+  );
+  assert.deepEqual(out, { action: 'link', methods: ['password'], email: 'johndoe@gmail.com' });
+  const fresh = await authLink.authPrecheck(
+    auth,
+    { provider: 'google', idToken: token({ email: 'new.person@gmail.com' }) },
+    { getKey, findInboxOwner: async () => null },
+  );
+  assert.equal(fresh.action, 'signin');
+});

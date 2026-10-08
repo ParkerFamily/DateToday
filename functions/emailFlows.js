@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 const email = require('./email');
+const emailIdentity = require('./emailIdentity');
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_CODE_ATTEMPTS = 8;
@@ -46,8 +47,8 @@ async function startEmailSignup(req, { db, auth }) {
   await rateLimit(db, `signup-ip|${clientIp(req)}`, 30, HOUR);
   await rateLimit(db, `signup|${address}`, 6, HOUR);
 
-  const existing = await userByEmail(auth, address);
-  if (existing) return { exists: true, methods: signInMethods(existing) };
+  const existing = (await userByEmail(auth, address)) || (await emailIdentity.findInboxOwner(db, auth, address));
+  if (existing) return { exists: true, methods: signInMethods(existing), email: existing.email };
 
   const code = newCode();
   const salt = crypto.randomBytes(16).toString('hex');
@@ -120,16 +121,17 @@ async function sendPasswordReset(req, { db, auth }) {
   await rateLimit(db, `reset-ip|${clientIp(req)}`, 30, HOUR);
   await rateLimit(db, `reset|${address}`, 4, HOUR);
 
-  const user = await userByEmail(auth, address);
-  if (!user || user.disabled) return { ok: true };
+  const user = (await userByEmail(auth, address)) || (await emailIdentity.findInboxOwner(db, auth, address));
+  if (!user || user.disabled || !user.email) return { ok: true };
+  const to = user.email;
   const methods = signInMethods(user);
   if (!methods.includes('password')) {
     const labels = methods.map((m) => PROVIDER_LABEL[m]).join(' or ') || 'Google or Apple';
-    await email.sendEmail(db, { to: address, uid: user.uid, category: 'security', ...email.T.noPassword(labels) });
+    await email.sendEmail(db, { to, uid: user.uid, category: 'security', ...email.T.noPassword(labels) });
     return { ok: true };
   }
-  const link = await auth.generatePasswordResetLink(address);
-  await email.sendEmail(db, { to: address, uid: user.uid, category: 'security', ...email.T.passwordReset(link) });
+  const link = await auth.generatePasswordResetLink(to);
+  await email.sendEmail(db, { to, uid: user.uid, category: 'security', ...email.T.passwordReset(link) });
   return { ok: true };
 }
 

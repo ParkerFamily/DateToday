@@ -100,6 +100,14 @@ async function authPrecheck(auth, body, opts = {}) {
     if (error && error.code === 'auth/user-not-found') return null;
     throw error;
   });
+  if (!existing && opts.findInboxOwner) {
+    // Same inbox under another spelling (john.doe@ vs johndoe@gmail.com): log in there, then link.
+    const owner = await opts.findInboxOwner(email);
+    if (owner && !owner.disabled) {
+      const methods = (owner.providerData || []).map((p) => p.providerId).filter((id) => LINKABLE.has(id));
+      return { action: 'link', methods, email: owner.email };
+    }
+  }
   return { ...linkDecision(existing, PROVIDERS[provider].providerId, email), email };
 }
 

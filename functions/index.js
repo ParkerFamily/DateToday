@@ -20,8 +20,33 @@ const likes = require('./likes');
 const authLink = require('./authLink');
 const email = require('./email');
 const emailFlows = require('./emailFlows');
+const emailIdentity = require('./emailIdentity');
+const functionsV1 = require('firebase-functions/v1');
 
 initializeApp();
+
+/**
+ * Backstop for one-account-per-inbox: the app checks before creating accounts, but anything that
+ * reaches Firebase Auth directly with another spelling of a taken inbox gets disabled here.
+ */
+exports.onAuthUserCreated = functionsV1.auth.user().onCreate(async (user) => {
+  if (!user.email) return;
+  const db = getFirestore();
+  const auth = getAuth();
+  const owner = await emailIdentity.findInboxOwner(db, auth, user.email, user.uid);
+  if (!owner) {
+    await emailIdentity.claimInbox(db, auth, user.uid, user.email);
+    return;
+  }
+  await auth.updateUser(user.uid, { disabled: true });
+  await auth.revokeRefreshTokens(user.uid);
+  await db.collection('duplicateAccounts').doc(user.uid).set({
+    ownerUid: owner.uid,
+    providers: (user.providerData || []).map((p) => p.providerId),
+    at: FieldValue.serverTimestamp(),
+  });
+  console.warn('Disabled duplicate-inbox account', { uid: user.uid, ownerUid: owner.uid });
+});
 
 exports.nearbyLive = onRequest({ cors: true, invoker: 'public' }, nearbyLive);
 exports.activateLive = onRequest({ cors: true, invoker: 'public' }, activateLive);
@@ -199,6 +224,7 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public', timeoutSecond
     });
 
     if (accountEmail) {
+      await emailIdentity.releaseInbox(db, uid, accountEmail).catch(() => undefined);
       await email.removeContact(accountEmail).catch(() => undefined);
       await email.sendEmail(db, { to: accountEmail, idempotencyKey: `deleted-${uid}`, ...email.T.accountDeleted() });
     }
@@ -1045,7 +1071,11 @@ exports.authPrecheck = onRequest({ cors: true }, async (req, res) => {
       return;
     }
     res.set('Cache-Control', 'no-store');
-    res.json(await authLink.authPrecheck(getAuth(), req.body));
+    res.json(
+      await authLink.authPrecheck(getAuth(), req.body, {
+        findInboxOwner: (address) => emailIdentity.findInboxOwner(getFirestore(), getAuth(), address),
+      }),
+    );
   } catch (error) {
     if (!error.status) console.error('authPrecheck failed', error && error.message);
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Try again.' });

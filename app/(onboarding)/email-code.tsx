@@ -64,7 +64,7 @@ export default function EmailCodeScreen() {
       setSending(true);
       const result = await startEmailSignup(email);
       if (result.exists) {
-        router.replace({ pathname: '/(auth)/login', params: { email } });
+        router.replace({ pathname: '/(auth)/login', params: { email: result.email || email } });
         return;
       }
       setCooldown(RESEND_SECONDS);
