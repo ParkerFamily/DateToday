@@ -60,7 +60,14 @@ import { useSessionStore } from '@/store/session';
 import type { DiscoveryCard, FoodCuisine, RadiusMiles, TonightActivity } from '@/types';
 import { formatDistanceMiles, isLiveSessionActive } from '@/utils/time';
 import { freeUntilLabel } from '@/features/live/freeUntil';
-import { isUpcomingTraveler, shownDistanceMiles, tripLabel } from '@/features/travel/trip';
+import {
+  isUpcomingTraveler,
+  shortDay,
+  shownDistanceMiles,
+  tripDatesLabel,
+  tripLabel,
+  tripPhase,
+} from '@/features/travel/trip';
 import { tonightCompatibility } from '@/utils/tonightCompatibility';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -751,6 +758,32 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         .then(() => queryClient.invalidateQueries({ queryKey: ['discovery-feed'] }))
         .catch((error) => Alert.alert('Couldn’t change your radius', friendlyError(error, 'Try again.')));
     };
+    // Travel Mode searches around the trip city, so never talk about "your area" or "nearby".
+    const trip = liveSession?.trip ?? null;
+    const quiet = trip
+      ? {
+          eyebrow: `✈️ Live in ${trip.city} · ${tripDatesLabel(trip)}`,
+          title:
+            tripPhase(trip) === 'upcoming'
+              ? `Your ${trip.city} trip starts ${shortDay(trip.startsOn)}.`
+              : `We're watching ${trip.city}.`,
+          lead: `No one in ${trip.city} matching your preferences is live yet.`,
+          body: `People there see you as “${tripLabel(trip)}”. We'll ping you the moment someone goes live.`,
+          radius: `Cover more of ${trip.city}`,
+          tryWider: (mi: number) => `Try ${mi} mi around ${trip.city} →`,
+          browseWider: `Recently active in ${trip.city} →`,
+          widerWhere: `within ${widerRadius} mi of ${trip.city}`,
+        }
+      : {
+          eyebrow: flowCopy.youreLiveWatching,
+          title: flowCopy.watchingArea,
+          lead: flowCopy.noLiveMatchesYet,
+          body: flowCopy.notifyWhenNearby,
+          radius: flowCopy.expandRadius,
+          tryWider: (mi: number) => `Try ${mi} mi instead →`,
+          browseWider: flowCopy.recentlyActiveNearby,
+          widerWhere: `within ${widerRadius} mi`,
+        };
 
     return (
       <Screen padded={false} edges={liveHeader ? ['left', 'right'] : undefined}>
@@ -769,14 +802,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         >
           {showClose ? <CloseButton onPress={() => dismissToLive(router)} /> : null}
           <View style={styles.quiet}>
-            <AppText style={styles.teaserEyebrow}>{flowCopy.youreLiveWatching}</AppText>
-            <AppText style={styles.quietTitle}>{flowCopy.watchingArea}</AppText>
-            <AppText style={[styles.quietBody, styles.quietLead]}>{flowCopy.noLiveMatchesYet}</AppText>
+            <AppText style={styles.teaserEyebrow}>{quiet.eyebrow}</AppText>
+            <AppText style={styles.quietTitle}>{quiet.title}</AppText>
+            <AppText style={[styles.quietBody, styles.quietLead]}>{quiet.lead}</AppText>
             <AppText variant="secondary" style={styles.quietBody}>
-              {flowCopy.notifyWhenNearby}
+              {quiet.body}
             </AppText>
             <AppText variant="label" style={styles.radiusLabel}>
-              {flowCopy.expandRadius}
+              {quiet.radius}
             </AppText>
             <View style={styles.radiusRow}>
               {radiusPresets.map((mi) => (
@@ -790,7 +823,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             </View>
             {nextRadius ? (
               <Pressable accessibilityRole="button" hitSlop={10} onPress={() => applyRadius(nextRadius)}>
-                <AppText style={styles.tryFarther}>Try {nextRadius} mi instead →</AppText>
+                <AppText style={styles.tryFarther}>{quiet.tryWider(nextRadius)}</AppText>
               </Pressable>
             ) : null}
             {rewindTo ? (
@@ -811,7 +844,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               <View style={styles.widerBlock}>
                 <AppText style={styles.widerTitle}>{flowCopy.notLiveYetTitle}</AppText>
                 <Button
-                  label={flowCopy.recentlyActiveNearby}
+                  label={quiet.browseWider}
                   variant="secondary"
                   onPress={() => {
                     void Haptics.selectionAsync();
@@ -820,8 +853,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                   style={styles.quietCta}
                 />
                 <AppText variant="secondary" style={styles.widerMeta}>
-                  {widerCount === 1 ? '1 person' : `${widerCount} people`} within {widerRadius} mi · you
-                  stay Live while you browse
+                  {widerCount === 1 ? '1 person' : `${widerCount} people`} {quiet.widerWhere} · you stay
+                  Live while you browse
                 </AppText>
               </View>
             ) : null}
