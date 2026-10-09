@@ -372,8 +372,6 @@ export interface ProfileCompletionRequirements {
 }
 
 export type EntitlementKey =
-  | 'unlimited_matches'
-  | 'unlimited_messages'
   | 'advanced_filters'
   | 'see_all_received_pings'
   | 'extended_radius'

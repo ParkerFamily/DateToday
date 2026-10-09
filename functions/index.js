@@ -973,25 +973,6 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
     const matchId = pairId(fromUid, toUid);
     const matchRef = db.collection('matches').doc(matchId);
 
-    // Free: one new match a day. Only a heart that completes a match counts.
-    const [reverseNow, matchNow] = await Promise.all([reverseRef.get(), matchRef.get()]);
-    if (reverseNow.exists && !matchNow.exists && !(await hasDateTodayPlus(db, fromUid))) {
-      const tz = Number(req.body && req.body.tzOffsetMinutes);
-      const since = Number.isFinite(tz) ? likes.localDayStart(Date.now(), tz) : Date.now() - 24 * 3600 * 1000;
-      const mine = await db.collection('matches').where('userIds', 'array-contains', fromUid).limit(500).get();
-      const today = mine.docs.filter((d) => {
-        const at = d.data().createdAt;
-        return at && typeof at.toMillis === 'function' && at.toMillis() >= since;
-      }).length;
-      if (today >= 1) {
-        res.status(403).json({
-          error: 'Free includes 1 new match a day. Get DateToday+ for unlimited matches.',
-          code: 'match_limit',
-        });
-        return;
-      }
-    }
-
     const [me, them] = await Promise.all([
       publicProfile(db, fromUid),
       publicProfile(db, toUid),

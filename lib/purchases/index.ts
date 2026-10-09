@@ -248,8 +248,6 @@ export function entitlementsFromCustomerInfo(info: CustomerInfo): EntitlementSta
   return {
     plan,
     subscriptionStatus,
-    freeMatchesPerDay: commerceConfig.freeMatchesPerDay,
-    freeConversationsPerDay: commerceConfig.freeConversationsPerDay,
     plusPlanId: resolvePlusPlanId(productId),
     productId,
     expiresAt,

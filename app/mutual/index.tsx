@@ -25,8 +25,6 @@ import { sharedFoodHeadline } from '@/utils/tonightCompatibility';
 import type { FoodCuisine, TonightActivity } from '@/types';
 import { useSessionStore } from '@/store/session';
 import { canStartPlan } from '@/features/live/planGate';
-import { canMessageMatch } from '@/lib/usage/dailyLimits';
-import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { ScaledSheet } from '@/lib/scale';
 import { androidGlow } from '@/lib/glow';
 import { repairStorageUrl } from '@/utils/photoUrl';
@@ -218,13 +216,7 @@ export default function MutualMatchScreen() {
           <Button
             label={flowCopy.makeAPlan}
             variant="secondary"
-            onPress={async () => {
-              const gate = await canMessageMatch(useSessionStore.getState().entitlements, conversationId);
-              if (!gate.ok) {
-                router.replace({ pathname: '/chat/[conversationId]', params: { conversationId } });
-                openUpgrade(router, 'message');
-                return;
-              }
+            onPress={() => {
               if (!canStartPlan(router)) return;
               router.replace({
                 pathname: '/chat/[conversationId]',

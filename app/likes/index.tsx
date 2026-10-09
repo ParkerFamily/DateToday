@@ -25,6 +25,8 @@ export default function LikesScreen() {
   const locked = (likes?.locked ?? []).slice(0, Math.min(6, lockedCount));
   const total = likes?.total ?? 0;
   const unlock = () => openUpgrade(router, 'likes');
+  const previewUri = locked[0]?.blur || visible[0]?.mainPhotoUrl;
+  const previewBlurred = Boolean(locked[0]?.blur);
 
   return (
     <Screen padded={false}>
@@ -35,27 +37,36 @@ export default function LikesScreen() {
         ) : null}
 
         {likes && !likes.plus && lockedCount > 0 ? (
-          <Pressable onPress={unlock} accessibilityRole="button" accessibilityLabel="Unlock Liked You with DateToday+">
-            <LinearGradient
-              colors={['rgba(124,58,237,0.55)', 'rgba(168,85,247,0.18)', 'rgba(18,16,26,1)']}
-              locations={[0, 0.55, 1]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.hero}
-            >
-              <View style={styles.plusPill}>
-                <Ionicons name="sparkles" size={rs(12)} color={colors.text} />
-                <AppText style={styles.plusPillText}>DATETODAY+ FEATURE</AppText>
-              </View>
+          <Pressable
+            onPress={unlock}
+            accessibilityRole="button"
+            accessibilityLabel="See who likes you with Premium"
+            style={styles.hero}
+          >
+            <View style={styles.heroTitleRow}>
+              <Ionicons name="heart" size={rs(20)} color={colors.danger} />
               <AppText style={styles.heroTitle}>
                 {total} {total === 1 ? 'person likes' : 'people like'} you
               </AppText>
-              <AppText style={styles.heroBody}>
-                Liked You shows everyone who tapped Interested on you, so you can like them back and match
-                instantly. Free shows {FREE_PREVIEW} at a time. Seeing everyone needs a DateToday+ subscription.
-              </AppText>
-              <Button label="Unlock with DateToday+" onPress={unlock} />
-            </LinearGradient>
+            </View>
+            <View style={styles.heroPreview}>
+              {previewUri ? (
+                <Image
+                  source={{ uri: previewUri }}
+                  style={styles.heroAvatar}
+                  blurRadius={previewBlurred ? 10 : 0}
+                  transition={150}
+                />
+              ) : (
+                <View style={[styles.heroAvatar, styles.avatarPh]} />
+              )}
+            </View>
+            <AppText style={styles.heroCaption}>
+              Profiles stay blurred until Premium — tap to see who likes you
+            </AppText>
+            <View style={styles.premiumCta}>
+              <AppText style={styles.premiumCtaText}>See Who Likes You · Premium</AppText>
+            </View>
           </Pressable>
         ) : null}
 
@@ -72,7 +83,7 @@ export default function LikesScreen() {
             </AppText>
             {!likes.plus ? (
               <AppText variant="secondary" style={styles.emptyPlus}>
-                Free shows {FREE_PREVIEW} like at a time. DateToday+ shows everyone who likes you.
+                Free shows {FREE_PREVIEW} like at a time. Premium shows everyone who likes you.
               </AppText>
             ) : null}
             <Button label="Go to Live" onPress={() => router.navigate('/(tabs)/live')} />
@@ -117,7 +128,7 @@ export default function LikesScreen() {
               <AppText style={styles.section}>HIDDEN LIKES</AppText>
               <View style={styles.sectionTag}>
                 <Ionicons name="lock-closed" size={rs(10)} color={colors.brandBright} />
-                <AppText style={styles.sectionTagText}>DATETODAY+</AppText>
+                <AppText style={styles.sectionTagText}>PREMIUM</AppText>
               </View>
             </View>
             <View style={styles.grid}>
@@ -126,7 +137,7 @@ export default function LikesScreen() {
                   key={`locked-${i}`}
                   style={styles.tile}
                   onPress={unlock}
-                  accessibilityLabel="Hidden like. Unlock with DateToday+"
+                  accessibilityLabel="Hidden like. Unlock with Premium"
                 >
                   {tile.blur ? (
                     <Image source={{ uri: tile.blur }} style={StyleSheet.absoluteFill} blurRadius={14} transition={150} />
@@ -171,37 +182,57 @@ const styles = ScaledSheet.create({
     padding: spacing.lg,
     borderRadius: radii.surface,
     borderWidth: 1,
-    borderColor: 'rgba(168,85,247,0.45)',
-    gap: 10,
+    borderColor: colors.border,
+    backgroundColor: colors.elevated,
+    gap: 14,
     marginBottom: spacing.md,
+    alignItems: 'center',
   },
-  plusPill: {
+  heroTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radii.pill,
-    backgroundColor: colors.brand,
-  },
-  plusPillText: {
-    color: colors.text,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
+    gap: 8,
+    alignSelf: 'stretch',
   },
   heroTitle: {
+    flex: 1,
     color: colors.text,
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '900',
     letterSpacing: -0.4,
   },
-  heroBody: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 15,
-    lineHeight: 21,
-    marginBottom: 4,
+  heroPreview: {
+    marginTop: 2,
+  },
+  heroAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.card,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  heroCaption: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  premiumCta: {
+    alignSelf: 'stretch',
+    minHeight: 52,
+    borderRadius: radii.pill,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  premiumCtaText: {
+    color: colors.black,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   section: {
     color: colors.textSecondary,

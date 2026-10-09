@@ -27,9 +27,6 @@ import { confirmBlockAndReport } from '@/features/safety/blockFlow';
 import { canStartPlan } from '@/features/live/planGate';
 import { useBlocksStore } from '@/store/blocks';
 import { usePrivacyControls } from '@/store/privacyControls';
-import { canMessageMatch, isOngoingConversation, recordMessagedMatch } from '@/lib/usage/dailyLimits';
-import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { isPlusActive } from '@/lib/entitlements';
 import {
   markMatchRead,
   otherUserId,
@@ -375,7 +372,6 @@ export default function ChatScreen() {
   const matchId = String(params.conversationId ?? '');
 
   const userId = useSessionStore((s) => s.userId) ?? '';
-  const entitlements = useSessionStore((s) => s.entitlements);
   const listRef = useRef<FlatList<ListItem>>(null);
   const nearBottomRef = useRef(true);
 
@@ -385,7 +381,6 @@ export default function ChatScreen() {
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
   const [respondingId, setRespondingId] = useState<string | null>(null);
-  const [messageLocked, setMessageLocked] = useState(false);
   const focusedRef = useRef(false);
   const outboxItems = useOutbox((s) => s.items);
 
@@ -416,23 +411,6 @@ export default function ChatScreen() {
       if (serverMessages.some((m) => m.id === o.id && !m.pending)) removeFromOutbox(o.id);
     }
   }, [serverMessages, outboxItems, matchId]);
-
-  const ongoing = useMemo(() => isOngoingConversation(serverMessages, userId), [serverMessages, userId]);
-  const ongoingRef = useRef(ongoing);
-  ongoingRef.current = ongoing;
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!matchId) return;
-      let alive = true;
-      void canMessageMatch(entitlements, matchId, { ongoing }).then((gate) => {
-        if (alive) setMessageLocked(!gate.ok);
-      });
-      return () => {
-        alive = false;
-      };
-    }, [matchId, entitlements, ongoing]),
-  );
 
   const theirId = match ? otherUserId(match, userId) : '';
   const them = match?.users[theirId];
@@ -566,8 +544,6 @@ export default function ChatScreen() {
     else router.replace('/(tabs)/dates');
   };
 
-  const entitlementsRef = useRef(entitlements);
-  entitlementsRef.current = entitlements;
   const lastSentRef = useRef<{ text: string; at: number }>({ text: '', at: 0 });
 
   /**
@@ -584,14 +560,6 @@ export default function ChatScreen() {
       lastSentRef.current = { text, at: now };
       stopTyping();
 
-      const ent = entitlementsRef.current;
-      const gate = await canMessageMatch(ent, matchId, { ongoing: ongoingRef.current });
-      if (!gate.ok) {
-        lastSentRef.current = { text: '', at: 0 };
-        setMessageLocked(true);
-        openUpgrade(router, 'message');
-        return false;
-      }
       nearBottomRef.current = true;
       const queued = await sendTextMessage(matchId, text);
       if (!queued) {
@@ -599,10 +567,9 @@ export default function ChatScreen() {
         Alert.alert('Message not sent', 'You’re signed out. Log in again and retry.');
         return false;
       }
-      if (!isPlusActive(ent)) await recordMessagedMatch(matchId);
       return true;
     },
-    [matchId, router, stopTyping],
+    [matchId, stopTyping],
   );
 
   const retryMessage = useCallback((message: MatchMessage) => {
@@ -636,11 +603,6 @@ export default function ChatScreen() {
 
   const themPhoto = them?.mainPhotoUrl ?? '';
   const openPlan = useCallback(() => {
-    // A date idea starts a conversation too, so it shares the free one-chat-a-day limit.
-    if (messageLocked) {
-      openUpgrade(router, 'message');
-      return;
-    }
     if (!canStartPlan(router)) return;
     router.push({
       pathname: '/dates/plan',
@@ -649,10 +611,9 @@ export default function ChatScreen() {
         photo: themPhoto,
         conversationId: matchId,
         mode: 'plan',
-        ongoing: ongoing ? '1' : '',
       },
     });
-  }, [router, theirName, themPhoto, matchId, messageLocked, ongoing]);
+  }, [router, theirName, themPhoto, matchId]);
 
   const openProfile = () => {
     if (!theirId) return;
@@ -965,33 +926,12 @@ export default function ChatScreen() {
           </Pressable>
         ) : null}
 
-        {messageLocked ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => openUpgrade(router, 'message')}
-            style={({ pressed }) => [
-              styles.lockedComposer,
-              { paddingBottom: Math.max(insets.bottom, 12) },
-              pressed && { opacity: 0.85 },
-            ]}
-          >
-            <Ionicons name="sparkles" size={rs(20)} color={colors.brandBright} />
-            <View style={styles.flex}>
-              <AppText style={styles.lockedTitle}>Message {theirName} with DateToday+</AppText>
-              <AppText style={styles.lockedBody}>
-                Free includes chatting with 1 person a day — you’ve already started today’s.
-              </AppText>
-            </View>
-            <Ionicons name="chevron-forward" size={rs(18)} color={colors.brandBright} />
-          </Pressable>
-        ) : (
-          <Composer
-            bottomPad={Math.max(insets.bottom, 12)}
-            onSend={sendBody}
-            onDraftChange={onDraftChange}
-            onBlur={stopTyping}
-          />
-        )}
+        <Composer
+          bottomPad={Math.max(insets.bottom, 12)}
+          onSend={sendBody}
+          onDraftChange={onDraftChange}
+          onBlur={stopTyping}
+        />
       </KeyboardAvoidingView>
     </Screen>
   );
@@ -1208,16 +1148,4 @@ const styles = ScaledSheet.create({
     fontSize: 16,
   },
   send: { minHeight: 48, width: 88, flexGrow: 0, flexShrink: 0 },
-  lockedComposer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: spacing.md,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(168,85,247,0.45)',
-    backgroundColor: 'rgba(124,58,237,0.14)',
-  },
-  lockedTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
-  lockedBody: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 2 },
 });

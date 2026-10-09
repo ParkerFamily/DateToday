@@ -55,8 +55,8 @@ Every live session **must expire** (max 12 hours). `is_live` is derived from an 
 
 ## Monetization (entitlement-driven)
 
-- **Free**: live, browse, limited pings/session, basic filters, chat, plan dates
-- **DateToday+**: unlimited pings, advanced filters, more received pings, extended radius, priority ranking, optional read receipts
+- **Free**: live, browse, send likes, all mutual matches, message matches, basic filters, plan dates; Liked You shows 1 preview
+- **DateToday+**: see everyone who liked you, advanced filters, extended radius, priority ranking, Travel Mode, optional read receipts
 - **Tonight Boost**: one-time, live-only ranking boost via Stripe (never hardcode price in business logic)
 
 ## What not to build

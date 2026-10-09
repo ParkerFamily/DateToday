@@ -22,8 +22,6 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { foodLabel } from '@/constants/tonightVibe';
 import { promptDisplayLabel } from '@/constants/videoPrompts';
 import { compareDiscoveryRank } from '@/lib/commerce/sessionCommerce';
-import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { canMatchToday } from '@/lib/usage/dailyLimits';
 import {
   applyDiscoverFilters,
   INTENT_OPTIONS,
@@ -51,7 +49,7 @@ import {
   subscribeActiveLiveSessions,
   updateMyLiveSession,
 } from '@/features/live/firestoreLive';
-import { isMatchLimitError, sendInterest, subscribeSentInterests } from '@/features/matches/api';
+import { sendInterest, subscribeSentInterests } from '@/features/matches/api';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { useHiddenUserMap } from '@/store/blocks';
 import { useDiscoverFilters } from '@/store/discoverFilters';
@@ -544,14 +542,10 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   /**
    * Moves on the instant you tap; the server answers in the background (match screen if mutual).
-   * False when nothing was sent (daily match limit), so a swipe can spring back.
+   * False when nothing was sent, so a swipe can spring back.
    */
   const onInterested = (): boolean => {
     if (!card) return false;
-    if (!canMatchToday(entitlements, useMatchesStore.getState().matches).ok) {
-      openUpgrade(router, 'match');
-      return false;
-    }
     const target = card;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     markHandled(target.userId);
@@ -582,10 +576,6 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         openMatch(target, result.matchId);
       } catch (error) {
         restoreCard(target.userId);
-        if (isMatchLimitError(error)) {
-          openUpgrade(router, 'match');
-          return;
-        }
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert('Could not send interest', friendlyError(error, 'Try again'));
       }

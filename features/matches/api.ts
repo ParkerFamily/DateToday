@@ -130,10 +130,6 @@ export function subscribeSentInterests(uid: string, onChange: (toUids: Set<strin
   };
 }
 
-export function isMatchLimitError(error: unknown): boolean {
-  return (error as { code?: string } | null)?.code === 'match_limit';
-}
-
 export type RevealedLike = {
   uid: string;
   displayName: string;
