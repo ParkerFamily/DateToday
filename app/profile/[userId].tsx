@@ -27,13 +27,11 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { useMatchesStore } from '@/store/matches';
 import { useBlocksStore } from '@/store/blocks';
-import { isMatchLimitError, sendInterest } from '@/features/matches/api';
+import { sendInterest } from '@/features/matches/api';
 import { confirmBlockAndReport } from '@/features/safety/blockFlow';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { getDb } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
-import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { canMatchToday } from '@/lib/usage/dailyLimits';
 import { calculateAge } from '@/utils/time';
 import type { Profile } from '@/types';
 import { useContentLayout } from '@/lib/layout';
@@ -154,11 +152,6 @@ export default function PublicProfileScreen() {
 
   const onInterested = async () => {
     if (!profile || !userId) return;
-    const { entitlements } = useSessionStore.getState();
-    if (!canMatchToday(entitlements, useMatchesStore.getState().matches).ok) {
-      openUpgrade(router, 'match');
-      return;
-    }
     setSendingInterest(true);
     try {
       void registerPushTokenAsync({ prompt: true });
@@ -180,10 +173,6 @@ export default function PublicProfileScreen() {
       }
       setInterestSent(true);
     } catch (error) {
-      if (isMatchLimitError(error)) {
-        openUpgrade(router, 'match');
-        return;
-      }
       Alert.alert('Couldn’t send interest', friendlyError(error, 'Try again.'));
     } finally {
       setSendingInterest(false);

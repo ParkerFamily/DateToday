@@ -151,7 +151,7 @@ export default function PaywallScreen() {
   })();
 
   const finishUnlocked = (title = 'DateToday+ unlocked') => {
-    Alert.alert(title, 'Unlimited matches, messages and Advanced Filters are ready.', [
+    Alert.alert(title, 'Liked You, Advanced Filters, Travel Mode and Priority Pool are ready.', [
       { text: 'OK', onPress: () => router.back() },
     ]);
   };

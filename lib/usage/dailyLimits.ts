@@ -1,59 +1,11 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  conversationAllowance,
-  matchAllowance,
-  type EntitlementState,
-} from '@/lib/entitlements';
-
-const STORAGE_KEY = 'datetoday.dailyUsage.v2';
-
-export type DailyUsageSnapshot = {
-  /** Local calendar day YYYY-MM-DD */
-  day: string;
-  /** Matches the user has sent a message in today. */
-  messagedMatchIds: string[];
-};
+import type { EntitlementState } from '@/lib/entitlements';
 
 export type LimitCheck = { ok: true } | { ok: false; limit: number };
-
-function todayKey(now = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
 
 function startOfToday(now = new Date()): number {
   const d = new Date(now);
   d.setHours(0, 0, 0, 0);
   return d.getTime();
-}
-
-let cache: DailyUsageSnapshot | null = null;
-
-async function read(): Promise<DailyUsageSnapshot> {
-  const day = todayKey();
-  if (cache && cache.day === day) return cache;
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Partial<DailyUsageSnapshot>) : null;
-    cache =
-      parsed?.day === day && Array.isArray(parsed.messagedMatchIds)
-        ? { day, messagedMatchIds: parsed.messagedMatchIds.map(String) }
-        : { day, messagedMatchIds: [] };
-  } catch {
-    cache = { day, messagedMatchIds: [] };
-  }
-  return cache;
-}
-
-async function write(next: DailyUsageSnapshot): Promise<void> {
-  cache = next;
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => undefined);
-}
-
-export async function getDailyUsage(): Promise<DailyUsageSnapshot> {
-  return read();
 }
 
 /** Matches created since local midnight (includes ones the other person completed). */
@@ -65,32 +17,21 @@ export function matchesCreatedToday(
   return matches.filter((m) => (m.createdAt?.getTime() ?? 0) >= since).length;
 }
 
-/** Free: one new match a day. Checked before sending a heart that could complete a match. */
+/** Matching is free for everyone. Kept as a gate helper so call sites stay simple. */
 export function canMatchToday(
-  entitlements: EntitlementState,
-  matches: readonly { createdAt: Date | null }[],
+  _entitlements: EntitlementState,
+  _matches: readonly { createdAt: Date | null }[],
 ): LimitCheck {
-  const limit = matchAllowance(entitlements);
-  if (limit === 'unlimited') return { ok: true };
-  return matchesCreatedToday(matches) < limit ? { ok: true } : { ok: false, limit };
+  return { ok: true };
 }
 
-/**
- * Free: start one new conversation a day — unlimited messages within it. Replying (they wrote
- * first) or continuing a conversation from an earlier day is never limited.
- */
+/** Messaging matches is free — no second paywall after a mutual match. */
 export async function canMessageMatch(
-  entitlements: EntitlementState,
-  matchId: string,
-  opts: { ongoing?: boolean } = {},
+  _entitlements: EntitlementState,
+  _matchId: string,
+  _opts: { ongoing?: boolean } = {},
 ): Promise<LimitCheck> {
-  const limit = conversationAllowance(entitlements);
-  if (limit === 'unlimited' || opts.ongoing) return { ok: true };
-  const usage = await read();
-  if (usage.messagedMatchIds.includes(matchId) || usage.messagedMatchIds.length < limit) {
-    return { ok: true };
-  }
-  return { ok: false, limit };
+  return { ok: true };
 }
 
 /** True when the other person has written, or the conversation started before today. */
@@ -105,10 +46,9 @@ export function isOngoingConversation(
   );
 }
 
-export async function recordMessagedMatch(matchId: string): Promise<void> {
-  const usage = await read();
-  if (usage.messagedMatchIds.includes(matchId)) return;
-  await write({ ...usage, messagedMatchIds: [...usage.messagedMatchIds, matchId] });
+/** @deprecated Matching/messaging are free; no-op kept for older call sites. */
+export async function recordMessagedMatch(_matchId: string): Promise<void> {
+  return;
 }
 
 /** MM:SS when under 1h, else HH:MM:SS. */

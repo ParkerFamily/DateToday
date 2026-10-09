@@ -3,17 +3,9 @@ import * as Haptics from 'expo-haptics';
 
 type Router = ReturnType<typeof useRouter>;
 
-export type UpgradeReason = 'match' | 'message' | 'filters' | 'likes' | 'travel';
+export type UpgradeReason = 'filters' | 'likes' | 'travel';
 
 export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; body: string }> = {
-  match: {
-    title: 'You’ve got today’s free match ✦',
-    body: 'Free includes 1 match a day. Keep matching tonight — unlimited with DateToday+.',
-  },
-  message: {
-    title: 'Talk to everyone you match ✦',
-    body: 'Free includes chatting with 1 person a day. Message all your matches with DateToday+.',
-  },
   filters: {
     title: 'Find exactly your type ✦',
     body: 'Age, intent, height, lifestyle and more — Advanced Filters come with DateToday+.',
@@ -27,8 +19,8 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
     body: 'See who’s out tonight in the city you’re headed to. Plan your night before you land with DateToday+.',
   },
   default: {
-    title: 'More matches. More conversation. ✦',
-    body: 'Unlimited matches and messages — so you can actually go out tonight.',
+    title: 'See who likes you. Fine-tune discovery. ✦',
+    body: 'Liked You, Advanced Filters, Travel Mode, and Priority Pool — so you can actually go out tonight.',
   },
 };
 

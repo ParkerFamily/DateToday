@@ -1,14 +1,8 @@
 /**
- * DateToday+ commerce + free allowances.
- * Going live is free and untimed; the free meter is people, not minutes.
+ * DateToday+ commerce.
+ * Matching and messaging matches are free; Plus is Liked You, filters, Travel Mode, Priority Pool.
  */
 export const commerceConfig = {
-  /** Free new matches per calendar day (local). */
-  freeMatchesPerDay: 1,
-
-  /** Free distinct people you can message per calendar day (local). */
-  freeConversationsPerDay: 1,
-
   /** RevenueCat entitlement for DateToday+ */
   plusEntitlementId: 'datetoday_pro',
 

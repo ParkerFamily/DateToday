@@ -34,15 +34,15 @@ export const FREE_MAX_RADIUS = 25;
 export const FREE_FILTER_FEATURES = [
   { label: 'See all mutual matches', locked: false },
   { label: 'Message your matches', locked: false },
-  { label: 'Limited daily likes sent', locked: false },
+  { label: 'Send likes', locked: false },
   { label: 'See who liked you first', locked: true },
 ] as const;
 
-/** Paywall Premium column — other Plus perks roll up so Liked You stays the headline. */
+/** Paywall Premium column — Liked You is the headline; filters/Travel/etc. roll up. */
 export const PLUS_FILTER_FEATURES = [
   'See everyone who liked you',
-  'Unlimited likes sent',
-  'All other premium features',
+  'Advanced filters & After Hours',
+  'Travel Mode, Priority Pool & more',
 ] as const;
 
 /** @deprecated emoji map kept for any residual display helpers */
