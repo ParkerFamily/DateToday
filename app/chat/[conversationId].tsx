@@ -636,6 +636,11 @@ export default function ChatScreen() {
 
   const themPhoto = them?.mainPhotoUrl ?? '';
   const openPlan = useCallback(() => {
+    // A date idea starts a conversation too, so it shares the free one-chat-a-day limit.
+    if (messageLocked) {
+      openUpgrade(router, 'message');
+      return;
+    }
     if (!canStartPlan(router)) return;
     router.push({
       pathname: '/dates/plan',
@@ -644,9 +649,10 @@ export default function ChatScreen() {
         photo: themPhoto,
         conversationId: matchId,
         mode: 'plan',
+        ongoing: ongoing ? '1' : '',
       },
     });
-  }, [router, theirName, themPhoto, matchId]);
+  }, [router, theirName, themPhoto, matchId, messageLocked, ongoing]);
 
   const openProfile = () => {
     if (!theirId) return;

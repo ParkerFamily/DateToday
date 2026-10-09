@@ -133,6 +133,9 @@ const DEMO_CARDS: DiscoveryCard[] = DEMO_VIDEO_PROMPTS.map((p, i) => ({
 }));
 
 /** Main photo, then videos interleaved with the remaining photos. */
+/** Hot pink for "they already liked you", so it reads differently from the purple Live styling. */
+const LIKES_YOU = '#EC4899';
+
 function carouselItemsFor(card: DiscoveryCard): CarouselItem[] {
   const photos: CarouselItem[] = (
     card.photoUrls?.length ? card.photoUrls : card.mainPhotoUrl ? [card.mainPhotoUrl] : []
@@ -225,6 +228,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     () => new Set(matchedKey ? matchedKey.split(',') : []),
     [matchedKey],
   );
+  // Only likes the server already revealed to this member (all with DateToday+), so nothing locked leaks.
+  const likedMeKey = useMatchesStore((s) =>
+    (s.likes?.revealed ?? [])
+      .map((l) => l.uid)
+      .sort()
+      .join(','),
+  );
+  const likedMe = useMemo(() => new Set(likedMeKey ? likedMeKey.split(',') : []), [likedMeKey]);
   const liveSession = useSessionStore((s) => s.liveSession);
   const discoveryPaused = useSessionStore((s) => s.discoveryPaused);
   const setDiscoverAttention = useSessionStore((s) => s.setDiscoverAttention);
@@ -368,6 +379,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
     // Live now, then free later tonight, then nearby people who aren't live.
     const sorted = [...shown].sort((a, b) => {
+      const la = likedMe.has(a.userId) ? 0 : 1;
+      const lb = likedMe.has(b.userId) ? 0 : 1;
+      if (la !== lb) return la - lb;
       const ta = feedTier(a);
       const tb = feedTier(b);
       if (ta !== tb) return ta - tb;
@@ -390,7 +404,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     const back = rewoundId ? pool.find((c) => c.userId === rewoundId) : undefined;
     const ordered = back ? [back, ...sorted.filter((c) => c.userId !== back.userId)] : sorted;
     return { cards: ordered, outsideFilters: outside.length > 0 };
-  }, [pool, filters, cardScores, priorityPool, plusFoods, myInterests, rewoundId]);
+  }, [pool, filters, cardScores, priorityPool, plusFoods, myInterests, rewoundId, likedMe]);
 
   /** Most recent pass that's still in the feed (they may have gone offline or matched since). */
   const rewindTo = useMemo(() => {
@@ -446,6 +460,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const matched = card ? matchedFilterLabels(card, filters, { plus: plusFoods, myInterests }) : [];
   const tier = card ? feedTier(card) : 0;
   const tonight = tier !== 2;
+  const likesMe = card ? likedMe.has(card.userId) : false;
   const activity = card && !tonight ? activityStatus(card) : null;
   const intentLabel = card
     ? INTENT_OPTIONS.find((o) => o.value === card.datingIntention)?.label ?? null
@@ -1031,15 +1046,21 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                     <>
                       <LinearGradient
                         colors={
-                          tonight
-                            ? ['rgba(124,58,237,0.22)', 'rgba(20,8,36,0)', 'rgba(16,6,30,0.97)']
-                            : ['transparent', 'rgba(5,5,6,0.1)', 'rgba(5,5,6,0.96)']
+                          likesMe
+                            ? ['rgba(236,72,153,0.3)', 'rgba(36,8,24,0)', 'rgba(26,6,20,0.97)']
+                            : tonight
+                              ? ['rgba(124,58,237,0.22)', 'rgba(20,8,36,0)', 'rgba(16,6,30,0.97)']
+                              : ['transparent', 'rgba(5,5,6,0.1)', 'rgba(5,5,6,0.96)']
                         }
                         locations={[0, 0.45, 1]}
                         style={styles.fade}
                         pointerEvents="none"
                       />
-                      {tonight ? <View style={styles.tonightFrame} pointerEvents="none" /> : null}
+                      {likesMe ? (
+                        <View style={styles.likesYouFrame} pointerEvents="none" />
+                      ) : tonight ? (
+                        <View style={styles.tonightFrame} pointerEvents="none" />
+                      ) : null}
                       <View style={[styles.topBar, { top: rs(20) }]} pointerEvents="box-none">
                         {showClose ? (
                           <CloseButton onPress={() => dismissToLive(router)} />
@@ -1073,6 +1094,17 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                         </View>
                       ) : null}
                       <View style={styles.heroMeta} pointerEvents="box-none">
+                        {likesMe ? (
+                          <View style={styles.likesYouPill} accessibilityLabel={`${card.displayName} likes you`}>
+                            <Ionicons name="heart" size={rs(15)} color="#fff" />
+                            <AppText style={styles.likesYouText} numberOfLines={1}>
+                              LIKES YOU
+                            </AppText>
+                            <AppText style={[styles.likesYouSub, styles.shrinkText]} numberOfLines={1}>
+                              Heart back to match
+                            </AppText>
+                          </View>
+                        ) : null}
                         {compat?.cue ? (
                           <View style={styles.compatCue}>
                             <AppText style={styles.compatText}>{compat.cue}</AppText>
@@ -1297,12 +1329,12 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             <Ionicons name="close" size={rs(32)} color={colors.text} />
           </Pressable>
           <Pressable
-            accessibilityLabel="Interested"
+            accessibilityLabel={likesMe ? 'Like back and match' : 'Interested'}
             accessibilityRole="button"
             onPress={onInterested}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             android_ripple={{ color: 'rgba(255,255,255,0.3)', radius: 36 }}
-            style={({ pressed }) => [styles.likeBtn, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.likeBtn, likesMe && styles.likeBtnHot, pressed && styles.pressed]}
           >
             <Ionicons name="heart" size={rs(30)} color={colors.text} />
           </Pressable>
@@ -1602,6 +1634,42 @@ const styles = ScaledSheet.create({
     ...StyleSheet.absoluteFill,
     borderWidth: 2,
     borderColor: 'rgba(168,85,247,0.85)',
+  },
+  likesYouFrame: {
+    ...StyleSheet.absoluteFill,
+    borderWidth: 3,
+    borderColor: LIKES_YOU,
+    shadowColor: LIKES_YOU,
+    shadowOpacity: 0.9,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  likesYouPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    backgroundColor: LIKES_YOU,
+    shadowColor: LIKES_YOU,
+    shadowOpacity: 0.85,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    ...androidGlow(LIKES_YOU, 0.85, 12),
+    marginBottom: 2,
+  },
+  likesYouText: { color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 1 },
+  likesYouSub: { color: 'rgba(255,255,255,0.92)', fontSize: 13, fontWeight: '700' },
+  likeBtnHot: {
+    backgroundColor: LIKES_YOU,
+    shadowColor: LIKES_YOU,
+    shadowOpacity: 0.85,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
+    ...androidGlow(LIKES_YOU, 0.85, 18),
   },
   tonightBadge: {
     flexDirection: 'row',

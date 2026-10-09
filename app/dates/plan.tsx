@@ -21,6 +21,9 @@ import {
 } from '@/features/plan/when';
 import { useMatchesStore } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
+import { canMessageMatch, recordMessagedMatch } from '@/lib/usage/dailyLimits';
+import { openUpgrade } from '@/lib/commerce/upgradePrompt';
+import { isPlusActive } from '@/lib/entitlements';
 import { repairStorageUrl } from '@/utils/photoUrl';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -85,6 +88,8 @@ export default function PlanDateScreen() {
     food?: string;
     mode?: string;
     conversationId?: string;
+    /** '1' when they already wrote or the chat started before today. */
+    ongoing?: string;
   }>();
   const theirName = displayName(params.name ?? 'them');
   const myPhoto = useSessionStore((s) => s.profile?.mainPhotoUrl ?? null);
@@ -160,6 +165,12 @@ export default function PlanDateScreen() {
       Alert.alert('Open a chat first', 'Plans are sent inside a chat with your match.');
       return;
     }
+    const ent = useSessionStore.getState().entitlements;
+    const gate = await canMessageMatch(ent, matchId, { ongoing: params.ongoing === '1' });
+    if (!gate.ok) {
+      openUpgrade(router, 'message');
+      return;
+    }
     setSending(true);
     try {
       await proposeDate(matchId, {
@@ -173,6 +184,7 @@ export default function PlanDateScreen() {
         venueLat: place.lat,
         venueLng: place.lng,
       });
+      if (!isPlusActive(ent)) await recordMessagedMatch(matchId);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (router.canGoBack()) router.back();
       else router.replace({ pathname: '/chat/[conversationId]', params: { conversationId: matchId } });
