@@ -704,6 +704,7 @@ const CHANNEL_FOR_TYPE = {
   date_proposal: 'dates',
   date_accepted: 'dates',
   date_declined: 'dates',
+  date_canceled: 'dates',
   reminder: 'dates',
   verification: 'system',
   security: 'system',
@@ -731,6 +732,7 @@ const PREF_FOR_TYPE = {
   date_proposal: 'dateRequests',
   date_accepted: 'dateUpdates',
   date_declined: 'dateUpdates',
+  date_canceled: 'dateUpdates',
   reminder: 'reminders',
   promotion: 'promotions',
   live_ending: 'reminders',
@@ -842,6 +844,7 @@ const TTL_FOR_TYPE = {
   date_proposal: 7 * 24 * 60 * 60,
   date_accepted: 7 * 24 * 60 * 60,
   date_declined: 7 * 24 * 60 * 60,
+  date_canceled: 2 * 24 * 60 * 60,
   interest: 2 * 24 * 60 * 60,
   // Live pushes are only useful right now; drop them rather than deliver late.
   live_ending: 15 * 60,
@@ -1672,7 +1675,54 @@ exports.onMatchMessageCreated = onDocumentCreated(
   },
 );
 
-/** Date proposal answered → notify the proposer; accepted dates show on the match. */
+/** A confirmed date was called off → clear it from the match and tell the other person. */
+async function handleDateCanceled(event, after) {
+  const { matchId, messageId } = event.params;
+  const db = getFirestore();
+  const matchRef = db.collection('matches').doc(matchId);
+  const cancelerId = after.canceledBy;
+  const summary = proposalSummary(after.proposal).slice(0, 140);
+
+  const outcome = await db.runTransaction(async (tx) => {
+    const marker = eventMarker(db, event.id);
+    const [markSnap, matchSnap] = await Promise.all([tx.get(marker), tx.get(matchRef)]);
+    if (markSnap.exists || !matchSnap.exists) return null;
+    const match = matchSnap.data();
+    const otherId = (match.userIds || []).find((u) => u !== cancelerId);
+    if (!otherId || !(match.userIds || []).includes(cancelerId)) return null;
+    markEvent(tx, marker);
+    tx.update(matchRef, {
+      lastMessage: {
+        text: `Date canceled: ${summary}`.slice(0, 140),
+        senderId: cancelerId,
+        type: 'date_response',
+        messageId,
+        createdAt: Timestamp.now(),
+      },
+      lastActivityAt: FieldValue.serverTimestamp(),
+      [`unread.${otherId}`]: FieldValue.increment(1),
+      ...(match.nextDate && match.nextDate.messageId === messageId ? { nextDate: null } : {}),
+    });
+    return { match, otherId };
+  });
+  if (!outcome) return;
+  const { match, otherId } = outcome;
+  const cancelerName = match.users?.[cancelerId]?.displayName || 'Your match';
+
+  await Promise.all([
+    pushToUser(db, otherId, {
+      title: `${cancelerName} canceled your date`,
+      body: `${summary}. Suggest another time in the chat.`.slice(0, 180),
+      data: { type: 'date_canceled', matchId, url: `/chat/${matchId}` },
+      badge: await unreadTotal(db, otherId),
+    }),
+    emailFlows
+      .emailDateCanceled(db, getAuth(), { matchId, messageId, match, proposal: after.proposal, canceledBy: cancelerId })
+      .catch((e) => console.warn('date canceled email failed', e && e.message)),
+  ]);
+}
+
+/** Date proposal answered or a confirmed date canceled → notify; accepted dates show on the match. */
 exports.onMatchMessageUpdated = onDocumentUpdated(
   'matches/{matchId}/messages/{messageId}',
   async (event) => {
@@ -1680,6 +1730,10 @@ exports.onMatchMessageUpdated = onDocumentUpdated(
     const after = event.data && event.data.after.data();
     if (!before || !after || after.type !== 'date_proposal') return;
     if (before.status === after.status) return;
+    if (before.status === 'accepted' && after.status === 'canceled') {
+      await handleDateCanceled(event, after);
+      return;
+    }
     if (after.status !== 'accepted' && after.status !== 'declined') return;
 
     const { matchId, messageId } = event.params;
@@ -1730,12 +1784,19 @@ exports.onMatchMessageUpdated = onDocumentUpdated(
       ).catch((e) => console.warn('lastPlanAt failed', e && e.message));
     }
 
-    await pushToUser(db, proposerId, {
-      title: accepted ? `${responderName} said yes!` : `${responderName} passed on that plan`,
-      body: accepted ? `It’s a date: ${summary}` : 'Suggest another time or place in the chat.',
-      data: { type: accepted ? 'date_accepted' : 'date_declined', matchId, url: `/chat/${matchId}` },
-      badge: await unreadTotal(db, proposerId),
-    });
+    await Promise.all([
+      pushToUser(db, proposerId, {
+        title: accepted ? `${responderName} said yes!` : `${responderName} passed on that plan`,
+        body: accepted ? `It’s a date: ${summary}` : 'Suggest another time or place in the chat.',
+        data: { type: accepted ? 'date_accepted' : 'date_declined', matchId, url: `/chat/${matchId}` },
+        badge: await unreadTotal(db, proposerId),
+      }),
+      accepted
+        ? emailFlows
+            .emailDateConfirmed(db, getAuth(), { matchId, messageId, match, proposal: after.proposal })
+            .catch((e) => console.warn('date confirmed email failed', e && e.message))
+        : null,
+    ]);
   },
 );
 

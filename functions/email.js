@@ -182,7 +182,7 @@ async function categoryEnabled(db, uid, category) {
  * `category`: 'security' | 'account' | 'activity' | 'news'. Activity/news honor preferences and
  * carry one-click unsubscribe headers.
  */
-async function sendEmail(db, { to, uid, category = 'account', idempotencyKey, subject, ...content }) {
+async function sendEmail(db, { to, uid, category = 'account', idempotencyKey, subject, attachments, ...content }) {
   const email = normEmail(to);
   if (!apiKey()) return { sent: false, reason: 'not_configured' };
   if (!looksLikeEmail(email)) return { sent: false, reason: 'bad_address' };
@@ -203,6 +203,7 @@ async function sendEmail(db, { to, uid, category = 'account', idempotencyKey, su
     tags: [{ name: 'category', value: category }],
   };
   if (process.env.RESEND_REPLY_TO) body.reply_to = process.env.RESEND_REPLY_TO;
+  if (Array.isArray(attachments) && attachments.length) body.attachments = attachments;
   if (unsubscribe) {
     body.headers = { 'List-Unsubscribe': `<${unsubscribe}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
   }
@@ -311,6 +312,30 @@ const T = {
     heading: 'It’s a match!',
     paragraphs: [`You and ${name} are into each other. Say hey and make a plan for tonight.`],
     cta: { label: 'Say hey', url: openAppUrl(matchId ? `/chat/${matchId}` : '/dates') },
+  }),
+  dateConfirmed: ({ name, when, where, activity, matchId }) => ({
+    subject: `It’s a date with ${name}`,
+    preheader: [activity, when].filter(Boolean).join(' · ') || 'Your plan is confirmed.',
+    heading: `It’s a date with ${name}!`,
+    paragraphs: [
+      ...(activity ? [`What: ${activity}`] : []),
+      ...(when ? [`When: ${when}`] : []),
+      ...(where ? [`Where: ${where}`] : []),
+      'Open the attached invite to add it to your calendar. Meet somewhere public and tell a friend your plans.',
+    ],
+    cta: { label: 'Open chat', url: openAppUrl(matchId ? `/chat/${matchId}` : '/dates') },
+    footerNote: `Plans changed? Cancel the date from your chat so ${name} knows.`,
+  }),
+  dateCanceled: ({ name, when, where, matchId }) => ({
+    subject: `${name} canceled your date`,
+    preheader: [where, when].filter(Boolean).join(' · ') || 'Your plan is off.',
+    heading: 'Your date was canceled',
+    paragraphs: [
+      `${name} canceled your date${where ? ` at ${where}` : ''}${when ? ` (${when})` : ''}.`,
+      'Plans change — you can suggest another time or place in the chat.',
+      'If you added it to your calendar, open the attached file to remove it.',
+    ],
+    cta: { label: 'Open chat', url: openAppUrl(matchId ? `/chat/${matchId}` : '/dates') },
   }),
   likesDigest: (count) => ({
     subject: count === 1 ? 'Someone liked you on DateToday' : `${count} people liked you on DateToday`,

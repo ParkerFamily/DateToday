@@ -74,3 +74,27 @@ test('every template renders', () => {
   }
   assert.match(email.T.likesDigest(3).subject, /3 people/);
 });
+
+test('date emails show local time and the right people', () => {
+  const { dateDetails } = require('./emailFlows');
+  const d = dateDetails({
+    activityLabel: '🍽 Dinner',
+    startsAt: '2026-10-10T00:00:00.000Z',
+    timeZone: 'America/New_York',
+    venueName: 'Ria’s',
+    venueAddress: '1 Main St',
+    whenLabel: 'Tonight 8pm',
+  });
+  assert.equal(d.when, 'Friday, Oct 9 at 8:00 PM');
+  assert.equal(d.where, 'Ria’s, 1 Main St');
+  assert.equal(d.activity, 'Dinner');
+  assert.equal(dateDetails({ whenLabel: 'Tonight 8pm', timeZone: 'Not/AZone', startsAt: '2026-10-10T00:00:00Z' }).when, 'Tonight 8pm');
+
+  const confirmed = email.T.dateConfirmed({ name: 'Vito', ...d, matchId: 'm1' });
+  assert.equal(confirmed.subject, 'It’s a date with Vito');
+  assert.ok(confirmed.paragraphs.includes('When: Friday, Oct 9 at 8:00 PM'));
+  assert.match(confirmed.cta.url, /chat%2Fm1/);
+  const canceled = email.T.dateCanceled({ name: 'Vito', when: d.when, where: 'Ria’s', matchId: 'm1' });
+  assert.equal(canceled.subject, 'Vito canceled your date');
+  assert.match(canceled.paragraphs[0], /Vito canceled your date at Ria’s \(Friday, Oct 9 at 8:00 PM\)/);
+});

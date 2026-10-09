@@ -48,27 +48,34 @@ function eventFor(proposal, otherName) {
   };
 }
 
-function buildIcs(ev, uid, now = Date.now()) {
+/** Same plan → same calendar UID per person, so re-adding updates and a cancel removes it. */
+function eventUidFor(matchId, messageId, uid) {
+  return crypto.createHash('sha1').update(`${matchId}/${messageId}/${uid}`).digest('hex');
+}
+
+function buildIcs(ev, uid, now = Date.now(), { canceled = false } = {}) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//DateToday//Dates//EN',
     'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
+    canceled ? 'METHOD:CANCEL' : 'METHOD:PUBLISH',
     'BEGIN:VEVENT',
     `UID:${uid}@datetoday.app`,
     `DTSTAMP:${icsTime(now)}`,
     `DTSTART:${icsTime(ev.start)}`,
     `DTEND:${icsTime(ev.end)}`,
-    `SUMMARY:${icsEscape(ev.title)}`,
+    `SUMMARY:${icsEscape(canceled ? `Canceled: ${ev.title}` : ev.title)}`,
     ev.location ? `LOCATION:${icsEscape(ev.location)}` : null,
     ev.lat != null && ev.lng != null ? `GEO:${ev.lat};${ev.lng}` : null,
     `DESCRIPTION:${icsEscape(ev.notes)}`,
-    'BEGIN:VALARM',
-    'ACTION:DISPLAY',
-    `DESCRIPTION:${icsEscape(ev.title)}`,
-    'TRIGGER:-PT1H',
-    'END:VALARM',
+    canceled ? 'STATUS:CANCELLED' : 'STATUS:CONFIRMED',
+    canceled ? 'SEQUENCE:1' : 'SEQUENCE:0',
+    canceled ? null : 'BEGIN:VALARM',
+    canceled ? null : 'ACTION:DISPLAY',
+    canceled ? null : `DESCRIPTION:${icsEscape(ev.title)}`,
+    canceled ? null : 'TRIGGER:-PT1H',
+    canceled ? null : 'END:VALARM',
     'END:VEVENT',
     'END:VCALENDAR',
   ].filter(Boolean);
@@ -109,8 +116,7 @@ async function createCalendarLink(req, res, { db, requireUser, publicUrl }) {
     const ev = eventFor(msg.proposal, String(otherName).split(/\s+/)[0]);
     if (!ev) return res.status(409).json({ error: 'This plan has no time set.' });
 
-    // Same plan → same calendar UID per person, so adding twice updates instead of duplicating.
-    const eventUid = crypto.createHash('sha1').update(`${matchId}/${messageId}/${decoded.uid}`).digest('hex');
+    const eventUid = eventUidFor(matchId, messageId, decoded.uid);
     const token = crypto.randomBytes(18).toString('base64url');
     await db.collection('calendarEvents').doc(token).set({
       uid: decoded.uid,
@@ -139,4 +145,12 @@ async function calendarEvent(req, res, { db }) {
   return res.status(200).send(d.ics);
 }
 
-module.exports = { buildIcs, calendarEvent, createCalendarLink, eventFor, googleCalendarUrl, icsEscape };
+module.exports = {
+  buildIcs,
+  calendarEvent,
+  createCalendarLink,
+  eventFor,
+  eventUidFor,
+  googleCalendarUrl,
+  icsEscape,
+};

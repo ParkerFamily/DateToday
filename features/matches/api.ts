@@ -31,6 +31,8 @@ export type DateProposal = {
   /** ISO start time; whenLabel stays the human-readable copy. */
   startsAt?: string | null;
   note?: string | null;
+  /** Planner's IANA zone, so emails can show the local time. */
+  timeZone?: string | null;
 };
 
 export type MatchDoc = {
@@ -50,8 +52,9 @@ export type MatchMessage = {
   type: 'text' | 'date_proposal';
   text?: string;
   proposal?: DateProposal;
-  status?: 'proposed' | 'accepted' | 'declined';
+  status?: 'proposed' | 'accepted' | 'declined' | 'canceled';
   respondedBy?: string;
+  canceledBy?: string;
   createdAt: Date | null;
   /** Still only on this device; the server hasn't confirmed it yet. */
   pending?: boolean;
@@ -276,6 +279,7 @@ export function subscribeMessages(
             proposal: (data.proposal as DateProposal) ?? undefined,
             status: data.status as MatchMessage['status'],
             respondedBy: data.respondedBy as string | undefined,
+            canceledBy: data.canceledBy as string | undefined,
             createdAt: toDate(data.createdAt),
             pending: d.metadata.hasPendingWrites,
           };
@@ -316,11 +320,19 @@ function cleanProposal(p: DateProposal): DateProposal {
   return out as DateProposal;
 }
 
+function deviceTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function proposeDate(matchId: string, proposal: DateProposal) {
   await addDoc(collection(getDb(), 'matches', matchId, 'messages'), {
     senderId: requireUid(),
     type: 'date_proposal',
-    proposal: cleanProposal(proposal),
+    proposal: cleanProposal({ timeZone: deviceTimeZone(), ...proposal }),
     status: 'proposed',
     createdAt: serverTimestamp(),
   });
@@ -331,6 +343,15 @@ export async function respondToDate(matchId: string, messageId: string, status: 
     status,
     respondedBy: requireUid(),
     respondedAt: serverTimestamp(),
+  });
+}
+
+/** Call off a confirmed date; the other person gets a push and an email. */
+export async function cancelDate(matchId: string, messageId: string) {
+  await updateDoc(doc(getDb(), 'matches', matchId, 'messages', messageId), {
+    status: 'canceled',
+    canceledBy: requireUid(),
+    canceledAt: serverTimestamp(),
   });
 }
 

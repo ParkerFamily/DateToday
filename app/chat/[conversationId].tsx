@@ -35,6 +35,7 @@ import {
   otherUserId,
   proposalSummary,
   respondToDate,
+  cancelDate,
   setTyping,
   subscribeMatch,
   subscribeMessages,
@@ -236,6 +237,7 @@ const MessageRow = memo(function MessageRow({
   matchId,
   message,
   mine,
+  myId,
   theirName,
   receipt,
   responding,
@@ -246,10 +248,11 @@ const MessageRow = memo(function MessageRow({
   matchId: string;
   message: MatchMessage;
   mine: boolean;
+  myId: string | undefined;
   theirName: string;
   receipt: string | null;
   responding: boolean;
-  onRespond: (message: MatchMessage, status: 'accepted' | 'declined') => Promise<void>;
+  onRespond: (message: MatchMessage, status: 'accepted' | 'declined' | 'canceled') => Promise<void>;
   onPlan: () => void;
   onRetry: (message: MatchMessage) => void;
 }) {
@@ -305,12 +308,31 @@ const MessageRow = memo(function MessageRow({
               />
             </View>
           )
-        ) : (
-          <AppText
-            style={[styles.proposalStatus, message.status === 'declined' && styles.proposalDeclined]}
-          >
-            {message.status === 'accepted' ? 'It’s a date ⚡' : 'Declined'}
+        ) : message.status === 'canceled' ? (
+          <AppText style={[styles.proposalStatus, styles.proposalDeclined]}>
+            {message.canceledBy && message.canceledBy === myId
+              ? 'You canceled this date'
+              : `${theirName} canceled this date`}
           </AppText>
+        ) : (
+          <View style={styles.proposalLinks}>
+            <AppText
+              style={[styles.proposalStatus, message.status === 'declined' && styles.proposalDeclined]}
+            >
+              {message.status === 'accepted' ? 'It’s a date ⚡' : 'Declined'}
+            </AppText>
+            {message.status === 'accepted' && !expired && !message.pending ? (
+              <Pressable
+                hitSlop={8}
+                disabled={responding}
+                onPress={() => void onRespond(message, 'canceled')}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel this date"
+              >
+                <AppText style={styles.proposalCancel}>Cancel date</AppText>
+              </Pressable>
+            ) : null}
+          </View>
         )}
       </View>
     );
@@ -338,6 +360,7 @@ const MessageRow = memo(function MessageRow({
   a.message.status === b.message.status &&
   a.message.failed === b.message.failed &&
   a.mine === b.mine &&
+  a.myId === b.myId &&
   a.theirName === b.theirName &&
   a.receipt === b.receipt &&
   a.responding === b.responding &&
@@ -630,8 +653,32 @@ export default function ChatScreen() {
     router.push({ pathname: '/profile/[userId]', params: { userId: theirId, fromMatch: '1' } });
   };
 
+  const cancelPlannedDate = useCallback(
+    (message: MatchMessage) =>
+      new Promise<void>((resolve) => {
+        Alert.alert('Cancel this date?', `${theirName} will get a notification that it’s off.`, [
+          { text: 'Keep it', style: 'cancel', onPress: () => resolve() },
+          {
+            text: 'Cancel date',
+            style: 'destructive',
+            onPress: () => {
+              setRespondingId(message.id);
+              cancelDate(matchId, message.id)
+                .catch((error) => Alert.alert('Couldn’t cancel the date', friendlyError(error, 'Try again.')))
+                .finally(() => {
+                  setRespondingId(null);
+                  resolve();
+                });
+            },
+          },
+        ], { cancelable: true, onDismiss: () => resolve() });
+      }),
+    [matchId, theirName],
+  );
+
   const respond = useCallback(
-    async (message: MatchMessage, status: 'accepted' | 'declined') => {
+    async (message: MatchMessage, status: 'accepted' | 'declined' | 'canceled') => {
+      if (status === 'canceled') return cancelPlannedDate(message);
       setRespondingId(message.id);
       try {
         await respondToDate(matchId, message.id, status);
@@ -654,7 +701,7 @@ export default function ChatScreen() {
         setRespondingId(null);
       }
     },
-    [matchId, router, theirName],
+    [matchId, router, theirName, cancelPlannedDate],
   );
 
   // Follow the conversation only while the reader is at the bottom; someone scrolled up reading
@@ -714,6 +761,7 @@ export default function ChatScreen() {
           matchId={matchId}
           message={message}
           mine={mine}
+          myId={userId}
           theirName={theirName}
           receipt={receipt || null}
           responding={respondingId === message.id}
@@ -1063,6 +1111,7 @@ const styles = ScaledSheet.create({
   proposalActions: { gap: 8, marginTop: 6 },
   proposalStatus: { color: colors.brandBright, fontWeight: '700' },
   proposalDeclined: { color: colors.textSecondary },
+  proposalCancel: { color: colors.textSecondary, fontSize: 14, fontWeight: '700' },
   bubble: {
     maxWidth: '78%',
     paddingHorizontal: 14,

@@ -33,7 +33,7 @@ export const NOTIFICATION_PREF_ROWS: { key: NotificationPrefKey; label: string; 
   { key: 'messages', label: 'Messages', detail: 'New messages from your matches' },
   { key: 'likes', label: 'Likes', detail: 'When someone taps Interested on you' },
   { key: 'dateRequests', label: 'Date requests', detail: 'When a match proposes a plan' },
-  { key: 'dateUpdates', label: 'Date confirmations & changes', detail: 'When a plan is accepted or declined' },
+  { key: 'dateUpdates', label: 'Date confirmations & changes', detail: 'When a plan is accepted, declined or canceled' },
   { key: 'reminders', label: 'Live reminders', detail: 'Before your Live session ends, with Stay Live / Go Offline' },
   {
     key: 'liveUpdates',

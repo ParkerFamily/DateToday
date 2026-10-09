@@ -3,6 +3,7 @@
 /** Email-driven flows: signup codes, password reset, unsubscribe, Resend webhook, digests. */
 const crypto = require('crypto');
 const { FieldValue, Timestamp } = require('firebase-admin/firestore');
+const calendar = require('./calendar');
 const email = require('./email');
 const emailIdentity = require('./emailIdentity');
 
@@ -263,6 +264,96 @@ async function emailNewMatch(db, auth, { uid, otherName, matchId }) {
   });
 }
 
+const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || 'Your match';
+
+/** "Friday, Oct 9 at 8:00 PM" in the planner's time zone; the app's own label when that's unknown. */
+function dateWhen(proposal) {
+  const start = Date.parse(proposal && proposal.startsAt);
+  const tz = proposal && proposal.timeZone;
+  if (Number.isFinite(start) && tz) {
+    try {
+      const day = new Date(start).toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'short', day: 'numeric' });
+      const time = new Date(start).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+      return `${day} at ${time}`;
+    } catch {
+      /* unknown zone → label */
+    }
+  }
+  return String((proposal && proposal.whenLabel) || '').trim();
+}
+
+function dateDetails(proposal) {
+  const p = proposal || {};
+  const venue = String(p.venueName || '').trim();
+  const place = [p.venueAddress, p.neighborhood].map((s) => String(s || '').trim()).filter(Boolean).join(', ');
+  return {
+    when: dateWhen(p),
+    where: [venue, place].filter(Boolean).join(', '),
+    venue,
+    activity: String(p.activityLabel || p.activity || '').replace(/^[^\p{L}\p{N}]+/u, '').trim(),
+  };
+}
+
+function icsAttachment(ev, eventUid, canceled) {
+  return [
+    {
+      filename: canceled ? 'datetoday-date-canceled.ics' : 'datetoday-date.ics',
+      content: Buffer.from(calendar.buildIcs(ev, eventUid, Date.now(), { canceled })).toString('base64'),
+      content_type: 'text/calendar; charset=utf-8',
+    },
+  ];
+}
+
+async function userEmail(auth, uid) {
+  const user = uid ? await auth.getUser(uid).catch(() => null) : null;
+  return user && !user.disabled && user.email ? user.email : null;
+}
+
+const upcoming = (proposal, now) => {
+  const start = Date.parse(proposal && proposal.startsAt);
+  return !Number.isFinite(start) || start > now - 60 * 60 * 1000;
+};
+
+/** Accepted plan → both people get the details and a calendar invite. */
+async function emailDateConfirmed(db, auth, { matchId, messageId, match, proposal, now = Date.now() }) {
+  if (!upcoming(proposal, now)) return;
+  const details = dateDetails(proposal);
+  await Promise.all(
+    (match.userIds || []).map(async (uid) => {
+      const to = await userEmail(auth, uid);
+      if (!to) return;
+      const otherUid = match.userIds.find((u) => u !== uid);
+      const name = firstName(match.users?.[otherUid]?.displayName);
+      const ev = calendar.eventFor(proposal, name);
+      await email.sendEmail(db, {
+        to,
+        uid,
+        idempotencyKey: `date-confirmed-${matchId}-${messageId}-${uid}`,
+        ...email.T.dateConfirmed({ name, when: details.when, where: details.where, activity: details.activity, matchId }),
+        ...(ev ? { attachments: icsAttachment(ev, calendar.eventUidFor(matchId, messageId, uid), false) } : {}),
+      });
+    }),
+  );
+}
+
+/** Canceled plan → the other person hears about it, with a calendar cancel for the invite they got. */
+async function emailDateCanceled(db, auth, { matchId, messageId, match, proposal, canceledBy, now = Date.now() }) {
+  if (!upcoming(proposal, now)) return;
+  const uid = (match.userIds || []).find((u) => u !== canceledBy);
+  const to = await userEmail(auth, uid);
+  if (!to) return;
+  const name = firstName(match.users?.[canceledBy]?.displayName);
+  const details = dateDetails(proposal);
+  const ev = calendar.eventFor(proposal, name);
+  await email.sendEmail(db, {
+    to,
+    uid,
+    idempotencyKey: `date-canceled-${matchId}-${messageId}-${uid}`,
+    ...email.T.dateCanceled({ name, when: details.when, where: details.venue || details.where, matchId }),
+    ...(ev ? { attachments: icsAttachment(ev, calendar.eventUidFor(matchId, messageId, uid), true) } : {}),
+  });
+}
+
 /** New profile: welcome email and a Resend contact (subscribed to broadcasts only with news opt-in). */
 async function onProfileCreated(db, auth, uid, profile) {
   const user = await auth.getUser(uid).catch(() => null);
@@ -304,6 +395,9 @@ async function onProvidersChanged(db, auth, uid, before, after, eventId) {
 module.exports = {
   claimSignupEmail,
   confirmEmailSignup,
+  dateDetails,
+  emailDateCanceled,
+  emailDateConfirmed,
   emailNewMatch,
   emailUnsubscribe,
   likesDigest,

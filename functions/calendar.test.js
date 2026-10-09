@@ -39,3 +39,15 @@ test('google link carries the same event', () => {
   assert.equal(url.searchParams.get('text'), 'Date with Vito · Dinner');
   assert.equal(url.searchParams.get('dates'), '20261008T003000Z/20261008T023000Z');
 });
+
+test('cancel ics reuses the UID and drops the alarm', () => {
+  const { eventUidFor } = require('./calendar');
+  const uid = eventUidFor('m1', 'msg1', 'u1');
+  assert.equal(uid, eventUidFor('m1', 'msg1', 'u1'));
+  assert.notEqual(uid, eventUidFor('m1', 'msg1', 'u2'));
+  const ics = buildIcs(eventFor(proposal, 'Vito'), uid, Date.parse('2026-10-07T15:00:00Z'), { canceled: true });
+  assert.match(ics, /METHOD:CANCEL\r\n/);
+  assert.match(ics, /STATUS:CANCELLED\r\n/);
+  assert.match(ics, new RegExp(`UID:${uid}@datetoday\\.app`));
+  assert.doesNotMatch(ics, /VALARM/);
+});

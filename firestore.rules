@@ -291,7 +291,7 @@ service cloud.firestore {
               && request.resource.data.proposal is map
               && request.resource.data.proposal.keys().hasOnly([
                 'activity', 'activityLabel', 'whenLabel', 'venueName', 'venueAddress',
-                'neighborhood', 'venueLat', 'venueLng', 'startsAt', 'note'
+                'neighborhood', 'venueLat', 'venueLng', 'startsAt', 'note', 'timeZone'
               ])
             )
           );
@@ -305,6 +305,15 @@ service cloud.firestore {
           && request.resource.data.respondedAt == request.time
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt', 'respondedBy'])
           && request.resource.data.respondedBy == request.auth.uid;
+
+        // Either person can call off a confirmed date, once.
+        allow update: if isMatchMember()
+          && resource.data.type == 'date_proposal'
+          && resource.data.status == 'accepted'
+          && request.resource.data.status == 'canceled'
+          && request.resource.data.canceledAt == request.time
+          && request.resource.data.canceledBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'canceledAt', 'canceledBy']);
 
         allow delete: if false;
       }
