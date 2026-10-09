@@ -4,7 +4,7 @@
  */
 export const commerceConfig = {
   /** Free new matches per calendar day (local). */
-  freeMatchesPerDay: 1,
+  freeMatchesPerDay: 10,
 
   /** Free distinct people you can message per calendar day (local). */
   freeConversationsPerDay: 1,
