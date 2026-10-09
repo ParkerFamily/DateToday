@@ -92,8 +92,9 @@ function isTraveling(d) {
 function wantsToSee(viewer, other) {
   const pref = viewer.interestedIn;
   const gender = other.gender;
-  if (pref === 'men' && gender && gender !== 'man') return false;
-  if (pref === 'women' && gender && gender !== 'woman') return false;
+  // Unknown gender never gets past a men/women preference.
+  if (pref === 'men') return gender === 'man';
+  if (pref === 'women') return gender === 'woman';
   return true;
 }
 

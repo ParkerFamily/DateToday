@@ -135,6 +135,7 @@ const DEMO_CARDS: DiscoveryCard[] = DEMO_VIDEO_PROMPTS.map((p, i) => ({
 /** Main photo, then videos interleaved with the remaining photos. */
 /** Hot pink for "they already liked you", so it reads differently from the purple Live styling. */
 const LIKES_YOU = '#EC4899';
+const LIKES_YOU_TEXT = '#F9A8D4';
 
 function carouselItemsFor(card: DiscoveryCard): CarouselItem[] {
   const photos: CarouselItem[] = (
@@ -986,15 +987,20 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           <View style={styles.pingHeaderActions}>
             <Pressable
               onPress={() => router.push('/likes')}
-              style={styles.filterBtn}
-              accessibilityLabel={likeCount ? `Who liked you, ${likeCount} new` : 'Who liked you'}
+              style={({ pressed }) => [styles.likesPill, likeCount > 0 && styles.likesPillHot, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={
+                likeCount ? `${likeCount} ${likeCount === 1 ? 'person likes' : 'people like'} you. See who` : 'See who liked you'
+              }
             >
-              <Ionicons name={likeCount ? 'heart' : 'heart-outline'} size={rs(18)} color={colors.brandBright} />
-              {likeCount ? (
-                <View style={styles.likeBadge} pointerEvents="none">
-                  <AppText style={styles.likeBadgeText}>{likeCount > 99 ? '99+' : likeCount}</AppText>
-                </View>
-              ) : null}
+              <Ionicons
+                name={likeCount ? 'heart' : 'heart-outline'}
+                size={rs(16)}
+                color={likeCount ? LIKES_YOU_TEXT : colors.textSecondary}
+              />
+              <AppText style={[styles.likesPillText, likeCount > 0 && styles.likesPillTextHot]} numberOfLines={1}>
+                {likeCount ? `${likeCount > 99 ? '99+' : likeCount} ${likeCount === 1 ? 'likes' : 'like'} you` : 'Likes'}
+              </AppText>
             </Pressable>
           </View>
         </View>
@@ -1434,35 +1440,23 @@ const styles = ScaledSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  filterBtn: {
-    width: 36,
+  likesPill: {
     height: 36,
-    borderRadius: 18,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: radii.pill,
     backgroundColor: 'rgba(9,9,11,0.55)',
     borderWidth: 1,
     borderColor: colors.border,
   },
-  likeBadge: {
-    position: 'absolute',
-    top: -5,
-    right: -6,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.brand,
-    borderWidth: 1.5,
-    borderColor: '#050506',
+  likesPillHot: {
+    backgroundColor: 'rgba(236,72,153,0.16)',
+    borderColor: 'rgba(236,72,153,0.6)',
   },
-  likeBadgeText: {
-    color: colors.text,
-    fontSize: 10,
-    fontWeight: '800',
-  },
+  likesPillText: { color: colors.textSecondary, fontSize: 13, fontWeight: '800' },
+  likesPillTextHot: { color: LIKES_YOU_TEXT },
   boostedTag: {
     position: 'absolute',
     top: 68,

@@ -512,13 +512,25 @@ function tsToIso(value: unknown): string {
   return new Date().toISOString();
 }
 
-/** Does `viewer`'s "show me" gender preference include `other`? Missing data = no filter. */
+/** Does `viewer`'s "show me" gender preference include `other`? Unknown gender fails a specific preference. */
 function wantsToSee(viewer: Record<string, unknown>, other: Record<string, unknown>): boolean {
   const pref = viewer.interestedIn;
   const gender = other.gender;
-  if (pref === 'men' && gender && gender !== 'man') return false;
-  if (pref === 'women' && gender && gender !== 'woman') return false;
+  // Unknown gender never gets past a men/women preference.
+  if (pref === 'men') return gender === 'man';
+  if (pref === 'women') return gender === 'woman';
   return true;
+}
+
+/** Older beacons may predate the gender fields; read them from the account so filtering still works. */
+async function withMyPreferences(me: string, mine: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (mine.gender && mine.interestedIn) return mine;
+  const u = (await getDoc(doc(getDb(), 'users', me)).catch(() => null))?.data() ?? {};
+  return {
+    ...mine,
+    gender: mine.gender ?? u.gender ?? null,
+    interestedIn: mine.interestedIn ?? u.interestedIn ?? 'everyone',
+  };
 }
 
 /** Fires whenever someone goes live, updates, or ends — used to refresh the feed in realtime. */
@@ -570,6 +582,7 @@ export async function fetchFirestoreDiscoveryFeed(
     if (!mine) return [];
     myRadius = browseRadiusMiles;
   }
+  mine = await withMyPreferences(me, mine);
 
   // Travel Mode browses the trip city, not wherever the phone is.
   const myTrip = mine.status === 'active' ? cleanTrip(mine.trip) : null;
@@ -690,9 +703,10 @@ export async function fetchFirestoreNearbyBrowse(radiusMiles: number, limit = 40
     withTimeout(getDoc(doc(getDb(), 'nearbyProfiles', me)), 10000, 'Load your profile'),
   ]);
   const live = liveSnap.data();
-  const mine = live && live.status === 'active' ? live : nearbySnap.data();
-  if (!mine) return [];
-  const myTrip = mine === live ? cleanTrip(live?.trip) : null;
+  const raw = live && live.status === 'active' ? live : nearbySnap.data();
+  if (!raw) return [];
+  const mine = await withMyPreferences(me, raw);
+  const myTrip = raw === live ? cleanTrip(live?.trip) : null;
   const here = await deviceCoords();
   const latitude = myTrip?.latitude ?? here?.latitude ?? Number(mine.latitude);
   const longitude = myTrip?.longitude ?? here?.longitude ?? Number(mine.longitude);

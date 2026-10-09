@@ -81,6 +81,10 @@ test('mutual visibility needs both radii and both "show me" prefs', () => {
   assert.equal(mutuallyVisible(a, { ...b, interestedIn: 'women' }), false);
   assert.equal(mutuallyVisible(a, { ...b, latitude: 34.5 }), false);
   assert.equal(mutuallyVisible(a, { ...b, latitude: undefined }), false);
+  // Unknown gender never slips past a men/women preference.
+  assert.equal(mutuallyVisible(a, { ...b, gender: undefined }), false);
+  assert.equal(mutuallyVisible({ ...a, gender: null }, b), false);
+  assert.equal(mutuallyVisible({ ...a, interestedIn: 'everyone' }, { ...b, interestedIn: 'everyone', gender: 'nonbinary' }), true);
 });
 
 test('Travel Mode sessions never send or receive "Someone new just went Live nearby"', async () => {
