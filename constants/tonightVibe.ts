@@ -30,21 +30,19 @@ export const PLUS_RADIUS_MILES = [5, 10, 15, 25, 50] as const;
 export const FREE_DEFAULT_RADIUS = 10;
 export const FREE_MAX_RADIUS = 25;
 
+/** Paywall Free column — locked rows stay visible so Premium’s hook is obvious. */
 export const FREE_FILTER_FEATURES = [
-  'Go live as long as you want',
-  'Browse everyone who’s out tonight',
-  '1 match a day + Make a Plan',
-  'Chat with 1 person a day',
-  'Age, distance, vibe & verified filters',
+  { label: 'See all mutual matches', locked: false },
+  { label: 'Message your matches', locked: false },
+  { label: 'Limited daily likes sent', locked: false },
+  { label: 'See who liked you first', locked: true },
 ] as const;
 
+/** Paywall Premium column — other Plus perks roll up so Liked You stays the headline. */
 export const PLUS_FILTER_FEATURES = [
-  'Unlimited matches every day',
-  'Message everyone you match with',
-  'Advanced filters: age, intent, height, lifestyle',
   'See everyone who liked you',
-  'Priority Pool + 50 mi radius',
-  'Travel Mode: go Live in another city',
+  'Unlimited likes sent',
+  'All other premium features',
 ] as const;
 
 /** @deprecated emoji map kept for any residual display helpers */

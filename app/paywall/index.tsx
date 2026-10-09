@@ -14,7 +14,7 @@ import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { SettingsHeader } from '@/components/settings/SettingsUI';
-import { PLUS_FILTER_FEATURES } from '@/constants/tonightVibe';
+import { FREE_FILTER_FEATURES, PLUS_FILTER_FEATURES } from '@/constants/tonightVibe';
 import { LEGAL_URLS } from '@/constants/legal';
 import { colors, radii, spacing } from '@/constants/theme';
 import { UPGRADE_COPY, type UpgradeReason } from '@/lib/commerce/upgradePrompt';
@@ -41,6 +41,27 @@ import {
 } from '@/lib/billing/webCheckout';
 import { useSessionStore } from '@/store/session';
 import { ScaledSheet, rs } from '@/lib/scale';
+
+function priceBadgeLabel(plans: PlusPlanOffer[]): string {
+  const weekly = plans.find((p) => p.id === 'weekly');
+  const monthly = plans.find((p) => p.id === 'monthly');
+  const wk = weekly?.priceLabel ?? '$9.99';
+  const mo = monthly?.priceLabel ?? '$19.99';
+  return `${wk}/wk · ${mo}/mo`;
+}
+
+function FeatureRow({ label, locked = false }: { label: string; locked?: boolean }) {
+  return (
+    <View style={styles.featureRow}>
+      {locked ? (
+        <Ionicons name="lock-closed" size={rs(16)} color={colors.textSecondary} />
+      ) : (
+        <Ionicons name="checkmark-circle" size={rs(18)} color={colors.live} />
+      )}
+      <AppText style={[styles.feature, locked && styles.featureLocked]}>{label}</AppText>
+    </View>
+  );
+}
 
 export default function PaywallScreen() {
   const router = useRouter();
@@ -251,12 +272,27 @@ export default function PaywallScreen() {
           </View>
         ) : null}
 
-        <View style={styles.featureCard}>
-          {PLUS_FILTER_FEATURES.map((line) => (
-            <View key={line} style={styles.featureRow}>
-              <AppText style={styles.bullet}>•</AppText>
-              <AppText style={styles.feature}>{line}</AppText>
+        <View style={styles.tierCard}>
+          <View style={styles.tierHead}>
+            <AppText style={styles.tierTitle}>DateToday Free</AppText>
+            <View style={styles.freeBadge}>
+              <AppText style={styles.freeBadgeText}>Free</AppText>
             </View>
+          </View>
+          {FREE_FILTER_FEATURES.map((row) => (
+            <FeatureRow key={row.label} label={row.label} locked={row.locked} />
+          ))}
+        </View>
+
+        <View style={[styles.tierCard, styles.premiumCard]}>
+          <View style={styles.tierHead}>
+            <AppText style={styles.tierTitle}>DateToday Premium</AppText>
+            <View style={styles.priceBadge}>
+              <AppText style={styles.priceBadgeText}>{priceBadgeLabel(shownPlans)}</AppText>
+            </View>
+          </View>
+          {PLUS_FILTER_FEATURES.map((line) => (
+            <FeatureRow key={line} label={line} />
           ))}
         </View>
 
@@ -425,24 +461,61 @@ const styles = ScaledSheet.create({
     fontWeight: '700',
     marginTop: 4,
   },
-  featureCard: {
+  tierCard: {
     padding: spacing.md,
     borderRadius: radii.card,
     backgroundColor: colors.elevated,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: 12,
+  },
+  premiumCard: {
+    borderColor: 'rgba(34, 229, 139, 0.35)',
+    backgroundColor: 'rgba(34, 229, 139, 0.06)',
+  },
+  tierHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
+    marginBottom: 2,
+  },
+  tierTitle: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  freeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  freeBadgeText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  priceBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(34, 229, 139, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 229, 139, 0.45)',
+  },
+  priceBadgeText: {
+    color: colors.live,
+    fontSize: 12,
+    fontWeight: '800',
   },
   featureRow: {
     flexDirection: 'row',
     gap: 10,
-    alignItems: 'flex-start',
-  },
-  bullet: {
-    color: colors.brandBright,
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '700',
+    alignItems: 'center',
   },
   feature: {
     flex: 1,
@@ -450,6 +523,9 @@ const styles = ScaledSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '500',
+  },
+  featureLocked: {
+    color: colors.textSecondary,
   },
   planList: {
     gap: 12,

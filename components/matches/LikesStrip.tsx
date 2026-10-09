@@ -90,7 +90,7 @@ export function LikesStrip() {
                   key={`locked-${i}`}
                   style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
                   onPress={upgrade}
-                  accessibilityLabel="Hidden like. Unlock with DateToday+"
+                  accessibilityLabel="Hidden like. Unlock with Premium"
                 >
                   <View style={[styles.ring, styles.ringLocked]}>
                     {tile.blur ? (
@@ -127,7 +127,7 @@ export function LikesStrip() {
             <Pressable onPress={upgrade} style={({ pressed }) => [styles.unlock, pressed && styles.pressed]}>
               <Ionicons name="lock-open" size={rs(16)} color="#fff" />
               <AppText style={styles.unlockText}>
-                See all {total} who liked you with DateToday+
+                See Who Likes You · Premium
               </AppText>
               <Ionicons name="chevron-forward" size={rs(16)} color="#fff" />
             </Pressable>
