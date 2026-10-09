@@ -27,7 +27,10 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { useMatchesStore } from '@/store/matches';
 import { useBlocksStore } from '@/store/blocks';
-import { isMatchLimitError, sendInterest } from '@/features/matches/api';
+import { errorCode, isMatchLimitError, passLike, sendInterest } from '@/features/matches/api';
+import { PRIORITY, PRIORITY_TEXT, PriorityLikeSheet } from '@/components/likes/PriorityLikeSheet';
+import { isPlusActive } from '@/lib/entitlements';
+import { analytics } from '@/lib/analytics';
 import { confirmBlockAndReport } from '@/features/safety/blockFlow';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { getDb } from '@/lib/firebase/client';
@@ -143,14 +146,78 @@ export default function PublicProfileScreen() {
     s.matches.find((m) => Boolean(userId) && m.userIds.includes(String(userId))),
   );
   const [interestSent, setInterestSent] = useState(false);
+  const [prioritySent, setPrioritySent] = useState(false);
   const [sendingInterest, setSendingInterest] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const [passing, setPassing] = useState(false);
+  const incomingPriority = useMatchesStore((s) =>
+    s.likes?.revealed.find((l) => l.uid === String(userId) && l.priority),
+  );
 
   React.useEffect(() => {
     if (isSelf || !sessionUid || !userId || !isBackendConfigured()) return;
     getDoc(doc(getDb(), 'interests', `${sessionUid}_${userId}`))
-      .then((snap) => setInterestSent(snap.exists()))
+      .then((snap) => {
+        setInterestSent(snap.exists());
+        setPrioritySent(snap.exists() && snap.data()?.type === 'priority');
+      })
       .catch(() => undefined);
   }, [isSelf, sessionUid, userId]);
+
+  const onPriority = () => {
+    if (!isPlusActive(useSessionStore.getState().entitlements)) {
+      analytics.track('priority_like_paywall', { surface: 'profile' });
+      openUpgrade(router, 'priority');
+      return;
+    }
+    setComposing(true);
+  };
+
+  const sendPriority = async (note: string | null) => {
+    if (!profile || !userId) return;
+    try {
+      void registerPushTokenAsync({ prompt: true });
+      const result = await sendInterest(String(userId), { priority: true, note });
+      analytics.track('priority_like_sent', { surface: 'profile', withNote: Boolean(note), upgrade: interestSent });
+      setComposing(false);
+      if (result.mutual && result.matchId) {
+        router.replace(
+          result.created
+            ? {
+                pathname: '/mutual',
+                params: { matchId: result.matchId, name: profile.displayName, photo: profile.mainPhotoUrl ?? '' },
+              }
+            : { pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } },
+        );
+        return;
+      }
+      setInterestSent(true);
+      setPrioritySent(true);
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === 'priority_already_sent') setPrioritySent(true);
+      if (code === 'plus_required' || code === 'match_limit') {
+        setComposing(false);
+        openUpgrade(router, code === 'plus_required' ? 'priority' : 'match');
+        return;
+      }
+      throw new Error(friendlyError(error, 'Couldn’t send that. Try again.'));
+    }
+  };
+
+  const onPassPriority = async () => {
+    if (!userId) return;
+    setPassing(true);
+    try {
+      await passLike(String(userId));
+      analytics.track('priority_like_passed', { surface: 'profile' });
+      router.back();
+    } catch (error) {
+      Alert.alert('Couldn’t pass', friendlyError(error, 'Try again.'));
+    } finally {
+      setPassing(false);
+    }
+  };
 
   const onInterested = async () => {
     if (!profile || !userId) return;
@@ -306,6 +373,32 @@ export default function PublicProfileScreen() {
         ) : null}
 
         <View style={styles.body}>
+          {!isSelf && !existingMatch && incomingPriority ? (
+            <View style={styles.priorityCard} accessibilityRole="summary">
+              <AppText style={styles.priorityEyebrow}>⚡ Priority Like</AppText>
+              <AppText style={styles.priorityHeadline}>{profile.displayName} wants to meet you</AppText>
+              {incomingPriority.note ? (
+                <AppText style={styles.priorityNote}>“{incomingPriority.note}”</AppText>
+              ) : null}
+              <View style={styles.priorityActions}>
+                <Button
+                  label="Pass"
+                  variant="secondary"
+                  loading={passing}
+                  disabled={sendingInterest}
+                  onPress={() => void onPassPriority()}
+                  style={styles.priorityAction}
+                />
+                <Button
+                  label="♥ Like back"
+                  loading={sendingInterest}
+                  disabled={passing}
+                  onPress={() => void onInterested()}
+                  style={styles.priorityAction}
+                />
+              </View>
+            </View>
+          ) : null}
           <AppText variant="hero">{nameLine}</AppText>
           <VerificationTag status={profile.verificationStatus} />
           <AppText variant="secondary">
@@ -422,14 +515,29 @@ export default function PublicProfileScreen() {
                   onPress={() => router.push(`/chat/${existingMatch.id}`)}
                   style={styles.cta}
                 />
-              ) : (
-                <Button
-                  label={interestSent ? 'Interest sent ✓' : `♥ ${copy.interested}`}
-                  loading={sendingInterest}
-                  disabled={interestSent}
-                  onPress={() => void onInterested()}
-                  style={styles.cta}
-                />
+              ) : incomingPriority ? null : (
+                <>
+                  <Button
+                    label={interestSent ? 'Interest sent ✓' : `♥ ${copy.interested}`}
+                    loading={sendingInterest}
+                    disabled={interestSent}
+                    onPress={() => void onInterested()}
+                    style={styles.cta}
+                  />
+                  <Button
+                    label={
+                      prioritySent
+                        ? 'Priority Like sent ⚡'
+                        : interestSent
+                          ? '⚡ Make it a Priority Like'
+                          : '⚡ Send a Priority Like'
+                    }
+                    variant="secondary"
+                    disabled={prioritySent || sendingInterest}
+                    onPress={onPriority}
+                    style={styles.priorityCta}
+                  />
+                </>
               )}
               <Button
                 label="Block & report"
@@ -449,6 +557,13 @@ export default function PublicProfileScreen() {
           )}
         </View>
       </ScrollView>
+
+      <PriorityLikeSheet
+        visible={composing}
+        name={profile.displayName}
+        onClose={() => setComposing(false)}
+        onSend={sendPriority}
+      />
 
       <ProfileMediaViewer
         visible={viewer.open}
@@ -508,6 +623,21 @@ const styles = ScaledSheet.create({
     fontSize: 12,
     marginTop: 8,
   },
+  priorityCard: {
+    gap: 4,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderRadius: radii.surface,
+    borderWidth: 1.5,
+    borderColor: PRIORITY,
+    backgroundColor: 'rgba(168,85,247,0.1)',
+  },
+  priorityEyebrow: { color: PRIORITY_TEXT, fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase' },
+  priorityHeadline: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  priorityNote: { color: colors.text, fontSize: 15, fontStyle: 'italic', lineHeight: 21 },
+  priorityActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  priorityAction: { flex: 1 },
+  priorityCta: { borderColor: PRIORITY },
   body: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,

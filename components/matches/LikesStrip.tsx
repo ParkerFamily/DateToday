@@ -7,6 +7,7 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { ScaledSheet, rs } from '@/lib/scale';
 import { usePendingLikes } from '@/store/matches';
+import { PRIORITY } from '@/components/likes/PriorityLikeSheet';
 
 const MAX_LOCKED_TILES = 8;
 
@@ -60,7 +61,7 @@ export function LikesStrip() {
                     })
                   }
                 >
-                  <View style={[styles.ring, styles.ringOpen]}>
+                  <View style={[styles.ring, card.priority ? styles.ringPriority : styles.ringOpen]}>
                     {card.mainPhotoUrl ? (
                       <Image 
                         source={{ uri: card.mainPhotoUrl }} 
@@ -73,8 +74,8 @@ export function LikesStrip() {
                         <Ionicons name="person" size={rs(28)} color={colors.textSecondary} />
                       </View>
                     )}
-                    <View style={styles.heartBadge}>
-                      <Ionicons name="heart" size={rs(11)} color="#fff" />
+                    <View style={[styles.heartBadge, card.priority && styles.priorityBadge]}>
+                      <Ionicons name={card.priority ? 'flash' : 'heart'} size={rs(11)} color="#fff" />
                     </View>
                   </View>
                   <AppText style={styles.name} numberOfLines={1}>
@@ -159,6 +160,15 @@ const styles = ScaledSheet.create({
   tile: { width: 76, alignItems: 'center', gap: 6 },
   ring: { padding: 2, borderRadius: 40, borderWidth: 2 },
   ringOpen: { borderColor: colors.brandBright },
+  ringPriority: {
+    borderColor: PRIORITY,
+    borderWidth: 3,
+    shadowColor: PRIORITY,
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  priorityBadge: { backgroundColor: '#0B0612', borderColor: PRIORITY },
   ringLocked: { borderColor: 'rgba(168,85,247,0.35)' },
   avatar: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.card },
   avatarEmpty: { alignItems: 'center', justifyContent: 'center' },

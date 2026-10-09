@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 
 type Router = ReturnType<typeof useRouter>;
 
-export type UpgradeReason = 'match' | 'message' | 'filters' | 'likes' | 'travel';
+export type UpgradeReason = 'match' | 'message' | 'filters' | 'likes' | 'travel' | 'priority';
 
 export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; body: string }> = {
   match: {
@@ -25,6 +25,10 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
   travel: {
     title: 'Travel Mode ✦',
     body: 'See who’s out tonight in the city you’re headed to. Plan your night before you land with DateToday+.',
+  },
+  priority: {
+    title: 'Stand out with a Priority Like',
+    body: 'Send a short note and show them you’re serious about meeting.',
   },
   default: {
     title: 'More matches. More conversation. ✦',

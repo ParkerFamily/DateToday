@@ -42,7 +42,8 @@ import { sharedInterests } from '@/constants/interests';
 import { FilterBar } from '@/components/discover/FilterBar';
 import { MatchPill } from '@/components/discover/MatchPill';
 import { AFTER_HOURS_TAGS, isAfterHours } from '@/constants/afterHours';
-import { canUseAdvancedFilters, canUsePriorityPool, maxRadiusMiles } from '@/lib/entitlements';
+import { canUseAdvancedFilters, canUsePriorityPool, isPlusActive, maxRadiusMiles } from '@/lib/entitlements';
+import { analytics } from '@/lib/analytics';
 import { env, isBackendConfigured } from '@/lib/env';
 import { useContentLayout } from '@/lib/layout';
 import { fetchDiscoveryFeed, sendPing } from '@/services/api';
@@ -51,11 +52,12 @@ import {
   subscribeActiveLiveSessions,
   updateMyLiveSession,
 } from '@/features/live/firestoreLive';
-import { isMatchLimitError, sendInterest, subscribeSentInterests } from '@/features/matches/api';
+import { errorCode, isMatchLimitError, passLike, sendInterest, subscribeSentInterests } from '@/features/matches/api';
+import { PRIORITY, PRIORITY_TEXT, PriorityLikeSheet } from '@/components/likes/PriorityLikeSheet';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { useHiddenUserMap } from '@/store/blocks';
 import { useDiscoverFilters } from '@/store/discoverFilters';
-import { useMatchesStore, usePendingLikes } from '@/store/matches';
+import { useMatchesStore } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
 import type { DiscoveryCard, FoodCuisine, RadiusMiles, TonightActivity } from '@/types';
 import { formatDistanceMiles, isLiveSessionActive } from '@/utils/time';
@@ -135,7 +137,6 @@ const DEMO_CARDS: DiscoveryCard[] = DEMO_VIDEO_PROMPTS.map((p, i) => ({
 /** Main photo, then videos interleaved with the remaining photos. */
 /** Hot pink for "they already liked you", so it reads differently from the purple Live styling. */
 const LIKES_YOU = '#EC4899';
-const LIKES_YOU_TEXT = '#F9A8D4';
 
 function carouselItemsFor(card: DiscoveryCard): CarouselItem[] {
   const photos: CarouselItem[] = (
@@ -218,7 +219,6 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   /** Preview: first ♥ is one-way interest; second ♥ simulates mutual match */
   const interestsSentRef = useRef(0);
   const uid = useSessionStore((s) => s.userId);
-  const likeCount = usePendingLikes()?.total ?? 0;
   // A primitive key so new messages / read receipts on matches don't re-render the whole feed.
   const matchedKey = useMatchesStore((s) => {
     const ids: string[] = [];
@@ -237,6 +237,16 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       .join(','),
   );
   const likedMe = useMemo(() => new Set(likedMeKey ? likedMeKey.split(',') : []), [likedMeKey]);
+  // Priority Likes, in the server's order (newest first), with their optional note.
+  const priorityKey = useMatchesStore((s) =>
+    JSON.stringify((s.likes?.revealed ?? []).filter((l) => l.priority).map((l) => [l.uid, l.note ?? null])),
+  );
+  const priorityFrom = useMemo(
+    () => new Map(JSON.parse(priorityKey) as [string, string | null][]),
+    [priorityKey],
+  );
+  const priorityRank = useMemo(() => new Map([...priorityFrom.keys()].map((u, i) => [u, i])), [priorityFrom]);
+  const [priorityTarget, setPriorityTarget] = useState<DiscoveryCard | null>(null);
   const liveSession = useSessionStore((s) => s.liveSession);
   const discoveryPaused = useSessionStore((s) => s.discoveryPaused);
   const setDiscoverAttention = useSessionStore((s) => s.setDiscoverAttention);
@@ -380,6 +390,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
     // Live now, then free later tonight, then nearby people who aren't live.
     const sorted = [...shown].sort((a, b) => {
+      const pa = priorityRank.get(a.userId) ?? Infinity;
+      const pb = priorityRank.get(b.userId) ?? Infinity;
+      if (pa !== pb) return pa < pb ? -1 : 1;
       const la = likedMe.has(a.userId) ? 0 : 1;
       const lb = likedMe.has(b.userId) ? 0 : 1;
       if (la !== lb) return la - lb;
@@ -405,7 +418,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     const back = rewoundId ? pool.find((c) => c.userId === rewoundId) : undefined;
     const ordered = back ? [back, ...sorted.filter((c) => c.userId !== back.userId)] : sorted;
     return { cards: ordered, outsideFilters: outside.length > 0 };
-  }, [pool, filters, cardScores, priorityPool, plusFoods, myInterests, rewoundId, likedMe]);
+  }, [pool, filters, cardScores, priorityPool, plusFoods, myInterests, rewoundId, likedMe, priorityRank]);
 
   /** Most recent pass that's still in the feed (they may have gone offline or matched since). */
   const rewindTo = useMemo(() => {
@@ -462,6 +475,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const tier = card ? feedTier(card) : 0;
   const tonight = tier !== 2;
   const likesMe = card ? likedMe.has(card.userId) : false;
+  const priorityLiker = card ? priorityFrom.has(card.userId) : false;
+  const priorityNote = card ? priorityFrom.get(card.userId) ?? null : null;
   const activity = card && !tonight ? activityStatus(card) : null;
   const intentLabel = card
     ? INTENT_OPTIONS.find((o) => o.value === card.datingIntention)?.label ?? null
@@ -487,6 +502,10 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     if (!card) return;
     markHandled(card.userId);
     setPassed((prev) => [...prev.filter((id) => id !== card.userId), card.userId].slice(-30));
+    if (priorityFrom.has(card.userId) && isBackendConfigured()) {
+      analytics.track('priority_like_passed', { surface: 'discover' });
+      void passLike(card.userId).catch(() => {});
+    }
   };
 
   const rewind = () => {
@@ -591,6 +610,52 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       }
     })();
     return true;
+  };
+
+  /** ⚡ Priority Like: DateToday+ opens the note composer; free goes to the paywall. */
+  const onPriority = () => {
+    if (!card) return;
+    if (!isPlusActive(entitlements)) {
+      analytics.track('priority_like_paywall', { surface: 'discover' });
+      openUpgrade(router, 'priority');
+      return;
+    }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPriorityTarget(card);
+  };
+
+  const sendPriority = async (note: string | null) => {
+    const target = priorityTarget;
+    if (!target) return;
+    if (!isBackendConfigured()) {
+      setPriorityTarget(null);
+      markHandled(target.userId);
+      flashInterestSent();
+      return;
+    }
+    try {
+      void registerPushTokenAsync({ prompt: true });
+      const result = await sendInterest(target.userId, { priority: true, note });
+      analytics.track('priority_like_sent', { surface: 'discover', withNote: Boolean(note) });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPriorityTarget(null);
+      if (result.mutual && result.matchId) {
+        if (result.created) openMatch(target, result.matchId);
+        else router.push({ pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } });
+        return;
+      }
+      markHandled(target.userId);
+      flashInterestSent();
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === 'plus_required' || code === 'match_limit') {
+        setPriorityTarget(null);
+        openUpgrade(router, code === 'plus_required' ? 'priority' : 'match');
+        return;
+      }
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      throw new Error(friendlyError(error, 'Couldn’t send that. Try again.'));
+    }
   };
 
   const { width: screenW } = useWindowDimensions();
@@ -984,25 +1049,6 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 : 'They haven’t gone live tonight, but you can still match'}
             </AppText>
           </View>
-          <View style={styles.pingHeaderActions}>
-            <Pressable
-              onPress={() => router.push('/likes')}
-              style={({ pressed }) => [styles.likesPill, likeCount > 0 && styles.likesPillHot, pressed && styles.pressed]}
-              accessibilityRole="button"
-              accessibilityLabel={
-                likeCount ? `${likeCount} ${likeCount === 1 ? 'person likes' : 'people like'} you. See who` : 'See who liked you'
-              }
-            >
-              <Ionicons
-                name={likeCount ? 'heart' : 'heart-outline'}
-                size={rs(16)}
-                color={likeCount ? LIKES_YOU_TEXT : colors.textSecondary}
-              />
-              <AppText style={[styles.likesPillText, likeCount > 0 && styles.likesPillTextHot]} numberOfLines={1}>
-                {likeCount ? `${likeCount > 99 ? '99+' : likeCount} ${likeCount === 1 ? 'likes' : 'like'} you` : 'Likes'}
-              </AppText>
-            </Pressable>
-          </View>
         </View>
         <FilterBar />
         {outsideFilters ? (
@@ -1052,7 +1098,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                     <>
                       <LinearGradient
                         colors={
-                          likesMe
+                          priorityLiker
+                            ? ['rgba(168,85,247,0.36)', 'rgba(20,8,36,0)', 'rgba(16,6,30,0.97)']
+                            : likesMe
                             ? ['rgba(236,72,153,0.3)', 'rgba(36,8,24,0)', 'rgba(26,6,20,0.97)']
                             : tonight
                               ? ['rgba(124,58,237,0.22)', 'rgba(20,8,36,0)', 'rgba(16,6,30,0.97)']
@@ -1062,7 +1110,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                         style={styles.fade}
                         pointerEvents="none"
                       />
-                      {likesMe ? (
+                      {priorityLiker ? (
+                        <View style={styles.priorityFrame} pointerEvents="none" />
+                      ) : likesMe ? (
                         <View style={styles.likesYouFrame} pointerEvents="none" />
                       ) : tonight ? (
                         <View style={styles.tonightFrame} pointerEvents="none" />
@@ -1100,7 +1150,24 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                         </View>
                       ) : null}
                       <View style={styles.heroMeta} pointerEvents="box-none">
-                        {likesMe ? (
+                        {priorityLiker ? (
+                          <View
+                            style={styles.priorityBox}
+                            accessibilityLabel={`Priority Like. ${card.displayName} wants to meet you.${priorityNote ? ` Note: ${priorityNote}` : ''}`}
+                          >
+                            <AppText style={styles.priorityEyebrow} numberOfLines={1}>
+                              ⚡ PRIORITY LIKE
+                            </AppText>
+                            <AppText style={[styles.priorityHeadline, styles.shrinkText]} numberOfLines={1}>
+                              {card.displayName} wants to meet you
+                            </AppText>
+                            {priorityNote ? (
+                              <AppText style={styles.priorityNote} numberOfLines={3}>
+                                “{priorityNote}”
+                              </AppText>
+                            ) : null}
+                          </View>
+                        ) : likesMe ? (
                           <View style={styles.likesYouPill} accessibilityLabel={`${card.displayName} likes you`}>
                             <Ionicons name="heart" size={rs(15)} color="#fff" />
                             <AppText style={styles.likesYouText} numberOfLines={1}>
@@ -1335,16 +1402,36 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             <Ionicons name="close" size={rs(32)} color={colors.text} />
           </Pressable>
           <Pressable
-            accessibilityLabel={likesMe ? 'Like back and match' : 'Interested'}
+            accessibilityLabel={likesMe ? 'Like back and match' : 'Like'}
             accessibilityRole="button"
             onPress={onInterested}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             android_ripple={{ color: 'rgba(255,255,255,0.3)', radius: 36 }}
-            style={({ pressed }) => [styles.likeBtn, likesMe && styles.likeBtnHot, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.likeBtn,
+              priorityLiker ? styles.likeBtnPriority : likesMe && styles.likeBtnHot,
+              pressed && styles.pressed,
+            ]}
           >
             <Ionicons name="heart" size={rs(30)} color={colors.text} />
           </Pressable>
+          <Pressable
+            accessibilityLabel="Send a Priority Like with a note"
+            accessibilityRole="button"
+            onPress={onPriority}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            android_ripple={{ color: 'rgba(168,85,247,0.3)', radius: 28 }}
+            style={({ pressed }) => [styles.priorityBtn, pressed && styles.pressed]}
+          >
+            <Ionicons name="flash" size={rs(24)} color={PRIORITY_TEXT} />
+          </Pressable>
         </View>
+        <PriorityLikeSheet
+          visible={priorityTarget != null}
+          name={priorityTarget?.displayName ?? ''}
+          onClose={() => setPriorityTarget(null)}
+          onSend={sendPriority}
+        />
 
         {interestFlash ? (
           <View style={[styles.interestFlash, { bottom: actionBarH + rs(12) }]} pointerEvents="none">
@@ -1376,11 +1463,6 @@ const styles = ScaledSheet.create({
     flex: 1,
     gap: 2,
     minWidth: 0,
-  },
-  pingHeaderActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
   },
   pingHeaderEyebrow: {
     color: colors.live,
@@ -1440,23 +1522,6 @@ const styles = ScaledSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  likesPill: {
-    height: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    borderRadius: radii.pill,
-    backgroundColor: 'rgba(9,9,11,0.55)',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  likesPillHot: {
-    backgroundColor: 'rgba(236,72,153,0.16)',
-    borderColor: 'rgba(236,72,153,0.6)',
-  },
-  likesPillText: { color: colors.textSecondary, fontSize: 13, fontWeight: '800' },
-  likesPillTextHot: { color: LIKES_YOU_TEXT },
   boostedTag: {
     position: 'absolute',
     top: 68,
@@ -1657,6 +1722,58 @@ const styles = ScaledSheet.create({
   },
   likesYouText: { color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 1 },
   likesYouSub: { color: 'rgba(255,255,255,0.92)', fontSize: 13, fontWeight: '700' },
+  priorityFrame: {
+    ...StyleSheet.absoluteFill,
+    borderWidth: 3,
+    borderColor: PRIORITY,
+    shadowColor: PRIORITY,
+    shadowOpacity: 0.9,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  priorityBox: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    gap: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radii.card,
+    backgroundColor: 'rgba(9,9,11,0.82)',
+    borderWidth: 1.5,
+    borderColor: PRIORITY,
+    shadowColor: PRIORITY,
+    shadowOpacity: 0.7,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    ...androidGlow(PRIORITY, 0.7, 12),
+    marginBottom: 4,
+  },
+  priorityEyebrow: { color: PRIORITY_TEXT, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
+  priorityHeadline: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  priorityNote: { color: 'rgba(255,255,255,0.92)', fontSize: 14, fontWeight: '600', fontStyle: 'italic', marginTop: 2 },
+  likeBtnPriority: {
+    backgroundColor: PRIORITY,
+    shadowColor: PRIORITY,
+    shadowOpacity: 0.85,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
+    ...androidGlow(PRIORITY, 0.85, 18),
+  },
+  priorityBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0B0612',
+    borderWidth: 2,
+    borderColor: PRIORITY,
+    elevation: 8,
+    shadowColor: PRIORITY,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55,
+    shadowRadius: 10,
+  },
   likeBtnHot: {
     backgroundColor: LIKES_YOU,
     shadowColor: LIKES_YOU,
@@ -1806,7 +1923,7 @@ const styles = ScaledSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 28,
+    gap: 20,
     paddingTop: 12,
     backgroundColor: 'rgba(5,5,6,0.88)',
     zIndex: 10,

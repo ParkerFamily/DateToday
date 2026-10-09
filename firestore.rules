@@ -231,7 +231,9 @@ service cloud.firestore {
       allow read, write: if false;
     }
     match /appConfig/{docId} {
-      allow read, write: if false;
+      // Priority Like limits (note length, daily cap) so the composer matches the server.
+      allow read: if signedIn() && docId == 'priorityLikes';
+      allow write: if false;
     }
 
     // Unmatched pairs (unmatchUser) and trigger dedupe markers; Cloud Functions only.

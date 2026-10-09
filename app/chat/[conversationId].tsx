@@ -921,23 +921,39 @@ export default function ChatScreen() {
           onScroll={onListScroll}
           scrollEventThrottle={64}
           ListHeaderComponent={
-            showIcebreakers ? (
-              <View style={styles.ice}>
-                <AppText style={styles.iceTitle}>
-                  YOU MATCHED WITH {theirName.toUpperCase()} · {flowCopy.breakTheIce}
-                </AppText>
-                {openers.map((line) => (
-                  <Pressable
-                    key={line}
-                    onPress={() => void sendBody(line)}
-                    style={({ pressed }) => [styles.iceChip, pressed && styles.pressed]}
-                  >
-                    <AppText style={styles.iceChipText}>{line}</AppText>
-                  </Pressable>
-                ))}
-                <Button label="Plan a date instead ⚡" variant="secondary" onPress={openPlan} />
-              </View>
-            ) : null
+            <>
+              {match?.priorityLike ? (
+                <View style={styles.priorityCard} accessibilityRole="summary">
+                  <AppText style={styles.priorityEyebrow}>
+                    ⚡ PRIORITY LIKE · {match.priorityLike.fromUid === userId ? 'YOU SENT' : `FROM ${theirName.toUpperCase()}`}
+                  </AppText>
+                  <AppText style={styles.priorityText}>
+                    {match.priorityLike.note
+                      ? `“${match.priorityLike.note}”`
+                      : match.priorityLike.fromUid === userId
+                        ? `You told ${theirName} you want to meet.`
+                        : `${theirName} wants to meet you.`}
+                  </AppText>
+                </View>
+              ) : null}
+              {showIcebreakers ? (
+                <View style={styles.ice}>
+                  <AppText style={styles.iceTitle}>
+                    YOU MATCHED WITH {theirName.toUpperCase()} · {flowCopy.breakTheIce}
+                  </AppText>
+                  {openers.map((line) => (
+                    <Pressable
+                      key={line}
+                      onPress={() => void sendBody(line)}
+                      style={({ pressed }) => [styles.iceChip, pressed && styles.pressed]}
+                    >
+                      <AppText style={styles.iceChipText}>{line}</AppText>
+                    </Pressable>
+                  ))}
+                  <Button label="Plan a date instead ⚡" variant="secondary" onPress={openPlan} />
+                </View>
+              ) : null}
+            </>
           }
           renderItem={renderItem}
           initialNumToRender={20}
@@ -1060,6 +1076,17 @@ const styles = ScaledSheet.create({
   blockedCopy: { marginBottom: spacing.md },
   pressed: { opacity: 0.8 },
   list: { padding: spacing.lg, gap: spacing.sm, flexGrow: 1 },
+  priorityCard: {
+    gap: 4,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.surface,
+    backgroundColor: 'rgba(168,85,247,0.1)',
+    borderWidth: 1.5,
+    borderColor: colors.brandBright,
+  },
+  priorityEyebrow: { color: '#D8B4FE', fontSize: 12, fontWeight: '800', letterSpacing: 1 },
+  priorityText: { color: colors.text, fontSize: 15, fontStyle: 'italic', lineHeight: 21 },
   ice: {
     gap: 10,
     marginBottom: spacing.lg,

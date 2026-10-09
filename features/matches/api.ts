@@ -44,6 +44,8 @@ export type MatchDoc = {
   lastMessage: { text: string; senderId: string; type: string; messageId: string } | null;
   nextDate: (DateProposal & { messageId?: string; proposerId?: string }) | null;
   unread: Record<string, number>;
+  /** Set when the match came from a Priority Like; the note is shown at the top of the chat. */
+  priorityLike: { fromUid: string; note: string | null } | null;
 };
 
 export type MatchMessage = {
@@ -80,15 +82,25 @@ export function functionsUrl(name: string) {
   return `https://us-central1-${projectId}.cloudfunctions.net/${name}`;
 }
 
-/** Heart someone. If they already hearted you back, the server creates the match. */
-export async function sendInterest(toUid: string): Promise<InterestResult> {
+/**
+ * Heart someone. If they already hearted you back, the server creates the match.
+ * `priority` sends a Priority Like (DateToday+) with an optional short note.
+ */
+export async function sendInterest(
+  toUid: string,
+  opts: { priority?: boolean; note?: string | null } = {},
+): Promise<InterestResult> {
   const user = getFirebaseAuth().currentUser;
   if (!user) throw new Error('Sign in first.');
   const token = await user.getIdToken();
   const res = await fetch(functionsUrl('sendInterest'), {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ toUid, tzOffsetMinutes: new Date().getTimezoneOffset() }),
+    body: JSON.stringify({
+      toUid,
+      tzOffsetMinutes: new Date().getTimezoneOffset(),
+      ...(opts.priority ? { priority: true, note: opts.note?.trim() || null } : {}),
+    }),
   });
   const json = (await res.json().catch(() => ({}))) as Partial<InterestResult> & { error?: string; code?: string };
   if (!res.ok) {
@@ -134,12 +146,35 @@ export function isMatchLimitError(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === 'match_limit';
 }
 
+export function errorCode(error: unknown): string | null {
+  return (error as { code?: string } | null)?.code ?? null;
+}
+
+/** Turn down someone's like: no match, and they leave "Likes you". */
+export async function passLike(fromUid: string): Promise<void> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Sign in first.');
+  const token = await user.getIdToken();
+  const res = await fetch(functionsUrl('passLike'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fromUid }),
+  });
+  if (!res.ok) {
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(json.error || 'Couldn’t pass right now.');
+  }
+}
+
 export type RevealedLike = {
   uid: string;
   displayName: string;
   mainPhotoUrl: string | null;
   verificationStatus: string;
   likedAt: string | null;
+  /** Sent as a Priority Like (always revealed, ranked first). */
+  priority?: boolean;
+  note?: string | null;
 };
 
 /**
@@ -214,6 +249,7 @@ function parseMatch(id: string, data: Record<string, unknown>): MatchDoc {
     lastMessage: (data.lastMessage as MatchDoc['lastMessage']) ?? null,
     nextDate: (data.nextDate as MatchDoc['nextDate']) ?? null,
     unread: (data.unread as Record<string, number>) ?? {},
+    priorityLike: (data.priorityLike as MatchDoc['priorityLike']) ?? null,
   };
 }
 

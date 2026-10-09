@@ -13,7 +13,7 @@ const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
-const { activateLive, nearbyLive } = require('./nearbyLive');
+const { activateLive, eligible, nearbyLive } = require('./nearbyLive');
 const liveEngagement = require('./liveEngagement');
 const calendar = require('./calendar');
 const likes = require('./likes');
@@ -24,6 +24,7 @@ const emailIdentity = require('./emailIdentity');
 const geo = require('./geo');
 const personaName = require('./personaName');
 const stripeBilling = require('./stripeBilling');
+const priorityLikes = require('./priorityLikes');
 const functionsV1 = require('firebase-functions/v1');
 
 initializeApp();
@@ -701,6 +702,7 @@ const CHANNEL_FOR_TYPE = {
   message: 'messages',
   match: 'matches',
   interest: 'activity',
+  priority_like: 'activity',
   date_proposal: 'dates',
   date_accepted: 'dates',
   date_declined: 'dates',
@@ -729,6 +731,7 @@ const PREF_FOR_TYPE = {
   message: 'messages',
   match: 'matches',
   interest: 'likes',
+  priority_like: 'likes',
   date_proposal: 'dateRequests',
   date_accepted: 'dateUpdates',
   date_declined: 'dateUpdates',
@@ -846,6 +849,7 @@ const TTL_FOR_TYPE = {
   date_declined: 7 * 24 * 60 * 60,
   date_canceled: 2 * 24 * 60 * 60,
   interest: 2 * 24 * 60 * 60,
+  priority_like: 3 * 24 * 60 * 60,
   // Live pushes are only useful right now; drop them rather than deliver late.
   live_ending: 15 * 60,
   live_check: 20 * 60,
@@ -939,9 +943,45 @@ async function pushToUser(db, uid, { title, body, data, badge }, options = {}) {
 }
 
 /**
+ * Everything a Priority Like must clear beyond a normal heart: DateToday+, a clean note, nothing
+ * hiding either person from the other, both "show me" preferences, and the recipient being someone
+ * the sender could actually have been shown. Throws { status, code } errors.
+ */
+async function checkPriorityLike(db, fromUid, toUid, rawNote) {
+  const config = await priorityLikes.loadConfig(db);
+  const fail = (status, message, code) => Object.assign(new Error(message), { status, code });
+  if (!config.enabled) throw fail(403, 'Priority Likes aren’t available right now.', 'priority_unavailable');
+  if (!(await hasDateTodayPlus(db, fromUid))) {
+    throw fail(403, 'Priority Likes come with DateToday+.', 'plus_required');
+  }
+  const note = priorityLikes.cleanNote(rawNote, config.noteMaxChars);
+  const [fromUser, toUser, hiddenForThem, hiddenForMe, reported] = await Promise.all([
+    db.collection('users').doc(fromUid).get(),
+    db.collection('users').doc(toUid).get(),
+    isHiddenFrom(db, toUid, fromUid),
+    isHiddenFrom(db, fromUid, toUid),
+    db.collection('reports').where('reporterId', '==', toUid).where('reportedId', '==', fromUid).limit(1).get(),
+  ]);
+  if (hiddenForThem || hiddenForMe || !reported.empty) {
+    throw fail(403, 'You can’t interact with this person.', 'blocked');
+  }
+  const me = fromUser.data() || {};
+  const them = toUser.data() || {};
+  const pick = (d, k) => d[k] ?? (d.profile && d.profile[k]) ?? (d.preferences && d.preferences[k]);
+  const visible =
+    eligible(them) &&
+    (them.privacyControls || {}).pauseDiscovery !== true &&
+    priorityLikes.interestedIn(pick(me, 'interestedIn') ?? 'everyone', pick(them, 'gender')) &&
+    priorityLikes.interestedIn(pick(them, 'interestedIn') ?? 'everyone', pick(me, 'gender'));
+  if (!visible) throw fail(403, 'This person isn’t available for a Priority Like.', 'not_available');
+  return { note, config };
+}
+
+/**
  * Heart someone. Creates interests/{from}_{to}; if they already hearted back,
- * creates matches/{pair} and notifies. Body: { toUid }
- * Returns { mutual, matchId?, other? }.
+ * creates matches/{pair} and notifies. Body: { toUid, priority?, note? }
+ * A Priority Like (DateToday+) marks the same doc type 'priority' with an optional short note.
+ * Returns { mutual, matchId?, other?, priority }.
  */
 exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
   try {
@@ -967,6 +1007,8 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
       res.status(403).json({ error: 'You can’t interact with this person.' });
       return;
     }
+    const priority = req.body?.priority === true;
+    const priorityCheck = priority ? await checkPriorityLike(db, fromUid, toUid, req.body?.note) : null;
 
     const interestRef = db.collection('interests').doc(`${fromUid}_${toUid}`);
     const reverseRef = db.collection('interests').doc(`${toUid}_${fromUid}`);
@@ -974,7 +1016,28 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
     const matchRef = db.collection('matches').doc(matchId);
 
     // Free: one new match a day. Only a heart that completes a match counts.
-    const [reverseNow, matchNow] = await Promise.all([reverseRef.get(), matchRef.get()]);
+    const [reverseNow, matchNow, interestNow] = await Promise.all([reverseRef.get(), matchRef.get(), interestRef.get()]);
+    if (priority) {
+      const prior = interestNow.exists ? interestNow.data() : null;
+      if (matchNow.exists) {
+        res.status(409).json({ error: 'You’re already matched.', code: 'already_matched' });
+        return;
+      }
+      if (prior && (prior.type === 'priority' || prior.passedAt)) {
+        res.status(409).json({ error: 'You’ve already sent them a Priority Like.', code: 'priority_already_sent' });
+        return;
+      }
+      try {
+        await emailFlows.rateLimit(db, `priorityLike|${fromUid}`, priorityCheck.config.dailyLimit, priorityLikes.DAY_MS);
+      } catch (error) {
+        if (error.status !== 429) throw error;
+        res.status(429).json({
+          error: `You’ve sent ${priorityCheck.config.dailyLimit} Priority Likes today. More tomorrow.`,
+          code: 'priority_limit',
+        });
+        return;
+      }
+    }
     if (reverseNow.exists && !matchNow.exists && !(await hasDateTodayPlus(db, fromUid))) {
       const tz = Number(req.body && req.body.tzOffsetMinutes);
       const since = Number.isFinite(tz) ? likes.localDayStart(Date.now(), tz) : Date.now() - 24 * 3600 * 1000;
@@ -1009,17 +1072,37 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
       if (blockMine.exists || blockTheirs.exists || unmatched.exists) {
         throw Object.assign(new Error('You can’t interact with this person.'), { status: 403 });
       }
+      const prior = existing.exists ? existing.data() : null;
+      if (priority && (match.exists || (prior && (prior.type === 'priority' || prior.passedAt)))) {
+        throw Object.assign(new Error('You’ve already sent them a Priority Like.'), {
+          status: 409,
+          code: 'priority_already_sent',
+        });
+      }
+      const priorityFields = priority
+        ? { type: 'priority', note: priorityCheck.note, priorityAt: FieldValue.serverTimestamp() }
+        : null;
       if (!existing.exists) {
         tx.set(interestRef, {
           fromUid,
           toUid,
           createdAt: FieldValue.serverTimestamp(),
+          ...(priorityFields || {}),
         });
+      } else if (priorityFields) {
+        tx.update(interestRef, priorityFields);
       }
       const mutual = reverse.exists;
       let createdMatch = false;
       if (mutual && !match.exists) {
         const userIds = [fromUid, toUid].sort();
+        // Keep the Priority Like note (from either side) as context at the top of the new chat.
+        const theirs = reverse.data();
+        const priorityLike = priority
+          ? { fromUid, note: priorityCheck.note }
+          : theirs && theirs.type === 'priority'
+            ? { fromUid: toUid, note: typeof theirs.note === 'string' ? theirs.note : null }
+            : null;
         tx.set(matchRef, {
           userIds,
           users: { [fromUid]: me, [toUid]: them },
@@ -1028,6 +1111,7 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
           lastMessage: null,
           nextDate: null,
           unread: { [userIds[0]]: 0, [userIds[1]]: 0 },
+          ...(priorityLike ? { priorityLike } : {}),
         });
         createdMatch = true;
       }
@@ -1040,7 +1124,7 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
         .set({ version: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true })
         .catch(() => undefined);
     if (outcome.createdMatch) await Promise.all([bumpInbox(fromUid), bumpInbox(toUid)]);
-    else if (outcome.firstHeart) await bumpInbox(toUid);
+    else if (outcome.firstHeart || priority) await bumpInbox(toUid);
 
     if (outcome.createdMatch) {
       await pushToUser(db, toUid, {
@@ -1051,6 +1135,15 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
       await emailFlows
         .emailNewMatch(db, getAuth(), { uid: toUid, otherName: me.displayName, matchId })
         .catch((e) => console.warn('match email failed', String(e)));
+    } else if (!outcome.mutual && priority) {
+      // Name and note stay off the lock screen; the app shows both.
+      await pushToUser(db, toUid, {
+        title: 'Someone sent you a Priority Like ⚡',
+        body: priorityCheck.note
+          ? 'They want to meet you and left you a note. Tap to see who.'
+          : 'They want to meet you. Tap to see who.',
+        data: { type: 'priority_like', url: `/profile/${fromUid}` },
+      });
     } else if (!outcome.mutual && outcome.firstHeart) {
       await pushToUser(db, toUid, {
         title: 'You’ve got a potential date',
@@ -1064,12 +1157,50 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
       created: outcome.createdMatch,
       matchId: outcome.mutual ? matchId : null,
       other: outcome.mutual ? { uid: toUid, ...them } : null,
+      priority,
     });
   } catch (error) {
-    console.error(error);
+    if (!error.status || error.status >= 500) console.error(error);
     res.status(error.status || 500).json({
       error: error instanceof Error ? error.message : 'Could not send interest.',
+      ...(error.code ? { code: error.code } : {}),
     });
+  }
+});
+
+/**
+ * Pass on someone's like (Priority or normal). Body: { fromUid }. No match, they leave
+ * "Likes you", and the sender can't send another Priority Like to this person.
+ */
+exports.passLike = onRequest({ cors: true }, async (req, res) => {
+  try {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    const { uid } = await requireUser(req);
+    const fromUid = typeof req.body?.fromUid === 'string' ? req.body.fromUid.trim() : '';
+    if (!fromUid || fromUid === uid || fromUid.includes('/')) {
+      res.status(400).json({ error: 'Invalid person.' });
+      return;
+    }
+    const db = getFirestore();
+    const ref = db.collection('interests').doc(`${fromUid}_${uid}`);
+    const passed = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists || snap.data().toUid !== uid) return false;
+      if (!snap.data().passedAt) tx.update(ref, { passedAt: FieldValue.serverTimestamp() });
+      return true;
+    });
+    if (passed) {
+      await db.collection('likeInbox').doc(uid)
+        .set({ version: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        .catch(() => undefined);
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    if (!error.status) console.error('passLike failed', error && error.message);
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Couldn’t pass right now.' });
   }
 });
 

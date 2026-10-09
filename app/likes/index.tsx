@@ -12,6 +12,8 @@ import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { FREE_LIKES_PREVIEW as FREE_PREVIEW } from '@/features/matches/likes';
 import { usePendingLikes } from '@/store/matches';
 import { ScaledSheet, rs } from '@/lib/scale';
+import { PRIORITY, PRIORITY_TEXT } from '@/components/likes/PriorityLikeSheet';
+import type { RevealedLike } from '@/features/matches/api';
 
 /**
  * People who tapped Interested on you. Heart them back from their profile to match.
@@ -21,6 +23,8 @@ export default function LikesScreen() {
   const router = useRouter();
   const likes = usePendingLikes();
   const visible = likes?.revealed ?? [];
+  const priority = visible.filter((l) => l.priority);
+  const normal = visible.filter((l) => !l.priority);
   const lockedCount = likes ? Math.max(0, likes.total - visible.length) : 0;
   const locked = (likes?.locked ?? []).slice(0, Math.min(6, lockedCount));
   const total = likes?.total ?? 0;
@@ -79,34 +83,14 @@ export default function LikesScreen() {
           </View>
         ) : (
           <>
-            {!likes.plus && visible.length ? <AppText style={styles.section}>YOUR FREE PREVIEW</AppText> : null}
-            {visible.map((card) => (
-              <Pressable
-                key={card.uid}
-                style={styles.row}
-                onPress={() =>
-                  router.push({
-                    pathname: '/profile/[userId]',
-                    params: { userId: card.uid, name: card.displayName },
-                  })
-                }
-              >
-                {card.mainPhotoUrl ? (
-                  <Image
-                    source={{ uri: card.mainPhotoUrl }}
-                    style={styles.avatar}
-                    cachePolicy="memory-disk"
-                    transition={150}
-                  />
-                ) : (
-                  <View style={[styles.avatar, styles.avatarPh]} />
-                )}
-                <View style={styles.meta}>
-                  <AppText style={styles.name}>{card.displayName}</AppText>
-                  <AppText variant="secondary">Tap to see their profile and like back</AppText>
-                </View>
-                <Ionicons name="chevron-forward" size={rs(20)} color={colors.textSecondary} />
-              </Pressable>
+            {priority.length ? <AppText style={[styles.section, styles.prioritySection]}>⚡ PRIORITY LIKES</AppText> : null}
+            {priority.map((card) => (
+              <LikeRow key={card.uid} card={card} />
+            ))}
+            {!likes.plus && normal.length ? <AppText style={styles.section}>YOUR FREE PREVIEW</AppText> : null}
+            {likes.plus && priority.length && normal.length ? <AppText style={styles.section}>LIKES</AppText> : null}
+            {normal.map((card) => (
+              <LikeRow key={card.uid} card={card} />
             ))}
           </>
         )}
@@ -156,7 +140,76 @@ export default function LikesScreen() {
   );
 }
 
+function LikeRow({ card }: { card: RevealedLike }) {
+  const router = useRouter();
+  return (
+    <Pressable
+      style={[styles.row, card.priority && styles.priorityRow]}
+      accessibilityRole="button"
+      accessibilityLabel={
+        card.priority
+          ? `Priority Like from ${card.displayName}.${card.note ? ` Note: ${card.note}` : ''} Open profile`
+          : `${card.displayName} liked you. Open profile`
+      }
+      onPress={() =>
+        router.push({
+          pathname: '/profile/[userId]',
+          params: { userId: card.uid, name: card.displayName },
+        })
+      }
+    >
+      <View>
+        {card.mainPhotoUrl ? (
+          <Image source={{ uri: card.mainPhotoUrl }} style={styles.avatar} cachePolicy="memory-disk" transition={150} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarPh]} />
+        )}
+        {card.priority ? (
+          <View style={styles.boltBadge}>
+            <Ionicons name="flash" size={rs(11)} color="#fff" />
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.meta}>
+        <AppText style={styles.name}>{card.displayName}</AppText>
+        {card.priority ? (
+          <AppText style={styles.priorityLine} numberOfLines={2}>
+            {card.note ? `“${card.note}”` : 'Wants to meet you'}
+          </AppText>
+        ) : (
+          <AppText variant="secondary">Tap to see their profile and like back</AppText>
+        )}
+      </View>
+      <Ionicons name="chevron-forward" size={rs(20)} color={card.priority ? PRIORITY_TEXT : colors.textSecondary} />
+    </Pressable>
+  );
+}
+
 const styles = ScaledSheet.create({
+  prioritySection: { color: PRIORITY_TEXT },
+  priorityRow: {
+    paddingHorizontal: 12,
+    borderRadius: radii.card,
+    borderWidth: 1.5,
+    borderBottomWidth: 1.5,
+    borderColor: PRIORITY,
+    borderBottomColor: PRIORITY,
+    backgroundColor: 'rgba(168,85,247,0.1)',
+  },
+  priorityLine: { color: PRIORITY_TEXT, fontSize: 14, fontStyle: 'italic', lineHeight: 19 },
+  boltBadge: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: PRIORITY,
+    borderWidth: 2,
+    borderColor: colors.background,
+  },
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,

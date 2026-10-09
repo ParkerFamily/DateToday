@@ -5,6 +5,8 @@
  * liked them comes back only as a tiny blurred thumbnail. Their uid, name and photo URL never
  * leave the server for a free member, so hidden likes can't be unmasked from the client.
  */
+const { rankLikes } = require('./priorityLikes');
+
 const ENTITLEMENT_ID = 'datetoday_pro';
 const FREE_REVEALED = 1;
 const MAX_LOCKED_THUMBS = 12;
@@ -78,7 +80,7 @@ async function isPlusUser(db, uid, opts = {}) {
   }
 }
 
-/** Hearts from people I haven't matched with, blocked or been blocked by. Oldest first. */
+/** Hearts from people I haven't matched with, passed on, blocked or been blocked by. Priority Likes first. */
 async function pendingLikes(db, uid) {
   const [incoming, hidden, matches] = await Promise.all([
     db.collection('interests').where('toUid', '==', uid).limit(500).get(),
@@ -93,15 +95,20 @@ async function pendingLikes(db, uid) {
     const data = d.data();
     const from = typeof data.fromUid === 'string' ? data.fromUid : '';
     if (!from || from === uid || hiddenIds.has(from) || matched.has(from) || seen.has(from)) continue;
+    if (data.passedAt) continue;
     seen.add(from);
-    rows.push({ fromUid: from, createdAt: msOf(data.createdAt) });
+    const priority = data.type === 'priority';
+    rows.push({
+      fromUid: from,
+      createdAt: msOf(data.createdAt),
+      priority,
+      priorityAt: priority ? msOf(data.priorityAt) : 0,
+      note: priority && typeof data.note === 'string' ? data.note : null,
+    });
   }
   if (!rows.length) return [];
   const profiles = await db.getAll(...rows.map((r) => db.collection('profiles').doc(r.fromUid)));
-  return rows
-    .map((r, i) => (profiles[i].exists ? { ...r, profile: profiles[i].data() } : null))
-    .filter(Boolean)
-    .sort((a, b) => a.createdAt - b.createdAt);
+  return rankLikes(rows.map((r, i) => (profiles[i].exists ? { ...r, profile: profiles[i].data() } : null)).filter(Boolean));
 }
 
 /** Tiny blurred thumbnail: enough to tease, never enough to recognize. Cached per photo. */
@@ -141,13 +148,20 @@ function publicLike(row) {
     mainPhotoUrl: typeof p.mainPhotoUrl === 'string' ? p.mainPhotoUrl : null,
     verificationStatus: typeof p.verificationStatus === 'string' ? p.verificationStatus : 'unverified',
     likedAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    priority: Boolean(row.priority),
+    note: row.priority ? row.note || null : null,
   };
 }
 
-/** What a member may see of their likes. Locked entries carry no identity at all. */
+/**
+ * What a member may see of their likes. Locked entries carry no identity at all.
+ * Priority Likes are always revealed: the sender paid to be seen.
+ */
 async function buildLikes(db, rows, plus, opts = {}) {
-  const revealedRows = plus ? rows : rows.slice(0, FREE_REVEALED);
-  const lockedRows = plus ? [] : rows.slice(FREE_REVEALED);
+  const priorityRows = rows.filter((r) => r.priority);
+  const normalRows = rows.filter((r) => !r.priority);
+  const revealedRows = [...priorityRows, ...(plus ? normalRows : normalRows.slice(0, FREE_REVEALED))];
+  const lockedRows = plus ? [] : normalRows.slice(FREE_REVEALED);
   const thumbs = await Promise.all(
     lockedRows
       .slice(0, MAX_LOCKED_THUMBS)

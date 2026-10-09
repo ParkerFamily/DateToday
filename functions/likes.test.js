@@ -117,6 +117,22 @@ test('buildLikes: DateToday+ reveals everyone', async () => {
   assert.equal(out.locked.length, 0);
 });
 
+test('buildLikes: Priority Likes are always revealed, ranked first, and carry their note', async () => {
+  const withPriority = [
+    ...rows,
+    { fromUid: 'p', createdAt: 9, priority: true, priorityAt: 9, note: 'Drinks tonight?', profile: { displayName: 'Pia' } },
+  ];
+  const { rankLikes } = require('./priorityLikes');
+  const out = await likes.buildLikes(fakeDb(), rankLikes(withPriority), false);
+  assert.equal(out.total, 4);
+  assert.deepEqual(out.revealed.map((r) => r.uid), ['p', 'a']);
+  assert.equal(out.revealed[0].priority, true);
+  assert.equal(out.revealed[0].note, 'Drinks tonight?');
+  assert.equal(out.revealed[1].priority, false);
+  assert.equal(out.revealed[1].note, null);
+  assert.equal(out.locked.length, 2);
+});
+
 test('localDayStart: midnight in the caller\'s timezone', () => {
   // 18:00Z on Oct 7 is 14:00 in New York (UTC-4, offset +240).
   assert.equal(new Date(likes.localDayStart(NOW, 240)).toISOString(), '2026-10-07T04:00:00.000Z');
