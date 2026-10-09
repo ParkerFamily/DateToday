@@ -23,6 +23,7 @@ const emailFlows = require('./emailFlows');
 const emailIdentity = require('./emailIdentity');
 const geo = require('./geo');
 const personaName = require('./personaName');
+const stripeBilling = require('./stripeBilling');
 const functionsV1 = require('firebase-functions/v1');
 
 initializeApp();
@@ -204,6 +205,7 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public', timeoutSecond
 
     await deletePrefix(bucket, `users/${uid}/`);
     await anonymizeReports(db, uid);
+    await gone(stripeBilling.cancelForDeletedAccount(db, uid));
     await Promise.all(
       ['notificationPrefs', 'promoLog', 'userStats', 'emailOtps', 'emailLog', 'users'].map((c) =>
         gone(db.collection(c).doc(uid).delete()),
@@ -592,6 +594,33 @@ exports.confirmEmailSignup = onRequest({ cors: true }, jsonEndpoint(emailFlows.c
 exports.claimSignupEmail = onRequest({ cors: true }, jsonEndpoint(emailFlows.claimSignupEmail, { signedIn: true }));
 exports.sendPasswordResetEmail = onRequest({ cors: true }, jsonEndpoint(emailFlows.sendPasswordReset));
 
+/** DateToday+ from any approved source: DateToday's web checkout (Stripe) or the app stores (RevenueCat). */
+async function hasDateTodayPlus(db, uid, opts) {
+  if (await stripeBilling.hasWebPlus(db, uid)) return true;
+  return likes.isPlusUser(db, uid, opts);
+}
+
+exports.webCheckoutStatus = onRequest({ cors: true }, jsonEndpoint(stripeBilling.checkoutStatus, { signedIn: true }));
+exports.createWebCheckoutLink = onRequest({ cors: true }, jsonEndpoint(stripeBilling.createCheckoutLink, { signedIn: true }));
+exports.stripeBillingPortal = onRequest({ cors: true }, jsonEndpoint(stripeBilling.billingPortal, { signedIn: true }));
+/** Called by the checkout page; authenticated by the one-account ticket, not a uid. */
+exports.webCheckout = onRequest(
+  { cors: [new URL(stripeBilling.SITE).origin] },
+  jsonEndpoint(stripeBilling.webCheckout),
+);
+exports.stripeWebhook = onRequest({ cors: false }, async (req, res) => {
+  if (req.method !== 'POST') {
+    res.status(405).send('Method not allowed');
+    return;
+  }
+  try {
+    await stripeBilling.stripeWebhook(req, res, { db: getFirestore() });
+  } catch (error) {
+    console.error('Stripe webhook failed', error);
+    res.status(500).send('error');
+  }
+});
+
 exports.emailUnsubscribe = onRequest({ cors: false }, async (req, res) => {
   try {
     await emailFlows.emailUnsubscribe(req, res, { db: getFirestore() });
@@ -943,7 +972,7 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
 
     // Free: one new match a day. Only a heart that completes a match counts.
     const [reverseNow, matchNow] = await Promise.all([reverseRef.get(), matchRef.get()]);
-    if (reverseNow.exists && !matchNow.exists && !(await likes.isPlusUser(db, fromUid))) {
+    if (reverseNow.exists && !matchNow.exists && !(await hasDateTodayPlus(db, fromUid))) {
       const tz = Number(req.body && req.body.tzOffsetMinutes);
       const since = Number.isFinite(tz) ? likes.localDayStart(Date.now(), tz) : Date.now() - 24 * 3600 * 1000;
       const mine = await db.collection('matches').where('userIds', 'array-contains', fromUid).limit(500).get();
@@ -1055,7 +1084,7 @@ exports.getLikes = onRequest({ cors: true, memory: '512MiB' }, async (req, res) 
     const { uid } = await requireUser(req);
     const db = getFirestore();
     const fresh = req.query && (req.query.fresh === '1' || req.query.fresh === 'true');
-    const [plus, rows] = await Promise.all([likes.isPlusUser(db, uid, { fresh }), likes.pendingLikes(db, uid)]);
+    const [plus, rows] = await Promise.all([hasDateTodayPlus(db, uid, { fresh }), likes.pendingLikes(db, uid)]);
     res.set('Cache-Control', 'private, no-store');
     res.json(await likes.buildLikes(db, rows, plus));
   } catch (error) {

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Platform,
   ScrollView,
   View,
 } from 'react-native';
@@ -29,6 +30,7 @@ export default function SettingsScreen() {
   const resetDraft = useOnboardingDraft((s) => s.reset);
   const profile = useSessionStore((s) => s.profile);
   const entitlements = useSessionStore((s) => s.entitlements);
+  const plusFromWeb = useSessionStore((s) => s.plusSource) === 'web';
   const [busy, setBusy] = useState(false);
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const verified = profile?.verificationStatus === 'verified';
@@ -66,6 +68,16 @@ export default function SettingsScreen() {
   };
 
   const manageSubscription = () => {
+    if (plusFromWeb) {
+      if (Platform.OS === 'ios') {
+        Alert.alert('DateToday+', 'Your DateToday+ is billed through your DateToday account, not the App Store.');
+        return;
+      }
+      void import('@/lib/billing/webCheckout')
+        .then((m) => m.openWebBillingPortal())
+        .catch((e: Error) => Alert.alert('Couldn’t open billing', e.message));
+      return;
+    }
     void Linking.openURL(managementUrlForEntitlements(entitlements));
   };
 

@@ -58,6 +58,64 @@ export function isPlusActive(state: EntitlementState): boolean {
   );
 }
 
+/** Where an active DateToday+ comes from: App Store / Play (RevenueCat) or DateToday's web checkout. */
+export type PlusSource = 'store' | 'web';
+
+/** Firestore webSubscriptions/{uid}, written only by the Stripe webhook. */
+export interface WebSubscriptionDoc {
+  plus?: boolean;
+  status?: string;
+  plan?: string | null;
+  expiresAt?: number | null;
+  willRenew?: boolean;
+  billingIssue?: boolean;
+}
+
+/** Same grace the server allows for a late renewal webhook. */
+const WEB_RENEWAL_GRACE_MS = 2 * 24 * 60 * 60 * 1000;
+
+export function entitlementsFromWebSubscription(
+  doc: WebSubscriptionDoc | null | undefined,
+  now = Date.now(),
+): EntitlementState | null {
+  if (!doc) return null;
+  const notExpired = doc.expiresAt == null || doc.expiresAt + WEB_RENEWAL_GRACE_MS > now;
+  const plus = doc.plus === true && notExpired;
+  const status: SubscriptionStatus = plus
+    ? doc.status === 'trialing' || doc.status === 'past_due'
+      ? doc.status
+      : 'active'
+    : doc.status === 'canceled' || doc.plus
+      ? 'canceled'
+      : 'inactive';
+  return {
+    ...DEFAULT_ENTITLEMENTS,
+    plan: plus ? 'plus' : 'free',
+    subscriptionStatus: status,
+    plusPlanId: doc.plan === 'weekly' || doc.plan === 'monthly' ? doc.plan : null,
+    expiresAt: doc.expiresAt ? new Date(doc.expiresAt).toISOString() : null,
+    willRenew: plus && doc.willRenew === true,
+    billingIssueDetected: doc.billingIssue === true,
+  };
+}
+
+/**
+ * The one answer to "does this member have DateToday+?". An active store subscription wins;
+ * otherwise an active web subscription; otherwise the store state as before.
+ */
+export function resolveEntitlements(
+  store: EntitlementState,
+  web: EntitlementState | null,
+): { entitlements: EntitlementState; plusSource: PlusSource | null } {
+  if (isPlusActive(store)) return { entitlements: store, plusSource: 'store' };
+  if (web && isPlusActive(web)) return { entitlements: web, plusSource: 'web' };
+  return { entitlements: store, plusSource: null };
+}
+
+export function hasDateTodayPlus(state: EntitlementState): boolean {
+  return isPlusActive(state);
+}
+
 export function hasEntitlement(
   state: EntitlementState,
   key: EntitlementKey,

@@ -31,6 +31,14 @@ import {
   type PlusPlanId,
   type PlusPlanOffer,
 } from '@/lib/purchases';
+import {
+  loadWebCheckout,
+  openWebBillingPortal,
+  refreshWebEntitlement,
+  startWebCheckout,
+  webCheckoutBuildAllowed,
+  type WebCheckoutStatus,
+} from '@/lib/billing/webCheckout';
 import { useSessionStore } from '@/store/session';
 import { ScaledSheet, rs } from '@/lib/scale';
 
@@ -39,6 +47,7 @@ export default function PaywallScreen() {
   const { reason } = useLocalSearchParams<{ reason?: string }>();
   const entitlements = useSessionStore((s) => s.entitlements);
   const isPlus = isPlusActive(entitlements);
+  const plusFromWeb = useSessionStore((s) => s.plusSource) === 'web';
   const headline =
     !isPlus && reason && reason in UPGRADE_COPY
       ? UPGRADE_COPY[reason as UpgradeReason]
@@ -50,6 +59,8 @@ export default function PaywallScreen() {
   const [busy, setBusy] = useState(false);
   const [storeHint, setStoreHint] = useState<string | null>(null);
   const comingSoon = billingComingSoon();
+  const [web, setWeb] = useState<WebCheckoutStatus | null>(null);
+  const webMode = Boolean(web?.available) && !isPlus;
 
   useEffect(() => {
     let alive = true;
@@ -78,9 +89,30 @@ export default function PaywallScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let alive = true;
+    void refreshWebEntitlement();
+    if (!webCheckoutBuildAllowed()) return;
+    void loadWebCheckout().then((next) => {
+      if (alive) setWeb(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** Web checkout shows the same plans, priced from DateToday's billing (Stripe). */
+  const shownPlans = useMemo(() => {
+    if (!webMode || !web) return plans;
+    return plans.flatMap((p) => {
+      const w = web.plans.find((x) => x.id === p.id);
+      return w ? [{ ...p, priceLabel: w.priceLabel, periodLabel: w.periodLabel }] : [];
+    });
+  }, [plans, web, webMode]);
+
   const selectedPlan = useMemo(
-    () => plans.find((p) => p.id === selected) ?? plans[1] ?? plans[0],
-    [plans, selected],
+    () => shownPlans.find((p) => p.id === selected) ?? shownPlans[1] ?? shownPlans[0],
+    [shownPlans, selected],
   );
 
   const selectingCurrent =
@@ -104,7 +136,32 @@ export default function PaywallScreen() {
   };
 
   const openManage = () => {
+    if (plusFromWeb) {
+      if (Platform.OS === 'ios') return;
+      void openWebBillingPortal().catch((e: Error) => Alert.alert('Couldn’t open billing', e.message));
+      return;
+    }
     void Linking.openURL(managementUrlForEntitlements(entitlements));
+  };
+
+  const onWebUpgrade = async () => {
+    if (!selectedPlan) return;
+    setBusy(true);
+    try {
+      const result = await startWebCheckout(selectedPlan.id);
+      if (result === 'unlocked') {
+        finishUnlocked();
+      } else if (result === 'processing') {
+        Alert.alert(
+          'Almost there',
+          'Your payment went through. DateToday+ unlocks here in a moment — no need to restart the app.',
+        );
+      }
+    } catch (e) {
+      Alert.alert('Couldn’t open checkout', e instanceof Error ? e.message : 'Try again in a moment.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onContinue = async () => {
@@ -166,14 +223,31 @@ export default function PaywallScreen() {
           <View style={styles.statusCard}>
             <AppText style={styles.statusEyebrow}>Your plan</AppText>
             <AppText style={styles.statusTitle}>{plusStatusLabel(entitlements)}</AppText>
-            <AppText style={styles.statusBody}>
-              {entitlements.willRenew
-                ? 'Auto-renew is on. Pick Weekly or Monthly below to switch plans, or manage billing in the App Store.'
-                : 'Auto-renew is off. You’ll keep Plus until the period ends — resubscribe anytime.'}
-            </AppText>
-            <Pressable onPress={openManage} hitSlop={8}>
-              <AppText style={styles.statusLink}>Manage in {Platform.OS === 'android' ? 'Play Store' : 'App Store'} →</AppText>
-            </Pressable>
+            {plusFromWeb ? (
+              <>
+                <AppText style={styles.statusBody}>
+                  {entitlements.willRenew
+                    ? 'Auto-renew is on. Your DateToday+ is billed through your DateToday account.'
+                    : 'Auto-renew is off. You’ll keep Plus until the period ends.'}
+                </AppText>
+                {Platform.OS === 'ios' ? null : (
+                  <Pressable onPress={openManage} hitSlop={8}>
+                    <AppText style={styles.statusLink}>Manage subscription →</AppText>
+                  </Pressable>
+                )}
+              </>
+            ) : (
+              <>
+                <AppText style={styles.statusBody}>
+                  {entitlements.willRenew
+                    ? 'Auto-renew is on. Pick Weekly or Monthly below to switch plans, or manage billing in the App Store.'
+                    : 'Auto-renew is off. You’ll keep Plus until the period ends — resubscribe anytime.'}
+                </AppText>
+                <Pressable onPress={openManage} hitSlop={8}>
+                  <AppText style={styles.statusLink}>Manage in {Platform.OS === 'android' ? 'Play Store' : 'App Store'} →</AppText>
+                </Pressable>
+              </>
+            )}
           </View>
         ) : null}
 
@@ -186,17 +260,25 @@ export default function PaywallScreen() {
           ))}
         </View>
 
-        {storeHint ? (
+        {storeHint && !webMode ? (
           <View style={styles.hintCard}>
             <AppText style={styles.hintText}>{storeHint}</AppText>
           </View>
         ) : null}
 
-        {loadingOffers ? (
+        {webMode && web?.testMode ? (
+          <View style={styles.hintCard}>
+            <AppText style={styles.hintText}>
+              Test mode — nothing is charged. Pay with card 4242 4242 4242 4242, any future date and any CVC.
+            </AppText>
+          </View>
+        ) : null}
+
+        {plusFromWeb ? null : loadingOffers ? (
           <ActivityIndicator color={colors.brandBright} style={{ marginVertical: spacing.md }} />
         ) : (
           <View style={styles.planList}>
-            {plans.map((plan) => {
+            {shownPlans.map((plan) => {
               const on = selected === plan.id;
               const current = isPlus && entitlements.plusPlanId === plan.id;
               return (
@@ -237,7 +319,16 @@ export default function PaywallScreen() {
           </View>
         )}
 
-        {comingSoon ? (
+        {plusFromWeb ? null : webMode ? (
+          <>
+            <Button label="Upgrade to DateToday+" loading={busy} onPress={() => void onWebUpgrade()} />
+            <AppText style={styles.legal}>
+              {selectedPlan ? `${selectedPlan.priceLabel}/${selectedPlan.periodLabel}. ` : ''}
+              Billed securely by Stripe. Renews automatically until you cancel — cancel anytime from
+              Settings › Manage subscription.
+            </AppText>
+          </>
+        ) : comingSoon ? (
           <Button label="Coming soon on Android" disabled onPress={() => undefined} />
         ) : (
           <>

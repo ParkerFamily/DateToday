@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#09090B">
+  <title>DateToday+</title>
+  <style>
+    :root { --bg: #09090B; --card: #131218; --line: #26242F; --text: #F5F3FF; --muted: #92929D; --brand: #7C3AED; --bright: #A855F7; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(120% 60% at 50% -10%, rgba(124,58,237,.35), transparent 60%), var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+    main { max-width: 440px; margin: 0 auto; padding: calc(28px + env(safe-area-inset-top)) 20px calc(32px + env(safe-area-inset-bottom)); }
+    .logo { font-size: 22px; font-weight: 800; letter-spacing: -.3px; }
+    .logo span { color: var(--bright); }
+    .pill { display: inline-block; margin-top: 28px; padding: 6px 12px; border-radius: 999px; background: rgba(168,85,247,.16); border: 1px solid rgba(168,85,247,.45); color: #D8B4FE; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+    h1 { margin: 14px 0 8px; font-size: 32px; line-height: 36px; letter-spacing: -.8px; font-weight: 900; }
+    .sub { margin: 0; color: var(--muted); font-size: 16px; line-height: 23px; }
+    .card { margin-top: 18px; padding: 14px 16px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); }
+    .account { display: flex; align-items: center; gap: 12px; }
+    .avatar { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, var(--brand), var(--bright)); display: grid; place-items: center; font-weight: 800; flex: none; }
+    .account small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .test { margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: rgba(250,204,21,.1); border: 1px solid rgba(250,204,21,.4); color: #FDE68A; font-size: 13px; line-height: 19px; }
+    .plans { display: grid; gap: 12px; margin-top: 18px; }
+    .plan { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px; border-radius: 18px; background: var(--card); border: 1.5px solid var(--line); color: inherit; text-align: left; font: inherit; cursor: pointer; }
+    .plan[aria-checked="true"] { border-color: var(--bright); background: rgba(124,58,237,.16); }
+    .plan .name { font-size: 15px; font-weight: 700; }
+    .plan .price { font-size: 24px; font-weight: 800; margin-top: 2px; }
+    .plan .price span { color: var(--muted); font-size: 15px; font-weight: 600; }
+    .plan .badge { position: absolute; top: -9px; right: 14px; padding: 3px 8px; border-radius: 999px; background: var(--brand); font-size: 10px; font-weight: 800; letter-spacing: .6px; }
+    .check { margin-left: auto; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--line); flex: none; display: grid; place-items: center; }
+    .plan[aria-checked="true"] .check { background: var(--bright); border-color: var(--bright); }
+    .plan[aria-checked="true"] .check::after { content: ''; width: 10px; height: 6px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px,-1px); }
+    ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    li { display: flex; gap: 10px; font-size: 15px; line-height: 21px; }
+    li::before { content: '✦'; color: var(--bright); font-size: 13px; line-height: 21px; }
+    .cta { display: block; width: 100%; margin-top: 22px; padding: 17px 20px; border: 0; border-radius: 999px; background: linear-gradient(90deg, var(--brand), var(--bright)); color: #fff; font: inherit; font-size: 17px; font-weight: 800; cursor: pointer; text-align: center; text-decoration: none; box-shadow: 0 10px 30px rgba(124,58,237,.35); }
+    .cta[disabled] { opacity: .6; cursor: default; }
+    .secondary { display: block; margin-top: 12px; padding: 15px 20px; border-radius: 999px; border: 1px solid var(--line); color: var(--text); text-align: center; text-decoration: none; font-weight: 700; }
+    .secure { display: flex; justify-content: center; align-items: center; gap: 6px; margin-top: 12px; color: var(--muted); font-size: 13px; }
+    .fine { margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 18px; text-align: center; }
+    .fine a { color: #C4B5FD; }
+    .error { margin-top: 14px; color: #FCA5A5; font-size: 14px; line-height: 20px; text-align: center; min-height: 20px; }
+    .skeleton { height: 82px; border-radius: 18px; background: linear-gradient(90deg, #131218, #1c1a24, #131218); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="logo">Date<span>Today</span></div>
+
+    <section id="loading">
+      <div class="pill">DATETODAY+</div>
+      <h1>Upgrade to DateToday+</h1>
+      <div class="plans"><div class="skeleton"></div><div class="skeleton"></div></div>
+    </section>
+
+    <section id="checkout" hidden>
+      <div class="pill">DATETODAY+</div>
+      <h1>Upgrade to DateToday+</h1>
+      <p class="sub">More matches, more messages, and every filter — on the account you're signed in with.</p>
+
+      <div class="card account">
+        <div class="avatar" id="initial">D</div>
+        <div><strong id="who">Your DateToday account</strong><small id="email"></small></div>
+      </div>
+
+      <div class="test" id="testBanner" hidden>Test mode — nothing is charged. Pay with card 4242 4242 4242 4242, any future expiry and any CVC.</div>
+
+      <div class="plans" id="plans" role="radiogroup" aria-label="Choose a plan"></div>
+
+      <div class="card">
+        <ul>
+          <li>Unlimited matches every day</li>
+          <li>Message everyone you match with</li>
+          <li>Advanced filters: age, intent, height, lifestyle</li>
+          <li>See everyone who liked you</li>
+          <li>Priority Pool + 50 mi radius</li>
+          <li>Travel Mode: go Live in another city</li>
+        </ul>
+      </div>
+
+      <button class="cta" id="pay">Continue to secure checkout</button>
+      <div class="secure">🔒 Payments processed securely by Stripe</div>
+      <div class="error" id="error" role="alert"></div>
+      <p class="fine">Renews automatically until you cancel. Cancel anytime in DateToday › Settings › Manage subscription.
+        <br><a href="../legal/terms.html">Terms</a> · <a href="../legal/privacy.html">Privacy</a></p>
+    </section>
+
+    <section id="message" hidden>
+      <div class="pill">DATETODAY+</div>
+      <h1 id="msgTitle"></h1>
+      <p class="sub" id="msgBody"></p>
+      <a class="cta" id="back" href="datetoday://checkout?status=closed">Return to DateToday</a>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var API = 'https://us-central1-datetoday-e1331.cloudfunctions.net/webCheckout';
+      var KEY = 'dt.checkoutTicket';
+      var android = /Android/i.test(navigator.userAgent);
+      var $ = function (id) { return document.getElementById(id); };
+
+      function appLink(status) {
+        return android
+          ? 'intent://checkout?status=' + status + '#Intent;scheme=datetoday;package=com.parkerfamily.datetoday;end'
+          : 'datetoday://checkout?status=' + status;
+      }
+
+      // Keep the one-time ticket out of the address bar (screenshots, sharing, history).
+      var params = new URLSearchParams(location.hash.slice(1));
+      var ticket = params.get('t');
+      var plan = params.get('plan') === 'weekly' ? 'weekly' : 'monthly';
+      if (ticket) {
+        try { sessionStorage.setItem(KEY, JSON.stringify({ t: ticket, plan: plan })); } catch (e) {}
+        history.replaceState(null, '', location.pathname);
+      } else {
+        try {
+          var saved = JSON.parse(sessionStorage.getItem(KEY) || 'null');
+          if (saved) { ticket = saved.t; plan = saved.plan || plan; }
+        } catch (e) {}
+      }
+
+      function show(id) {
+        ['loading', 'checkout', 'message'].forEach(function (s) { $(s).hidden = s !== id; });
+      }
+
+      function message(title, body) {
+        $('msgTitle').textContent = title;
+        $('msgBody').textContent = body;
+        $('back').href = appLink('closed');
+        show('message');
+      }
+
+      function post(body) {
+        return fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+          .then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (json) {
+              if (!res.ok) { var err = new Error(json.error || 'Something went wrong. Try again.'); err.status = res.status; throw err; }
+              return json;
+            });
+          });
+      }
+
+      function renderPlans(plans) {
+        var box = $('plans');
+        box.textContent = '';
+        if (!plans.some(function (p) { return p.id === plan; })) plan = plans[plans.length - 1].id;
+        plans.forEach(function (p) {
+          var b = document.createElement('button');
+          b.className = 'plan';
+          b.type = 'button';
+          b.setAttribute('role', 'radio');
+          b.setAttribute('aria-checked', String(p.id === plan));
+          var title = p.id === 'weekly' ? 'DateToday+ Weekly' : 'DateToday+ Monthly';
+          var left = document.createElement('div');
+          var n = document.createElement('div'); n.className = 'name'; n.textContent = title;
+          var pr = document.createElement('div'); pr.className = 'price'; pr.textContent = p.priceLabel;
+          var per = document.createElement('span'); per.textContent = ' / ' + p.periodLabel; pr.appendChild(per);
+          left.appendChild(n); left.appendChild(pr);
+          b.appendChild(left);
+          if (p.id === 'monthly' && plans.length > 1) { var badge = document.createElement('div'); badge.className = 'badge'; badge.textContent = 'BEST VALUE'; b.appendChild(badge); }
+          var c = document.createElement('div'); c.className = 'check'; b.appendChild(c);
+          b.onclick = function () { plan = p.id; renderPlans(plans); };
+          box.appendChild(b);
+        });
+      }
+
+      if (!ticket) {
+        message('Open DateToday to upgrade', 'Start from DateToday › DateToday+ so we know which account to upgrade.');
+        return;
+      }
+
+      post({ action: 'info', ticket: ticket })
+        .then(function (info) {
+          if (info.alreadyPlus) {
+            message('You already have DateToday+', 'Head back to the app — everything is unlocked.');
+            $('back').href = appLink('success');
+            return;
+          }
+          if (!info.plans || !info.plans.length) throw new Error('Plans aren’t available right now. Try again later.');
+          var name = info.account && info.account.name;
+          $('who').textContent = name ? 'Upgrading ' + name + '’s account' : 'Upgrading your DateToday account';
+          $('initial').textContent = (name || 'D').charAt(0).toUpperCase();
+          $('email').textContent = (info.account && info.account.email) || '';
+          $('testBanner').hidden = !info.testMode;
+          renderPlans(info.plans);
+          show('checkout');
+        })
+        .catch(function (e) {
+          message(e.status === 410 ? 'This link expired' : 'Couldn’t load checkout', e.message);
+        });
+
+      $('pay').onclick = function () {
+        var btn = $('pay');
+        btn.disabled = true;
+        btn.textContent = 'Opening secure checkout…';
+        $('error').textContent = '';
+        post({ action: 'checkout', ticket: ticket, plan: plan })
+          .then(function (res) { location.href = res.url; })
+          .catch(function (e) {
+            btn.disabled = false;
+            btn.textContent = 'Continue to secure checkout';
+            if (e.status === 410 || e.status === 409) message(e.status === 410 ? 'This link expired' : 'You already have DateToday+', e.message);
+            else $('error').textContent = e.message;
+          });
+      };
+    })();
+  </script>
+</body>
+</html>

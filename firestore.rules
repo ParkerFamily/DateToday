@@ -218,6 +218,22 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // DateToday+ bought through the web checkout, written only by the Stripe webhook.
+    match /webSubscriptions/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+    // Stripe customer ids, one-account checkout tickets and the checkout feature flag. Functions only.
+    match /stripeCustomers/{userId} {
+      allow read, write: if false;
+    }
+    match /webCheckoutTickets/{ticketId} {
+      allow read, write: if false;
+    }
+    match /appConfig/{docId} {
+      allow read, write: if false;
+    }
+
     // Unmatched pairs (unmatchUser) and trigger dedupe markers; Cloud Functions only.
     match /unmatches/{pairId} {
       allow read, write: if false;

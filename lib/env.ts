@@ -121,6 +121,11 @@ export const env = {
    * Never auto-enable for development/preview; production empty pools use real low-density UX.
    */
   useMockData: process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true',
+  /**
+   * This bundle may offer DateToday's web checkout (still needs the remote flag; never on iOS).
+   * Off unless the build sets EXPO_PUBLIC_WEB_CHECKOUT=true.
+   */
+  webCheckoutBuild: process.env.EXPO_PUBLIC_WEB_CHECKOUT === 'true',
   /** @deprecated Alias of useMockData */
   previewContentEnabled: process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true',
 } as const;

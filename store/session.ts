@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { LiveSession, Profile, DatingPreferences } from '@/types';
-import type { EntitlementState } from '@/lib/entitlements';
-import { DEFAULT_ENTITLEMENTS } from '@/lib/entitlements';
+import type { EntitlementState, PlusSource } from '@/lib/entitlements';
+import { DEFAULT_ENTITLEMENTS, resolveEntitlements } from '@/lib/entitlements';
 
 export type ProfileHydration = 'idle' | 'loading' | 'done';
 
@@ -13,7 +13,13 @@ interface SessionState {
   profileHydration: ProfileHydration;
   preferences: DatingPreferences | null;
   liveSession: LiveSession | null;
+  /** Effective DateToday+ state — every screen reads this. */
   entitlements: EntitlementState;
+  /** RevenueCat (App Store / Play) state, exactly as the store reports it. */
+  storeEntitlements: EntitlementState;
+  /** DateToday web checkout (Stripe) state, null when there's no web subscription. */
+  webEntitlements: EntitlementState | null;
+  plusSource: PlusSource | null;
   locationGranted: boolean;
   notificationsAsked: boolean;
   onboardingStep: number;
@@ -33,6 +39,7 @@ interface SessionState {
   setPreferences: (preferences: DatingPreferences | null) => void;
   setLiveSession: (session: LiveSession | null) => void;
   setEntitlements: (entitlements: EntitlementState) => void;
+  setWebEntitlements: (entitlements: EntitlementState | null) => void;
   setLocationGranted: (granted: boolean) => void;
   setNotificationsAsked: (asked: boolean) => void;
   setOnboardingStep: (step: number) => void;
@@ -52,6 +59,9 @@ const initial = {
   preferences: null as DatingPreferences | null,
   liveSession: null as LiveSession | null,
   entitlements: DEFAULT_ENTITLEMENTS,
+  storeEntitlements: DEFAULT_ENTITLEMENTS,
+  webEntitlements: null as EntitlementState | null,
+  plusSource: null as PlusSource | null,
   locationGranted: false,
   notificationsAsked: false,
   onboardingStep: 0,
@@ -98,7 +108,10 @@ export const useSessionStore = create<SessionState>((set) => ({
     }),
   setPreferences: (preferences) => set({ preferences }),
   setLiveSession: (liveSession) => set({ liveSession }),
-  setEntitlements: (entitlements) => set({ entitlements }),
+  setEntitlements: (storeEntitlements) =>
+    set((s) => ({ storeEntitlements, ...resolveEntitlements(storeEntitlements, s.webEntitlements) })),
+  setWebEntitlements: (webEntitlements) =>
+    set((s) => ({ webEntitlements, ...resolveEntitlements(s.storeEntitlements, webEntitlements) })),
   setLocationGranted: (locationGranted) => set({ locationGranted }),
   setNotificationsAsked: (notificationsAsked) => set({ notificationsAsked }),
   setOnboardingStep: (onboardingStep) => set({ onboardingStep }),
