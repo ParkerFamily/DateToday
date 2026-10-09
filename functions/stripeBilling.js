@@ -309,7 +309,12 @@ async function billingPortal(req, { db, decoded }) {
   const customer = snap.exists ? snap.get(live ? 'liveCustomerId' : 'testCustomerId') : null;
   const stripe = stripeFor(live);
   if (!customer || !stripe) throw httpError(404, 'No DateToday+ billing found for this account.');
-  const session = await stripe.billingPortal.sessions.create({ customer, return_url: `${SITE}/plus/done.html?status=manage` });
+  const configuration = (live ? process.env.STRIPE_LIVE_PORTAL_CONFIG : process.env.STRIPE_PORTAL_CONFIG) || undefined;
+  const session = await stripe.billingPortal.sessions.create({
+    customer,
+    configuration,
+    return_url: `${SITE}/plus/done.html?status=manage`,
+  });
   return { url: session.url };
 }
 
