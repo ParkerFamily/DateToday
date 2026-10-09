@@ -90,7 +90,7 @@ export function LikesStrip() {
                   key={`locked-${i}`}
                   style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
                   onPress={upgrade}
-                  accessibilityLabel="Hidden like. Unlock with DateToday+"
+                  accessibilityLabel="Hidden like. Unlock with Premium"
                 >
                   <View style={[styles.ring, styles.ringLocked]}>
                     {tile.blur ? (
@@ -125,11 +125,11 @@ export function LikesStrip() {
 
           {lockedCount > 0 ? (
             <Pressable onPress={upgrade} style={({ pressed }) => [styles.unlock, pressed && styles.pressed]}>
-              <Ionicons name="lock-open" size={rs(16)} color="#fff" />
+              <Ionicons name="heart" size={rs(16)} color={colors.danger} />
               <AppText style={styles.unlockText}>
-                See all {total} who liked you with DateToday+
+                See Who Likes You · Premium
               </AppText>
-              <Ionicons name="chevron-forward" size={rs(16)} color="#fff" />
+              <Ionicons name="chevron-forward" size={rs(16)} color={colors.text} />
             </Pressable>
           ) : null}
         </>
@@ -199,12 +199,12 @@ const styles = ScaledSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: spacing.sm,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: radii.card,
-    backgroundColor: colors.brandBright,
+    borderRadius: radii.pill,
+    backgroundColor: colors.white,
   },
-  unlockText: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '800' },
+  unlockText: { flex: 1, color: colors.black, fontSize: 14, fontWeight: '800' },
   emptyRow: {
     flexDirection: 'row',
     alignItems: 'center',

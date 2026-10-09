@@ -30,22 +30,27 @@ export const PLUS_RADIUS_MILES = [5, 10, 15, 25, 50] as const;
 export const FREE_DEFAULT_RADIUS = 10;
 export const FREE_MAX_RADIUS = 25;
 
-export const FREE_FILTER_FEATURES = [
-  'Go live as long as you want',
-  'Browse everyone who’s out tonight',
-  '1 match a day + Make a Plan',
-  'Chat with 1 person a day',
-  'Age, distance, vibe & verified filters',
+/** Paywall Free vs Premium comparison (likes-led). Other Plus gates stay in entitlements. */
+export type TierFeature = { label: string; included: boolean };
+
+export const FREE_TIER_FEATURES: readonly TierFeature[] = [
+  { label: 'See all mutual matches', included: true },
+  { label: 'Message your matches', included: true },
+  { label: 'Limited daily likes sent', included: true },
+  { label: 'See who liked you first', included: false },
 ] as const;
 
-export const PLUS_FILTER_FEATURES = [
-  'Unlimited matches every day',
-  'Message everyone you match with',
-  'Advanced filters: age, intent, height, lifestyle',
-  'See everyone who liked you',
-  'Priority Pool + 50 mi radius',
-  'Travel Mode: go Live in another city',
+export const PREMIUM_TIER_FEATURES: readonly TierFeature[] = [
+  { label: 'See everyone who liked you', included: true },
+  { label: 'Unlimited likes sent', included: true },
+  { label: 'All other premium features', included: true },
 ] as const;
+
+/** @deprecated Prefer FREE_TIER_FEATURES / PREMIUM_TIER_FEATURES for the paywall. */
+export const FREE_FILTER_FEATURES = FREE_TIER_FEATURES.filter((f) => f.included).map((f) => f.label);
+
+/** @deprecated Prefer PREMIUM_TIER_FEATURES for the paywall. */
+export const PLUS_FILTER_FEATURES = PREMIUM_TIER_FEATURES.map((f) => f.label);
 
 /** @deprecated emoji map kept for any residual display helpers */
 export const ACTIVITY_EMOJI: Record<TonightActivity | string, string> = {

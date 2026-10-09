@@ -20,7 +20,7 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
   },
   likes: {
     title: 'See everyone who likes you ✦',
-    body: 'Free shows 1 like at a time. See every like and match instantly with DateToday+.',
+    body: 'Free hides who liked you first. Premium shows everyone — plus unlimited likes and the rest of DateToday+.',
   },
   travel: {
     title: 'Travel Mode ✦',
