@@ -15,7 +15,7 @@ import { ScaledSheet, rs } from '@/lib/scale';
 
 /**
  * People who tapped Interested on you. Heart them back from their profile to match.
- * Free: limited preview. DateToday+: full list.
+ * Free: limited preview. Premium (DateToday+): full list.
  */
 export default function LikesScreen() {
   const router = useRouter();
@@ -35,28 +35,54 @@ export default function LikesScreen() {
         ) : null}
 
         {likes && !likes.plus && lockedCount > 0 ? (
-          <Pressable onPress={unlock} accessibilityRole="button" accessibilityLabel="Unlock Liked You with DateToday+">
-            <LinearGradient
-              colors={['rgba(124,58,237,0.55)', 'rgba(168,85,247,0.18)', 'rgba(18,16,26,1)']}
-              locations={[0, 0.55, 1]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.hero}
-            >
-              <View style={styles.plusPill}>
-                <Ionicons name="sparkles" size={rs(12)} color={colors.text} />
-                <AppText style={styles.plusPillText}>DATETODAY+ FEATURE</AppText>
-              </View>
+          <View style={styles.hero}>
+            <View style={styles.heroCountRow}>
+              <Ionicons name="heart" size={rs(20)} color={colors.danger} />
               <AppText style={styles.heroTitle}>
                 {total} {total === 1 ? 'person likes' : 'people like'} you
               </AppText>
-              <AppText style={styles.heroBody}>
-                Liked You shows everyone who tapped Interested on you, so you can like them back and match
-                instantly. Free shows {FREE_PREVIEW} at a time. Seeing everyone needs a DateToday+ subscription.
-              </AppText>
-              <Button label="Unlock with DateToday+" onPress={unlock} />
-            </LinearGradient>
-          </Pressable>
+            </View>
+            <Pressable
+              onPress={unlock}
+              accessibilityRole="button"
+              accessibilityLabel="Hidden like preview. Unlock with Premium"
+              style={styles.heroPreview}
+            >
+              {locked[0]?.blur ? (
+                <Image
+                  source={{ uri: locked[0].blur }}
+                  style={styles.heroAvatar}
+                  blurRadius={14}
+                  cachePolicy="memory-disk"
+                  transition={150}
+                />
+              ) : visible[0]?.mainPhotoUrl ? (
+                <Image
+                  source={{ uri: visible[0].mainPhotoUrl }}
+                  style={styles.heroAvatar}
+                  blurRadius={14}
+                  cachePolicy="memory-disk"
+                  transition={150}
+                />
+              ) : (
+                <View style={[styles.heroAvatar, styles.avatarPh]} />
+              )}
+              <View style={styles.heroAvatarLock}>
+                <Ionicons name="lock-closed" size={rs(14)} color={colors.text} />
+              </View>
+            </Pressable>
+            <AppText style={styles.heroCaption}>
+              Profiles stay blurred on Free. Premium shows everyone who liked you.
+            </AppText>
+            <Pressable
+              onPress={unlock}
+              style={({ pressed }) => [styles.heroCta, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="See who likes you with Premium"
+            >
+              <AppText style={styles.heroCtaText}>See Who Likes You · Premium</AppText>
+            </Pressable>
+          </View>
         ) : null}
 
         {likes === null ? (
@@ -72,7 +98,7 @@ export default function LikesScreen() {
             </AppText>
             {!likes.plus ? (
               <AppText variant="secondary" style={styles.emptyPlus}>
-                Free shows {FREE_PREVIEW} like at a time. DateToday+ shows everyone who likes you.
+                Free shows {FREE_PREVIEW} like at a time. Premium shows everyone who likes you.
               </AppText>
             ) : null}
             <Button label="Go to Live" onPress={() => router.navigate('/(tabs)/live')} />
@@ -117,7 +143,7 @@ export default function LikesScreen() {
               <AppText style={styles.section}>HIDDEN LIKES</AppText>
               <View style={styles.sectionTag}>
                 <Ionicons name="lock-closed" size={rs(10)} color={colors.brandBright} />
-                <AppText style={styles.sectionTagText}>DATETODAY+</AppText>
+                <AppText style={styles.sectionTagText}>PREMIUM</AppText>
               </View>
             </View>
             <View style={styles.grid}>
@@ -171,38 +197,68 @@ const styles = ScaledSheet.create({
     padding: spacing.lg,
     borderRadius: radii.surface,
     borderWidth: 1,
-    borderColor: 'rgba(168,85,247,0.45)',
-    gap: 10,
+    borderColor: colors.border,
+    backgroundColor: colors.elevated,
+    gap: 12,
     marginBottom: spacing.md,
+    alignItems: 'center',
   },
-  plusPill: {
+  heroCountRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radii.pill,
-    backgroundColor: colors.brand,
-  },
-  plusPillText: {
-    color: colors.text,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
+    gap: 8,
+    alignSelf: 'stretch',
   },
   heroTitle: {
+    flex: 1,
     color: colors.text,
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '900',
     letterSpacing: -0.4,
   },
-  heroBody: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 15,
-    lineHeight: 21,
-    marginBottom: 4,
+  heroPreview: {
+    width: 72,
+    height: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  heroAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.card,
+  },
+  heroAvatarLock: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(9,9,11,0.72)',
+  },
+  heroCaption: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  heroCta: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: radii.pill,
+    backgroundColor: colors.white,
+  },
+  heroCtaText: {
+    color: colors.black,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  pressed: { opacity: 0.85 },
   section: {
     color: colors.textSecondary,
     fontSize: 12,

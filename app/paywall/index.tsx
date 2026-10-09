@@ -14,7 +14,8 @@ import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { SettingsHeader } from '@/components/settings/SettingsUI';
-import { PLUS_FILTER_FEATURES } from '@/constants/tonightVibe';
+import { FREE_TIER_FEATURES, PREMIUM_TIER_FEATURES } from '@/constants/tonightVibe';
+import { commerceConfig } from '@/constants/config';
 import { LEGAL_URLS } from '@/constants/legal';
 import { colors, radii, spacing } from '@/constants/theme';
 import { UPGRADE_COPY, type UpgradeReason } from '@/lib/commerce/upgradePrompt';
@@ -41,6 +42,8 @@ import {
 } from '@/lib/billing/webCheckout';
 import { useSessionStore } from '@/store/session';
 import { ScaledSheet, rs } from '@/lib/scale';
+
+const PREMIUM_PRICE_BADGE = `${commerceConfig.plusWeeklyFallbackPrice}/wk • ${commerceConfig.plusMonthlyFallbackPrice}/mo`;
 
 export default function PaywallScreen() {
   const router = useRouter();
@@ -251,13 +254,44 @@ export default function PaywallScreen() {
           </View>
         ) : null}
 
-        <View style={styles.featureCard}>
-          {PLUS_FILTER_FEATURES.map((line) => (
-            <View key={line} style={styles.featureRow}>
-              <AppText style={styles.bullet}>•</AppText>
-              <AppText style={styles.feature}>{line}</AppText>
+        <View style={styles.tierCard}>
+          <View style={styles.tierBlock}>
+            <View style={styles.tierHead}>
+              <AppText style={styles.tierTitle}>DateToday Free</AppText>
+              <View style={styles.freeBadge}>
+                <AppText style={styles.freeBadgeText}>Free</AppText>
+              </View>
             </View>
-          ))}
+            {FREE_TIER_FEATURES.map((item) => (
+              <View key={item.label} style={styles.featureRow}>
+                <Ionicons
+                  name={item.included ? 'checkmark' : 'lock-closed'}
+                  size={rs(16)}
+                  color={item.included ? colors.live : colors.textSecondary}
+                />
+                <AppText style={[styles.feature, !item.included && styles.featureLocked]}>
+                  {item.label}
+                </AppText>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.tierDivider} />
+
+          <View style={styles.tierBlock}>
+            <View style={styles.tierHead}>
+              <AppText style={styles.tierTitle}>DateToday Premium</AppText>
+              <View style={styles.priceBadge}>
+                <AppText style={styles.priceBadgeText}>{PREMIUM_PRICE_BADGE}</AppText>
+              </View>
+            </View>
+            {PREMIUM_TIER_FEATURES.map((item) => (
+              <View key={item.label} style={styles.featureRow}>
+                <Ionicons name="checkmark" size={rs(16)} color={colors.live} />
+                <AppText style={styles.feature}>{item.label}</AppText>
+              </View>
+            ))}
+          </View>
         </View>
 
         {storeHint && !webMode ? (
@@ -425,24 +459,64 @@ const styles = ScaledSheet.create({
     fontWeight: '700',
     marginTop: 4,
   },
-  featureCard: {
+  tierCard: {
     padding: spacing.md,
     borderRadius: radii.card,
     backgroundColor: colors.elevated,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: spacing.md,
+  },
+  tierBlock: {
     gap: 10,
+  },
+  tierHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 2,
+  },
+  tierTitle: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  freeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  freeBadgeText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  priceBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(34, 229, 139, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 229, 139, 0.45)',
+  },
+  priceBadgeText: {
+    color: colors.live,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  tierDivider: {
+    height: 1,
+    backgroundColor: colors.border,
   },
   featureRow: {
     flexDirection: 'row',
     gap: 10,
-    alignItems: 'flex-start',
-  },
-  bullet: {
-    color: colors.brandBright,
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '700',
+    alignItems: 'center',
   },
   feature: {
     flex: 1,
@@ -450,6 +524,9 @@ const styles = ScaledSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '500',
+  },
+  featureLocked: {
+    color: colors.textSecondary,
   },
   planList: {
     gap: 12,
