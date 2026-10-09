@@ -23,7 +23,8 @@ import { foodLabel } from '@/constants/tonightVibe';
 import { promptDisplayLabel } from '@/constants/videoPrompts';
 import { compareDiscoveryRank } from '@/lib/commerce/sessionCommerce';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { canMatchToday } from '@/lib/usage/dailyLimits';
+import { canMatchToday, matchesCreatedToday } from '@/lib/usage/dailyLimits';
+import { matchAllowance } from '@/lib/entitlements';
 import {
   applyDiscoverFilters,
   INTENT_OPTIONS,
@@ -41,6 +42,7 @@ import {
 import { sharedInterests } from '@/constants/interests';
 import { FilterBar } from '@/components/discover/FilterBar';
 import { MatchPill } from '@/components/discover/MatchPill';
+import { DailyLikesCounter } from '@/components/discover/DailyLikesCounter';
 import { AFTER_HOURS_TAGS, isAfterHours } from '@/constants/afterHours';
 import { canUseAdvancedFilters, canUsePriorityPool, maxRadiusMiles } from '@/lib/entitlements';
 import { env, isBackendConfigured } from '@/lib/env';
@@ -548,9 +550,24 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
    */
   const onInterested = (): boolean => {
     if (!card) return false;
-    if (!canMatchToday(entitlements, useMatchesStore.getState().matches).ok) {
+    const matchCheck = canMatchToday(entitlements, useMatchesStore.getState().matches);
+    if (!matchCheck.ok) {
       openUpgrade(router, 'match');
       return false;
+    }
+    
+    const allowance = matchAllowance(entitlements);
+    if (allowance !== 'unlimited') {
+      const used = matchesCreatedToday(useMatchesStore.getState().matches);
+      const remaining = allowance - used;
+      
+      if (remaining === 3) {
+        Alert.alert(
+          '3 likes left',
+          'You have 3 likes remaining today. Upgrade to DateToday Premium for unlimited likes.',
+          [{ text: 'Continue' }, { text: 'Upgrade', onPress: () => openUpgrade(router, 'match') }]
+        );
+      }
     }
     const target = card;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1005,6 +1022,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           </View>
         </View>
         <FilterBar />
+        <DailyLikesCounter />
         {outsideFilters ? (
           <Pressable
             onPress={() => router.push('/filters')}
