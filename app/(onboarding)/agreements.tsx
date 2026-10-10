@@ -12,8 +12,8 @@ import { hasEnteredApp } from '@/utils/accountEntry';
 import { isBackendConfigured } from '@/lib/env';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
-import { useRouter, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Alert, Pressable, View } from 'react-native';
 import { ScaledSheet } from '@/lib/scale';
 
@@ -51,11 +51,14 @@ export default function AgreementsScreen() {
     authProvider === 'apple' ||
     currentUserIsSocial();
 
-  useEffect(() => {
-    if (alreadyAccepted) {
-      router.replace(existingAccount ? LIVE_HREF : nextAfterAgreements(skipAccount));
-    }
-  }, [alreadyAccepted, existingAccount, router, skipAccount]);
+  // Only while this screen is showing; later signup screens handle their own navigation.
+  useFocusEffect(
+    useCallback(() => {
+      if (alreadyAccepted) {
+        router.replace(existingAccount ? LIVE_HREF : nextAfterAgreements(skipAccount));
+      }
+    }, [alreadyAccepted, existingAccount, router, skipAccount]),
+  );
 
   const onContinue = async () => {
     if (!allChecked) {

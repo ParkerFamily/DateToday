@@ -10,8 +10,8 @@ import { currentUserIsSocial, syncOnboardingFromFirebaseAuth } from '@/features/
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import { colors } from '@/constants/theme';
-import { useRouter, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Keyboard, View } from 'react-native';
 import { ScaledSheet } from '@/lib/scale';
 
@@ -52,15 +52,18 @@ export default function AccountScreen() {
     syncOnboardingFromFirebaseAuth();
   }, []);
 
-  useEffect(() => {
-    if (alreadySignedIn) {
+  // Only while this screen is showing: during signup it sits under the password screen, which
+  // signs in and confirms the email itself. Redirecting from here would race that confirmation.
+  useFocusEffect(
+    useCallback(() => {
+      if (!alreadySignedIn) return;
       if (!draft.legalConsentAccepted) {
         router.replace('/(onboarding)/agreements');
         return;
       }
       router.replace(needsEmailOtp() ? EMAIL_VERIFY_HREF : GENDER_HREF);
-    }
-  }, [alreadySignedIn, draft.legalConsentAccepted, router]);
+    }, [alreadySignedIn, draft.legalConsentAccepted, router]),
+  );
 
   const email = draft.email.trim();
   const valid = EMAIL_RE.test(email);
