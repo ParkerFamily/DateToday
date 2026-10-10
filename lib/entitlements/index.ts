@@ -1,4 +1,4 @@
-import type { EntitlementKey, SubscriptionStatus } from '@/types';
+import type { EntitlementKey, RadiusMiles, SubscriptionStatus } from '@/types';
 import { FREE_MAX_RADIUS } from '@/constants/tonightVibe';
 import { commerceConfig } from '@/constants/config';
 
@@ -164,6 +164,14 @@ export function allowedRadiusPresets(state: EntitlementState): number[] {
   return hasEntitlement(state, 'extended_radius')
     ? [5, 10, 15, 25, 50]
     : [5, 10, 25];
+}
+
+/** The saved Dating preferences distance, capped to what this plan allows. */
+export function preferredRadius(state: EntitlementState, miles: number | null | undefined): RadiusMiles {
+  const allowed = allowedRadiusPresets(state);
+  const want = typeof miles === 'number' && Number.isFinite(miles) ? miles : 10;
+  const fit = allowed.filter((n) => n <= want);
+  return (fit.length ? fit[fit.length - 1] : allowed[0]) as RadiusMiles;
 }
 
 /** Verified-only is trust/safety — always free. */

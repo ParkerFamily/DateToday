@@ -32,7 +32,7 @@ import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import {
     clearTonightBoost,
 } from '@/lib/commerce/sessionCommerce';
-import { allowedRadiusPresets, canUseAdvancedFilters, isPlusActive } from '@/lib/entitlements';
+import { allowedRadiusPresets, canUseAdvancedFilters, isPlusActive, preferredRadius } from '@/lib/entitlements';
 import { env, isBackendConfigured } from '@/lib/env';
 import { friendlyError } from '@/lib/errors';
 import { rs, ScaledSheet } from '@/lib/scale';
@@ -139,7 +139,8 @@ export default function LiveHomeScreen() {
   const [activities, setActivities] = useState<string[]>(['dinner']);
   const [foodCuisines, setFoodCuisines] = useState<FoodCuisine[]>(['italian']);
   const [freeUntil, setFreeUntil] = useState<string>('23');
-  const [radius, setRadius] = useState<RadiusMiles>(10);
+  const preferredMiles = useSessionStore((s) => s.preferences?.maxDistanceMiles);
+  const [radius, setRadius] = useState<RadiusMiles>(() => preferredRadius(entitlements, preferredMiles));
   /** null = live now; 18–21 = free later tonight */
   const [laterTonightHour, setLaterTonightHour] = useState<number | null>(null);
   const [afterHoursTags, setAfterHoursTags] = useState<AfterHoursTag[]>([]);
@@ -622,6 +623,11 @@ export default function LiveHomeScreen() {
       return [...prev, value];
     });
   };
+
+  const radiusTiers = radiusOptions.length;
+  useEffect(() => {
+    setRadius(preferredRadius(useSessionStore.getState().entitlements, preferredMiles));
+  }, [preferredMiles, radiusTiers]);
 
   /** A Plus-only radius picked before subscribing; applied once DateToday+ is active. */
   const pendingRadius = useRef<RadiusMiles | null>(null);

@@ -14,6 +14,8 @@ import { useSessionStore } from '@/store/session';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
+import { preferredRadius } from '@/lib/entitlements';
+import { useDiscoverFilters } from '@/store/discoverFilters';
 import type { DatingIntention, DatingPreferences, InterestOption, RadiusMiles } from '@/types';
 import { ScaledSheet } from '@/lib/scale';
 
@@ -108,6 +110,9 @@ export default function DatingPreferencesScreen() {
       useOnboardingDraft.setState({ vibes });
       draft.setAgeRange(minAge, maxAge);
       draft.setRadiusMiles(maxDistanceMiles);
+      useDiscoverFilters
+        .getState()
+        .setMaxDistanceMiles(preferredRadius(useSessionStore.getState().entitlements, maxDistanceMiles));
 
       if (isBackendConfigured() && uid !== 'local') {
         await setDoc(

@@ -5,6 +5,7 @@ import {
   hasEntitlement,
   matchAllowance,
   maxRadiusMiles,
+  preferredRadius,
   type EntitlementState,
 } from '@/lib/entitlements';
 
@@ -55,5 +56,15 @@ describe('entitlements', () => {
     expect(hasEntitlement(plusCanceled, 'unlimited_matches')).toBe(false);
     expect(matchAllowance(plusCanceled)).toBe(1);
     expect(conversationAllowance(plusCanceled)).toBe(1);
+  });
+
+  it('saved distance preference is capped to the plan radius', () => {
+    expect(preferredRadius(DEFAULT_ENTITLEMENTS, 50)).toBe(25);
+    expect(preferredRadius(DEFAULT_ENTITLEMENTS, 15)).toBe(10);
+    expect(preferredRadius(DEFAULT_ENTITLEMENTS, 5)).toBe(5);
+    expect(preferredRadius(DEFAULT_ENTITLEMENTS, null)).toBe(10);
+    expect(preferredRadius(plusActive, 50)).toBe(50);
+    expect(preferredRadius(plusActive, 15)).toBe(15);
+    expect(preferredRadius(plusActive, 2)).toBe(5);
   });
 });

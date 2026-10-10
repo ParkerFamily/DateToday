@@ -361,9 +361,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
     if (entered) {
       if (allowedWhileEntered.has(root)) return;
-      // Allow short onboarding editors opened from Settings (videos / verify).
+      // Allow short onboarding editors opened from Settings (videos / verify) and the
+      // go-live step opened after buying DateToday+.
       const onboardingLeaf = String(segments[1] ?? '');
-      const settingsEditors = new Set(['video-pick', 'video-record', 'verify']);
+      const settingsEditors = new Set(['video-pick', 'video-record', 'verify', 'activate']);
       if (inOnboarding && settingsEditors.has(onboardingLeaf)) return;
       // Finished accounts should never be stuck on welcome/onboarding after reload.
       if (inAuth || inOnboarding || atIndex) {
@@ -495,6 +496,7 @@ export default function RootLayout() {
               <Stack.Screen name="travel/index" options={{ presentation: 'modal' }} />
               <Stack.Screen name="paywall/index" />
               <Stack.Screen name="paywall/boost" />
+              <Stack.Screen name="paywall/unlocked" options={{ gestureEnabled: false }} />
               <Stack.Screen name="safety" />
               <Stack.Screen name="legal" />
               <Stack.Screen name="settings" />

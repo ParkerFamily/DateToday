@@ -150,7 +150,7 @@ export default function PaywallScreen() {
     try {
       const result = await startWebCheckout(selectedPlan.id);
       if (result === 'unlocked') {
-        finishUnlocked();
+        router.replace('/paywall/unlocked');
       } else if (result === 'processing') {
         Alert.alert(
           'Almost there',
@@ -179,7 +179,8 @@ export default function PaywallScreen() {
         : await purchasePlusPackage(selectedPlan.package);
 
       if (result.status === 'success' || result.status === 'already') {
-        finishUnlocked(selectingOther ? 'Plan updated' : 'DateToday+ unlocked');
+        if (selectingOther) finishUnlocked('Plan updated');
+        else router.replace('/paywall/unlocked');
         return;
       }
       if (result.status === 'cancelled') return;

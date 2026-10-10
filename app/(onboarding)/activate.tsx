@@ -10,6 +10,7 @@ import { registerPushTokenAsync } from '@/features/notifications/push';
 import { LIVE_SESSION_MS, liveSessionExpiry, nextNightlyReset } from '@/constants/liveConfig';
 import { freeUntilOptions, pickFreeUntil } from '@/features/live/freeUntil';
 import { isBackendConfigured } from '@/lib/env';
+import { preferredRadius } from '@/lib/entitlements';
 import { startLiveSession } from '@/services/api';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
@@ -36,6 +37,9 @@ export default function ActivateLiveScreen() {
   const draft = useOnboardingDraft();
   const setLiveSession = useSessionStore((s) => s.setLiveSession);
   const setLocationGranted = useSessionStore((s) => s.setLocationGranted);
+  const entitlements = useSessionStore((s) => s.entitlements);
+  const savedMiles = useSessionStore((s) => s.preferences?.maxDistanceMiles);
+  const radiusMiles = preferredRadius(entitlements, savedMiles ?? draft.radiusMiles);
   const [phase, setPhase] = useState<'mood' | 'until' | 'live'>('mood');
   const [loading, setLoading] = useState(false);
   const untilOptions = useMemo(() => freeUntilOptions(new Date()), [phase]);
@@ -102,7 +106,7 @@ export default function ActivateLiveScreen() {
       const expiresAt = liveSessionExpiry(now);
       const session = await startLiveSession({
         ...coords,
-        radiusMiles: draft.radiusMiles,
+        radiusMiles,
         expiresAt: expiresAt.toISOString(),
         activities: draft.activities.length ? draft.activities : ['drinks'],
         foodCuisines: [],
@@ -184,7 +188,7 @@ export default function ActivateLiveScreen() {
                 </Pressable>
               );
             })}
-            <AppText style={styles.radius}>{draft.radiusMiles} miles from me</AppText>
+            <AppText style={styles.radius}>{radiusMiles} miles from me</AppText>
           </View>
         )}
 
