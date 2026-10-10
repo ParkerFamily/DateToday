@@ -63,6 +63,7 @@ import {
     View,
 } from 'react-native';
 import Animated, {
+    cancelAnimation,
     Easing,
     FadeIn,
     FadeInDown,
@@ -75,6 +76,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+const HOLD_MS = 1000;
 const LATER_HOURS = [18, 19, 20, 21] as const;
 const PLACE_CATEGORIES: PlanCategory[] = ['drinks', 'dinner', 'coffee', 'activity'];
 
@@ -150,6 +152,11 @@ export default function LiveHomeScreen() {
     (activities.find((a) => PLACE_CATEGORIES.includes(a as PlanCategory)) as PlanCategory | undefined) ?? 'drinks';
   const [leaving, setLeaving] = useState(false);
   const [offlineToast, setOfflineToast] = useState(false);
+  const [holding, setHolding] = useState(false);
+  const holdFill = useSharedValue(0);
+  const holdFillStyle = useAnimatedStyle(() => ({ width: `${holdFill.value * 100}%` }));
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdTicks = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const wantsDinner = activities.includes('dinner');
   const radiusOptions = allowedRadiusPresets(entitlements);
@@ -406,6 +413,47 @@ export default function LiveHomeScreen() {
     }
   };
 
+  const stopHold = () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    if (holdTicks.current) clearInterval(holdTicks.current);
+    holdTimer.current = null;
+    holdTicks.current = null;
+    setHolding(false);
+  };
+
+  useEffect(() => () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    if (holdTicks.current) clearInterval(holdTicks.current);
+  }, []);
+
+  /** Press and hold the button; releasing early cancels. Setup problems show right away. */
+  const onHoldStart = () => {
+    if (loading || holdTimer.current) return;
+    if (!readyForLive) {
+      void activateLive();
+      return;
+    }
+    setHolding(true);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    cancelAnimation(holdFill);
+    holdFill.value = 0;
+    holdFill.value = withTiming(1, { duration: HOLD_MS, easing: Easing.linear });
+    holdTicks.current = setInterval(() => void Haptics.selectionAsync(), HOLD_MS / 6);
+    holdTimer.current = setTimeout(() => {
+      stopHold();
+      holdFill.value = 0;
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void activateLive();
+    }, HOLD_MS);
+  };
+
+  const onHoldEnd = () => {
+    if (!holdTimer.current) return;
+    stopHold();
+    cancelAnimation(holdFill);
+    holdFill.value = withTiming(0, { duration: 180 });
+  };
+
   const goOffline = async () => {
     setLeaving(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -575,11 +623,20 @@ export default function LiveHomeScreen() {
     });
   };
 
+  /** A Plus-only radius picked before subscribing; applied once DateToday+ is active. */
+  const pendingRadius = useRef<RadiusMiles | null>(null);
+  useEffect(() => {
+    if (!plusFilters || pendingRadius.current == null) return;
+    setRadius(pendingRadius.current);
+    pendingRadius.current = null;
+  }, [plusFilters]);
+
   const onRadiusPick = (value: string) => {
     const miles = Number(value) as RadiusMiles;
     if (!plusFilters && miles > 25) {
       setSheet('none');
-      router.push('/paywall');
+      pendingRadius.current = miles;
+      openUpgrade(router, 'filters');
       return;
     }
     setRadius(miles);
@@ -935,9 +992,13 @@ export default function LiveHomeScreen() {
             <View style={styles.ctaStack}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Go live tonight"
+                accessibilityLabel={trip ? `Go live in ${trip.city}` : 'Go live tonight'}
+                accessibilityHint="Press and hold to go live"
+                accessibilityActions={[{ name: 'activate' }]}
+                onAccessibilityAction={() => void activateLive()}
                 disabled={loading}
-                onPress={() => void activateLive()}
+                onPressIn={onHoldStart}
+                onPressOut={onHoldEnd}
                 style={[styles.goLiveBtn, loading && styles.goLiveDisabled]}
               >
                 <LinearGradient
@@ -946,8 +1007,15 @@ export default function LiveHomeScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.goLiveGrad}
                 >
+                  <Animated.View pointerEvents="none" style={[styles.goLiveFill, holdFillStyle]} />
                   <AppText style={styles.goLiveLabel} numberOfLines={1}>
-                    {loading ? 'Going live…' : trip ? `GO LIVE IN ${trip.city.toUpperCase()} ✈️` : 'GO LIVE TONIGHT ⚡'}
+                    {loading
+                      ? 'Going live…'
+                      : holding
+                        ? 'Keep holding…'
+                        : trip
+                          ? `HOLD TO GO LIVE IN ${trip.city.toUpperCase()} ✈️`
+                          : 'HOLD TO GO LIVE ⚡'}
                   </AppText>
                 </LinearGradient>
               </Pressable>
@@ -1350,6 +1418,13 @@ const styles = ScaledSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
     overflow: 'hidden',
+  },
+  goLiveFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.22)',
   },
   goLiveLabel: {
     color: colors.text,

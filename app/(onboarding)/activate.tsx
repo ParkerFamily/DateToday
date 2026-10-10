@@ -7,17 +7,18 @@ import { Screen } from '@/components/ui/Screen';
 import { colors, radii, spacing } from '@/constants/theme';
 import { requestNotificationPermission } from '@/features/notifications/permission';
 import { registerPushTokenAsync } from '@/features/notifications/push';
-import { env } from '@/lib/env';
+import { LIVE_SESSION_MS, liveSessionExpiry, nextNightlyReset } from '@/constants/liveConfig';
+import { freeUntilOptions, pickFreeUntil } from '@/features/live/freeUntil';
+import { isBackendConfigured } from '@/lib/env';
 import { startLiveSession } from '@/services/api';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import type { TonightActivity } from '@/types';
-import { clampLiveExpiration } from '@/utils/time';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Pressable, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Alert, Linking, Platform, Pressable, View } from 'react-native';
 import { ScaledSheet } from '@/lib/scale';
 
 const WORDS: { value: TonightActivity; label: string }[] = [
@@ -30,8 +31,6 @@ const WORDS: { value: TonightActivity; label: string }[] = [
   { value: 'surprise', label: 'ANYTHING' },
 ];
 
-const UNTIL = ['9:00 PM', '11:00 PM', '1:00 AM'] as const;
-
 export default function ActivateLiveScreen() {
   const router = useRouter();
   const draft = useOnboardingDraft();
@@ -39,6 +38,48 @@ export default function ActivateLiveScreen() {
   const setLocationGranted = useSessionStore((s) => s.setLocationGranted);
   const [phase, setPhase] = useState<'mood' | 'until' | 'live'>('mood');
   const [loading, setLoading] = useState(false);
+  const untilOptions = useMemo(() => freeUntilOptions(new Date()), [phase]);
+  const [untilValue, setUntilValue] = useState<string | null>(null);
+  const untilPick = pickFreeUntil(untilOptions, untilValue);
+
+  /** Real location only: going Live at a made-up spot would show people the wrong distance. */
+  const currentPosition = async (): Promise<{ latitude: number; longitude: number } | null> => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    const granted = status === 'granted';
+    draft.setLocationEnabled(granted);
+    setLocationGranted(granted);
+    if (!granted) {
+      Alert.alert(
+        'Turn on location to go Live',
+        'DateToday uses your approximate location so people near you can find you tonight.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+        ],
+      );
+      return null;
+    }
+    if (Platform.OS === 'android' && !(await Location.hasServicesEnabledAsync().catch(() => true))) {
+      const turnedOn = await Location.enableNetworkProviderAsync().then(() => true, () => false);
+      if (!turnedOn) {
+        Alert.alert('Turn on Location to go Live', 'Your phone’s Location is off. Turn it on in Quick Settings, then try again.');
+        return null;
+      }
+    }
+    const position =
+      (await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+      ])) ??
+      (await Location.getLastKnownPositionAsync(
+        Platform.OS === 'android' ? { maxAge: 30 * 60 * 1000 } : undefined,
+      ).catch(() => null));
+    if (!position?.coords) {
+      Alert.alert('Couldn’t find your location', 'Check your signal and try again.');
+      return null;
+    }
+    return { latitude: position.coords.latitude, longitude: position.coords.longitude };
+  };
 
   const confirmLive = async () => {
     try {
@@ -48,54 +89,32 @@ export default function ActivateLiveScreen() {
         draft.setNotificationsEnabled(granted);
       }
       void registerPushTokenAsync();
-      if (!draft.locationEnabled) {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        const granted = status === 'granted';
-        draft.setLocationEnabled(granted);
-        setLocationGranted(granted);
-      }
 
-      let latitude = 33.7838;
-      let longitude = -84.383;
-      try {
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        latitude = pos.coords.latitude;
-        longitude = pos.coords.longitude;
-      } catch {
-        /* demo */
+      if (!isBackendConfigured()) {
+        router.replace('/(tabs)/live');
+        return;
       }
+      const coords = await currentPosition();
+      if (!coords) return;
 
-      const expires = clampLiveExpiration(new Date(Date.now() + 4 * 60 * 60 * 1000));
+      const now = new Date();
+      const until = pickFreeUntil(freeUntilOptions(now), untilPick.value);
+      const expiresAt = liveSessionExpiry(now);
+      const session = await startLiveSession({
+        ...coords,
+        radiusMiles: draft.radiusMiles,
+        expiresAt: expiresAt.toISOString(),
+        activities: draft.activities.length ? draft.activities : ['drinks'],
+        foodCuisines: [],
+        availabilityLabel: `Until ${until.label}`,
+        availableUntil: until.expiresAt.toISOString(),
+        laterTonightHour: null,
+        liveDurationMs: LIVE_SESSION_MS,
+        nightResetAt: nextNightlyReset(now).toISOString(),
+      });
+      setLiveSession({ ...session, isBoosted: false, boostedAt: null });
+      draft.setAvailableUntilLabel(until.label);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      if (env.supabaseUrl && !env.supabaseUrl.includes('your-project')) {
-        const session = await startLiveSession({
-          latitude,
-          longitude,
-          radiusMiles: draft.radiusMiles,
-          expiresAt: expires.toISOString(),
-          activities: draft.activities.length ? draft.activities : ['drinks'],
-          availabilityLabel: `Until ${draft.availableUntilLabel}`,
-          availableUntil: expires.toISOString(),
-        });
-        setLiveSession(session);
-      } else {
-        setLiveSession({
-          id: 'local-onboarding',
-          userId: 'local',
-          startedAt: new Date().toISOString(),
-          expiresAt: expires.toISOString(),
-          endedAt: null,
-          status: 'active',
-          radiusMiles: draft.radiusMiles,
-          availableFrom: null,
-          availableUntil: expires.toISOString(),
-          availabilityLabel: `Until ${draft.availableUntilLabel}`,
-          activities: draft.activities,
-        });
-      }
 
       setPhase('live');
       setTimeout(() => router.replace('/discovery'), 1600);
@@ -150,15 +169,18 @@ export default function ActivateLiveScreen() {
           </View>
         ) : (
           <View style={styles.untilChips}>
-            {UNTIL.map((label) => {
-              const on = draft.availableUntilLabel === label;
+            {untilOptions.map((option) => {
+              const on = untilPick.value === option.value;
               return (
                 <Pressable
-                  key={label}
-                  onPress={() => draft.setAvailableUntilLabel(label)}
+                  key={option.value}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setUntilValue(option.value);
+                  }}
                   style={[styles.untilChip, on && styles.untilChipOn]}
                 >
-                  <AppText style={[styles.untilText, on && styles.untilTextOn]}>{label}</AppText>
+                  <AppText style={[styles.untilText, on && styles.untilTextOn]}>{option.label}</AppText>
                 </Pressable>
               );
             })}

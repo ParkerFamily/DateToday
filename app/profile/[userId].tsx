@@ -150,9 +150,8 @@ export default function PublicProfileScreen() {
   const [sendingInterest, setSendingInterest] = useState(false);
   const [composing, setComposing] = useState(false);
   const [passing, setPassing] = useState(false);
-  const incomingPriority = useMatchesStore((s) =>
-    s.likes?.revealed.find((l) => l.uid === String(userId) && l.priority),
-  );
+  const incomingLike = useMatchesStore((s) => s.likes?.revealed.find((l) => l.uid === String(userId)));
+  const incomingPriority = incomingLike?.priority ? incomingLike : undefined;
 
   React.useEffect(() => {
     if (isSelf || !sessionUid || !userId || !isBackendConfigured()) return;
@@ -518,25 +517,27 @@ export default function PublicProfileScreen() {
               ) : incomingPriority ? null : (
                 <>
                   <Button
-                    label={interestSent ? 'Interest sent ✓' : `♥ ${copy.interested}`}
+                    label={interestSent ? 'Interest sent ✓' : incomingLike ? '♥ Like back' : `♥ ${copy.interested}`}
                     loading={sendingInterest}
                     disabled={interestSent}
                     onPress={() => void onInterested()}
                     style={styles.cta}
                   />
-                  <Button
-                    label={
-                      prioritySent
-                        ? 'Priority Like sent ⚡'
-                        : interestSent
-                          ? '⚡ Make it a Priority Like'
-                          : '⚡ Send a Priority Like'
-                    }
-                    variant="secondary"
-                    disabled={prioritySent || sendingInterest}
-                    onPress={onPriority}
-                    style={styles.priorityCta}
-                  />
+                  {incomingLike ? null : (
+                    <Button
+                      label={
+                        prioritySent
+                          ? 'Priority Like sent ⚡'
+                          : interestSent
+                            ? '⚡ Make it a Priority Like'
+                            : '⚡ Send a Priority Like'
+                      }
+                      variant="secondary"
+                      disabled={prioritySent || sendingInterest}
+                      onPress={onPriority}
+                      style={styles.priorityCta}
+                    />
+                  )}
                 </>
               )}
               <Button

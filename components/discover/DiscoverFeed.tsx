@@ -1415,16 +1415,21 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           >
             <Ionicons name="heart" size={rs(30)} color={colors.text} />
           </Pressable>
-          <Pressable
-            accessibilityLabel="Send a Priority Like with a note"
-            accessibilityRole="button"
-            onPress={onPriority}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            android_ripple={{ color: 'rgba(168,85,247,0.3)', radius: 28 }}
-            style={({ pressed }) => [styles.priorityBtn, pressed && styles.pressed]}
-          >
-            <Ionicons name="flash" size={rs(24)} color={PRIORITY_TEXT} />
-          </Pressable>
+          {likesMe || priorityLiker ? (
+            // They already like you: the heart matches. Same-size spacer keeps the buttons from shifting.
+            <View style={styles.priorityBtnSpacer} />
+          ) : (
+            <Pressable
+              accessibilityLabel="Send a Priority Like with a note"
+              accessibilityRole="button"
+              onPress={onPriority}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              android_ripple={{ color: 'rgba(168,85,247,0.3)', radius: 28 }}
+              style={({ pressed }) => [styles.priorityBtn, pressed && styles.pressed]}
+            >
+              <Ionicons name="flash" size={rs(24)} color={PRIORITY_TEXT} />
+            </Pressable>
+          )}
         </View>
         <PriorityLikeSheet
           visible={priorityTarget != null}
@@ -1759,6 +1764,7 @@ const styles = ScaledSheet.create({
     shadowOffset: { width: 0, height: 0 },
     ...androidGlow(PRIORITY, 0.85, 18),
   },
+  priorityBtnSpacer: { width: 56, height: 56 },
   priorityBtn: {
     width: 56,
     height: 56,
