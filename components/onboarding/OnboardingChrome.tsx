@@ -38,6 +38,7 @@ export const ONBOARD_PROGRESS: Record<string, number> = {
   'email-verify': 42,
   gender: 50,
   'interested-in': 58,
+  'age-range': 62,
   intention: 66,
   interests: 69,
   distance: 72,

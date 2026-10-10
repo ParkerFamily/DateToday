@@ -3,7 +3,13 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   default: { getItem: jest.fn(async () => null), setItem: jest.fn(async () => undefined) },
 }));
 
-import { activeFilterLabels, applyDiscoverFilters, matchedFilterLabels } from '@/features/discover/applyFilters';
+import {
+  activeFilterLabels,
+  ageRangeLabel,
+  applyDiscoverFilters,
+  inAgeRange,
+  matchedFilterLabels,
+} from '@/features/discover/applyFilters';
 import { DEFAULT_FILTERS, type DiscoverFilterValues } from '@/store/discoverFilters';
 import type { DiscoveryCard } from '@/types';
 
@@ -43,9 +49,17 @@ describe('applyDiscoverFilters', () => {
     card('c', { heightCm: null, drinking: null, datingIntention: 'casual' }),
   ];
 
-  it('applies free filters (age, verified)', () => {
-    expect(ids(applyDiscoverFilters(pool, f({ ageMax: 35 }), { plus: false }))).toEqual(['a', 'c']);
+  it('applies free filters (verified)', () => {
     expect(ids(applyDiscoverFilters(pool, f({ verifiedOnly: true }), { plus: false }))).toEqual(['a', 'c']);
+  });
+
+  it('leaves age to the ask-first gate, never the automatic fallback', () => {
+    expect(ids(applyDiscoverFilters(pool, f({ ageMax: 35 }), { plus: false }))).toEqual(['a', 'b', 'c']);
+    expect(ids(pool.filter((c) => inAgeRange(c, f({ ageMax: 35 }))))).toEqual(['a', 'c']);
+    expect(inAgeRange(card('x', { age: 22 }), f({ ageMin: 25 }))).toBe(false);
+    expect(inAgeRange(card('x', { age: 0 }), f({ ageMin: 25 }))).toBe(true);
+    expect(ageRangeLabel(f({ ageMin: 21, ageMax: 30 }))).toBe('21–30');
+    expect(ageRangeLabel(f({ ageMin: 40 }))).toBe('40+');
   });
 
   it('ignores Plus filters for free users', () => {

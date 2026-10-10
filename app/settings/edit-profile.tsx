@@ -413,7 +413,7 @@ export default function EditProfileScreen() {
         userId: uid ?? preferences?.userId ?? 'local',
         interestedIn,
         minAge: preferences?.minAge ?? draft.minAge ?? 18,
-        maxAge: preferences?.maxAge ?? draft.maxAge ?? 35,
+        maxAge: preferences?.maxAge ?? draft.maxAge ?? 99,
         maxDistanceMiles: preferences?.maxDistanceMiles ?? draft.radiusMiles ?? 10,
         intentions: vibe ? [vibe] : preferences?.intentions ?? [],
       };

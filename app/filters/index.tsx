@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { LayoutAnimation, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, LayoutAnimation, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,11 +40,14 @@ import {
   applyDiscoverFilters,
   effectiveFreeFor,
   formatHeight,
+  inAgeRange,
 } from '@/features/discover/applyFilters';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { allowedRadiusPresets, canUseAdvancedFilters } from '@/lib/entitlements';
 import { useHiddenUserMap } from '@/store/blocks';
 import { AGE_BOUNDS, useDiscoverFilters } from '@/store/discoverFilters';
+import { ANY_MAX_AGE, ANY_MIN_AGE, saveAgeRange, sliderToAgeRange } from '@/features/profile/ageRange';
+import { friendlyError } from '@/lib/errors';
 import { useSessionStore } from '@/store/session';
 import type { DiscoveryCard } from '@/types';
 import { ScaledSheet, rs } from '@/lib/scale';
@@ -160,7 +163,9 @@ export default function FiltersScreen() {
 
   const count = pool
     ? applyDiscoverFilters(
-        pool.filter((c) => c.distanceMiles <= filters.maxDistanceMiles && !hidden[c.userId]),
+        pool.filter(
+          (c) => c.distanceMiles <= filters.maxDistanceMiles && !hidden[c.userId] && inAgeRange(c, filters),
+        ),
         filters,
         { plus, myInterests },
       ).length
@@ -194,11 +199,14 @@ export default function FiltersScreen() {
     setTab(next);
   };
 
+  const saveAge = (minAge: number, maxAge: number) => {
+    void saveAgeRange(minAge, maxAge).catch((e) =>
+      Alert.alert('Couldn’t save age range', friendlyError(e, 'Try again.')),
+    );
+  };
   const setAgeRange = (low: number, high: number) => {
-    filters.patch({
-      ageMin: low <= AGE_BOUNDS.min ? null : low,
-      ageMax: high >= AGE_BOUNDS.max ? null : high,
-    });
+    const range = sliderToAgeRange(low, high);
+    saveAge(range.minAge, range.maxAge);
   };
 
   const setHeight = (which: 'minHeightCm' | 'maxHeightCm', dir: 1 | -1) => {
@@ -334,7 +342,15 @@ export default function FiltersScreen() {
             </AppText>
           </View>
           {labels.length ? (
-            <Pressable onPress={() => filters.reset()} hitSlop={8} style={styles.resetBtn}>
+            <Pressable
+              onPress={() => {
+                const ageLimited = filters.ageMin != null || filters.ageMax != null;
+                filters.reset();
+                if (ageLimited) saveAge(ANY_MIN_AGE, ANY_MAX_AGE);
+              }}
+              hitSlop={8}
+              style={styles.resetBtn}
+            >
               <AppText style={styles.resetText}>Reset</AppText>
             </Pressable>
           ) : null}
@@ -615,7 +631,10 @@ export default function FiltersScreen() {
                         label={p.label}
                         selected={selected}
                         onPress={free(() =>
-                          filters.patch({ ageMin: selected ? null : p.min, ageMax: selected ? null : p.max }),
+                          saveAge(
+                            selected ? ANY_MIN_AGE : (p.min ?? ANY_MIN_AGE),
+                            selected ? ANY_MAX_AGE : (p.max ?? ANY_MAX_AGE),
+                          ),
                         )}
                       />
                     );
@@ -624,8 +643,8 @@ export default function FiltersScreen() {
                 <RangeSlider
                   min={AGE_BOUNDS.min}
                   max={AGE_BOUNDS.max}
-                  low={filters.ageMin ?? AGE_BOUNDS.min}
-                  high={filters.ageMax ?? AGE_BOUNDS.max}
+                  low={Math.min(filters.ageMin ?? AGE_BOUNDS.min, AGE_BOUNDS.max)}
+                  high={Math.min(filters.ageMax ?? AGE_BOUNDS.max, AGE_BOUNDS.max)}
                   onChange={setAgeRange}
                   format={(v) => (v >= AGE_BOUNDS.max ? `${v}+` : String(v))}
                 />

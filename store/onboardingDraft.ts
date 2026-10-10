@@ -102,8 +102,8 @@ const initial = {
   interestedIn: null as InterestOption | null,
   vibes: [] as DatingIntention[],
   interests: [] as string[],
-  minAge: 19,
-  maxAge: 26,
+  minAge: 18,
+  maxAge: 99,
   radiusMiles: 10 as RadiusMiles,
   aboutPromptId: null as string | null,
   aboutVideoUri: null as string | null,
@@ -247,6 +247,13 @@ export const useOnboardingDraft = create<OnboardingDraft>()(
       storage: createJSONStorage(() => AsyncStorage),
       // Survives Persona / app restarts mid-onboarding. Never keep the password on disk.
       partialize: ({ password: _password, ...rest }) => rest,
+      // v0 saved a hidden 19–26 age range nobody picked; it now means "any age".
+      version: 1,
+      migrate: (persisted, version) => {
+        const s = persisted as OnboardingDraft;
+        if (version < 1 && s.minAge === 19 && s.maxAge === 26) return { ...s, minAge: 18, maxAge: 99 };
+        return s;
+      },
     },
   ),
 );

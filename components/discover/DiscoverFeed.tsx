@@ -25,7 +25,9 @@ import { compareDiscoveryRank } from '@/lib/commerce/sessionCommerce';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { canMatchToday } from '@/lib/usage/dailyLimits';
 import {
+  ageRangeLabel,
   applyDiscoverFilters,
+  inAgeRange,
   INTENT_OPTIONS,
   matchedFilterLabels,
 } from '@/features/discover/applyFilters';
@@ -216,6 +218,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const [actionBarH, setActionBarH] = useState(0);
   /** No one in range → browsing people who aren't live, past the Live radius. */
   const [browseWider, setBrowseWider] = useState(false);
+  /** Everyone in the age range has been seen and the viewer said "Show them". */
+  const [showOutsideAge, setShowOutsideAge] = useState(false);
   /** Preview: first ♥ is one-way interest; second ♥ simulates mutual match */
   const interestsSentRef = useRef(0);
   const uid = useSessionStore((s) => s.userId);
@@ -290,7 +294,12 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     setPassed([]);
     setRewoundId(null);
     setBrowseWider(false);
+    setShowOutsideAge(false);
   }, [liveSession?.id]);
+
+  useEffect(() => {
+    setShowOutsideAge(false);
+  }, [filters.ageMin, filters.ageMax]);
 
   useEffect(() => {
     if (!uid || !isBackendConfigured()) return;
@@ -381,15 +390,25 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     return scores;
   }, [pool, myVibe, myInterests]);
 
+  // Age range is asked, never assumed: people outside it only show after "Show them".
+  const agePool = useMemo(
+    () => (showOutsideAge ? pool : pool.filter((c) => inAgeRange(c, filters))),
+    [pool, filters, showOutsideAge],
+  );
+  const outsideAgeCount = pool.length - agePool.length;
+
   // Once everyone who matches the filters has been seen, keep going with everyone else (and say so).
   const { cards, outsideFilters } = useMemo(() => {
-    const list = applyDiscoverFilters(pool, filters, { plus: plusFoods, myInterests });
+    const list = applyDiscoverFilters(agePool, filters, { plus: plusFoods, myInterests });
     const matching = new Set(list.map((c) => c.userId));
-    const outside = list.length ? [] : pool.filter((c) => !matching.has(c.userId));
+    const outside = list.length ? [] : agePool.filter((c) => !matching.has(c.userId));
     const shown = list.length ? list : outside;
 
     // Live now, then free later tonight, then nearby people who aren't live.
     const sorted = [...shown].sort((a, b) => {
+      const aa = inAgeRange(a, filters) ? 0 : 1;
+      const ab = inAgeRange(b, filters) ? 0 : 1;
+      if (aa !== ab) return aa - ab;
       const pa = priorityRank.get(a.userId) ?? Infinity;
       const pb = priorityRank.get(b.userId) ?? Infinity;
       if (pa !== pb) return pa < pb ? -1 : 1;
@@ -415,10 +434,10 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         { priorityPool },
       );
     });
-    const back = rewoundId ? pool.find((c) => c.userId === rewoundId) : undefined;
+    const back = rewoundId ? agePool.find((c) => c.userId === rewoundId) : undefined;
     const ordered = back ? [back, ...sorted.filter((c) => c.userId !== back.userId)] : sorted;
     return { cards: ordered, outsideFilters: outside.length > 0 };
-  }, [pool, filters, cardScores, priorityPool, plusFoods, myInterests, rewoundId, likedMe, priorityRank]);
+  }, [agePool, filters, cardScores, priorityPool, plusFoods, myInterests, rewoundId, likedMe, priorityRank]);
 
   /** Most recent pass that's still in the feed (they may have gone offline or matched since). */
   const rewindTo = useMemo(() => {
@@ -434,9 +453,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   const laterTonight = useMemo(() => {
     return nearbyBeforeFilters
-      .filter((c) => c.availabilityMode === 'later')
+      .filter((c) => c.availabilityMode === 'later' && (showOutsideAge || inAgeRange(c, filters)))
       .sort((a, b) => (a.laterTonightHour ?? 99) - (b.laterTonightHour ?? 99));
-  }, [nearbyBeforeFilters]);
+  }, [nearbyBeforeFilters, showOutsideAge, filters]);
 
   const tripCity = liveSession?.trip?.city ?? null;
   const tonightCount = cards.filter((c) => feedTier(c) < 2).length;
@@ -740,6 +759,31 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     );
   }
 
+  const ageAsk =
+    outsideAgeCount > 0 ? (
+      <View style={styles.ageAsk}>
+        <AppText style={styles.ageAskTitle}>
+          You’ve seen everyone {ageRangeLabel(filters)}{' '}
+          {liveSession?.trip ? `in ${liveSession.trip.city}` : `within ${liveRadius} mi`}
+        </AppText>
+        <AppText variant="secondary" style={styles.quietBody}>
+          {outsideAgeCount === 1 ? '1 more person is' : `${outsideAgeCount} more people are`} outside your
+          age range. Want to see them?
+        </AppText>
+        <Button
+          label="Show them"
+          onPress={() => {
+            void Haptics.selectionAsync();
+            setShowOutsideAge(true);
+          }}
+          style={styles.quietCta}
+        />
+        <Pressable accessibilityRole="button" hitSlop={10} onPress={() => router.push('/filters')}>
+          <AppText style={styles.tryFarther}>Change age range →</AppText>
+        </Pressable>
+      </View>
+    ) : null;
+
   if (!live && cards.length === 0) {
     const city =
       profile?.neighborhoodLabel?.split(',')[0]?.trim() ||
@@ -786,6 +830,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           </View>
 
           <View style={styles.quiet}>
+            {ageAsk}
             <AppText style={styles.quietTitleLead}>{flowCopy.quietTitleLead}</AppText>
             <AppText style={styles.quietTitleAccent}>{flowCopy.quietTitleAccent}</AppText>
             <AppText style={styles.quietBody}>{flowCopy.quietBody}</AppText>
@@ -884,6 +929,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         >
           {showClose ? <CloseButton onPress={() => dismissToLive(router)} /> : null}
           <View style={styles.quiet}>
+            {ageAsk}
             <AppText style={styles.teaserEyebrow}>{quiet.eyebrow}</AppText>
             <AppText style={styles.quietTitle}>{quiet.title}</AppText>
             <AppText style={[styles.quietBody, styles.quietLead]}>{quiet.lead}</AppText>
@@ -1061,6 +1107,20 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             <Ionicons name="options-outline" size={rs(16)} color={colors.brandBright} />
             <AppText style={styles.goLiveText}>
               You’ve seen everyone who matches your filters, so we’re showing people outside them.
+            </AppText>
+            <AppText style={styles.outsideCta}>EDIT</AppText>
+          </Pressable>
+        ) : null}
+        {card && !inAgeRange(card, filters) ? (
+          <Pressable
+            onPress={() => router.push('/filters')}
+            style={styles.outsideBanner}
+            accessibilityRole="button"
+            accessibilityLabel="Showing people outside your age range. Edit age range."
+          >
+            <Ionicons name="people-outline" size={rs(16)} color={colors.brandBright} />
+            <AppText style={styles.goLiveText}>
+              You’ve seen everyone {ageRangeLabel(filters)}, so we’re showing people outside your age range.
             </AppText>
             <AppText style={styles.outsideCta}>EDIT</AppText>
           </Pressable>
@@ -2098,6 +2158,16 @@ const styles = ScaledSheet.create({
     borderTopColor: colors.border,
   },
   tryFarther: { color: colors.brandBright, fontSize: 15, fontWeight: '800', textAlign: 'center' },
+  ageAsk: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    gap: 8,
+    paddingBottom: spacing.md,
+    marginBottom: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  ageAskTitle: { color: colors.text, fontSize: 20, fontWeight: '800', textAlign: 'center' },
   widerTitle: { color: colors.text, fontSize: 15, fontWeight: '700', textAlign: 'center' },
   widerMeta: { fontSize: 12, textAlign: 'center' },
   quietCta: {

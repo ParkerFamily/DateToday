@@ -30,7 +30,7 @@ export default function InterestedInScreen() {
           label="Continue"
           showArrow={false}
           disabled={!interestedIn}
-          onPress={() => router.push('/(onboarding)/intention')}
+          onPress={() => router.push('/(onboarding)/age-range')}
         />
       }
     >

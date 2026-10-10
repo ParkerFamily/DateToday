@@ -16,6 +16,7 @@ import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
 import { preferredRadius } from '@/lib/entitlements';
 import { useDiscoverFilters } from '@/store/discoverFilters';
+import { syncDiscoverAge } from '@/features/profile/ageRange';
 import type { DatingIntention, DatingPreferences, InterestOption, RadiusMiles } from '@/types';
 import { ScaledSheet } from '@/lib/scale';
 
@@ -43,7 +44,7 @@ export default function DatingPreferencesScreen() {
           : [],
   );
   const [minAge, setMinAge] = useState(preferences?.minAge ?? draft.minAge ?? 18);
-  const [maxAge, setMaxAge] = useState(preferences?.maxAge ?? draft.maxAge ?? 35);
+  const [maxAge, setMaxAge] = useState(preferences?.maxAge ?? draft.maxAge ?? 99);
   const [maxDistanceMiles, setMaxDistanceMiles] = useState<RadiusMiles>(
     (preferences?.maxDistanceMiles as RadiusMiles) ?? draft.radiusMiles ?? 10,
   );
@@ -109,6 +110,7 @@ export default function DatingPreferencesScreen() {
       draft.setInterestedIn(interestedIn);
       useOnboardingDraft.setState({ vibes });
       draft.setAgeRange(minAge, maxAge);
+      syncDiscoverAge(minAge, maxAge);
       draft.setRadiusMiles(maxDistanceMiles);
       useDiscoverFilters
         .getState()

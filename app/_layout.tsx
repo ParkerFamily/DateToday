@@ -12,6 +12,8 @@ import { loadUserProfile } from '@/features/profile/saveOnboarding';
 import { ensureLocationPermissionAsked } from '@/features/auth/postAuth';
 import { hasAgreedToTerms } from '@/features/consent/hasAgreed';
 import { isBackendConfigured } from '@/lib/env';
+import { syncDiscoverAge } from '@/features/profile/ageRange';
+import { useDiscoverFilters } from '@/store/discoverFilters';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { useSessionStore } from '@/store/session';
 import { hasEnteredApp } from '@/utils/accountEntry';
@@ -179,6 +181,13 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const profileHydration = useSessionStore((s) => s.profileHydration);
   const draftAgreed = useOnboardingDraft((s) => s.legalConsentAccepted);
   const agreed = hasAgreedToTerms(profile, draftAgreed);
+  const prefMinAge = useSessionStore((s) => s.preferences?.minAge);
+  const prefMaxAge = useSessionStore((s) => s.preferences?.maxAge);
+  const filtersHydrated = useDiscoverFilters((s) => s.hydrated);
+
+  useEffect(() => {
+    if (filtersHydrated && prefMinAge != null) syncDiscoverAge(prefMinAge, prefMaxAge);
+  }, [filtersHydrated, prefMinAge, prefMaxAge]);
 
   useEffect(() => {
     let mounted = true;

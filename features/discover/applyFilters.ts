@@ -109,6 +109,22 @@ export function isNearbyOnly(c: Pick<DiscoveryCard, 'availabilityMode'>): boolea
 }
 
 /**
+ * Age is kept out of `applyDiscoverFilters`: people outside the range only show after the viewer
+ * says yes, never as an automatic fallback. Unknown ages pass.
+ */
+export function inAgeRange(c: Pick<DiscoveryCard, 'age'>, f: Pick<DiscoverFilterValues, 'ageMin' | 'ageMax'>): boolean {
+  if (!Number.isFinite(c.age) || c.age <= 0) return true;
+  if (f.ageMin != null && c.age < f.ageMin) return false;
+  if (f.ageMax != null && c.age > f.ageMax) return false;
+  return true;
+}
+
+export function ageRangeLabel(f: Pick<DiscoverFilterValues, 'ageMin' | 'ageMax'>): string {
+  if (f.ageMax == null) return `${f.ageMin ?? 18}+`;
+  return `${f.ageMin ?? 18}–${f.ageMax}`;
+}
+
+/**
  * Loose by default: people who haven't filled in a field still show.
  * "Match all" (Plus) makes every rule strict, including missing info.
  */
@@ -129,8 +145,6 @@ export function applyDiscoverFilters(
 
   return cards.filter((c) => {
     if (f.verifiedOnly && c.verificationStatus !== 'verified') return false;
-    if (f.ageMin != null && c.age < f.ageMin) return false;
-    if (f.ageMax != null && c.age > f.ageMax) return false;
 
     if (f.recentlyActive && !isRecentlyActive(c, now)) return false;
 
@@ -213,7 +227,7 @@ export function activeFilterLabels(f: DiscoverFilterValues, { plus, now = new Da
   if (f.verifiedOnly) out.push('Verified');
   if (f.recentlyActive) out.push('Recently active');
   if (f.ageMin != null || f.ageMax != null) {
-    out.push(`Age ${f.ageMin ?? 18}–${f.ageMax ?? '70+'}`);
+    out.push(`Age ${ageRangeLabel(f)}`);
   }
   if (f.vibeFilter.length) {
     out.push(f.vibeFilter.map(activityLabel).join(' / '));
