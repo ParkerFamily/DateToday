@@ -27,6 +27,7 @@ const stripeBilling = require('./stripeBilling');
 const priorityLikes = require('./priorityLikes');
 const freeLikes = require('./freeLikes');
 const chat = require('./chat');
+const sessions = require('./sessions');
 
 const LIKE_LIMIT_MESSAGE =
   'You’ve used your free Likes. Get DateToday+ to keep liking. Liking back people who like you is always free.';
@@ -201,6 +202,7 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public', timeoutSecond
     ]);
     await deleteByField(db, 'pushTokens', 'uid', uid);
     await deleteByField(db, 'pushTickets', 'uid', uid);
+    await sessions.deleteSecurityData(db, uid);
 
     const matches = await db.collection('matches').where('userIds', 'array-contains', uid).get();
     for (const d of matches.docs) await db.recursiveDelete(d.ref);
@@ -599,6 +601,10 @@ exports.startEmailSignup = onRequest({ cors: true }, jsonEndpoint(emailFlows.sta
 exports.confirmEmailSignup = onRequest({ cors: true }, jsonEndpoint(emailFlows.confirmEmailSignup));
 exports.claimSignupEmail = onRequest({ cors: true }, jsonEndpoint(emailFlows.claimSignupEmail, { signedIn: true }));
 exports.sendPasswordResetEmail = onRequest({ cors: true }, jsonEndpoint(emailFlows.sendPasswordReset));
+exports.security = onRequest(
+  { cors: true, invoker: 'public' },
+  jsonEndpoint(sessions.createSecurityEndpoint({ pushToUser: (...args) => pushToUser(...args) }), { signedIn: true }),
+);
 
 /** DateToday+ from any approved source: DateToday's web checkout (Stripe) or the app stores (RevenueCat). */
 async function hasDateTodayPlus(db, uid, opts) {
@@ -916,6 +922,7 @@ async function pushToUser(db, uid, { title, body, data, badge }, options = {}) {
         typeof t.token === 'string' &&
         t.enabled !== false &&
         d.id !== options.excludeTokenDocId &&
+        (!options.excludeSessionId || t.sessionId !== options.excludeSessionId) &&
         (!options.platform || t.platform === options.platform)
       );
     });
@@ -2894,11 +2901,14 @@ exports.createCalendarLink = onRequest({ cors: true }, (req, res) =>
 
 exports.calendarEvent = onRequest({ cors: true }, (req, res) => calendar.calendarEvent(req, res, { db: getFirestore() }));
 
-/** A device was newly signed in to an account → alert that account's other devices. */
+/**
+ * Older app versions: a device was newly signed in → alert that account's other devices.
+ * Current apps register a session instead (tokens carry `sessionId`) and get richer alerts from `security`.
+ */
 exports.onPushTokenWritten = onDocumentWritten('pushTokens/{tokenId}', async (event) => {
   const before = event.data && event.data.before.exists ? event.data.before.data() : null;
   const after = event.data && event.data.after.exists ? event.data.after.data() : null;
-  if (!after || !after.uid) return;
+  if (!after || !after.uid || after.sessionId) return;
   if (before && before.uid === after.uid) return;
   const device =
     [after.manufacturer, after.deviceModel].filter(Boolean).join(' ') ||

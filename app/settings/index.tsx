@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +21,7 @@ import { managementUrlForEntitlements } from '@/lib/purchases';
 import { useSessionStore } from '@/store/session';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { signOut } from '@/features/auth/api';
+import { subscribeTwoStep } from '@/features/security/devices';
 import { isBackendConfigured } from '@/lib/env';
 import { ScaledSheet } from '@/lib/scale';
 
@@ -32,10 +33,17 @@ export default function SettingsScreen() {
   const entitlements = useSessionStore((s) => s.entitlements);
   const plusFromWeb = useSessionStore((s) => s.plusSource) === 'web';
   const [busy, setBusy] = useState(false);
+  const userId = useSessionStore((s) => s.userId);
+  const [twoStep, setTwoStepOn] = useState(false);
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const verified = profile?.verificationStatus === 'verified';
   const quizLevel = profile?.quizLevel ?? 0;
   const plusLabel = plusStatusLabel(entitlements);
+
+  useEffect(() => {
+    if (!userId || !isBackendConfigured()) return;
+    return subscribeTwoStep(userId, setTwoStepOn);
+  }, [userId]);
 
   const leaveToWelcome = () => {
     resetSession();
@@ -141,6 +149,22 @@ export default function SettingsScreen() {
             onPress={() => router.push('/settings/verification')}
           />
         </SettingsGroup>
+
+        {isBackendConfigured() ? (
+          <SettingsGroup title="Login & security">
+            <SettingsRow
+              label="Two-step verification"
+              detail={twoStep ? 'On · email code on new devices' : 'Off · add an email code on new devices'}
+              onPress={() => router.push('/settings/two-step' as Href)}
+            />
+            <SettingsRow
+              label="Devices"
+              detail="Where you’re signed in"
+              last
+              onPress={() => router.push('/settings/devices' as Href)}
+            />
+          </SettingsGroup>
+        ) : null}
 
         <SettingsGroup title="Subscription">
           <SettingsRow

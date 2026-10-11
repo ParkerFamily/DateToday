@@ -2,6 +2,8 @@ import { colors } from '@/constants/theme';
 import { WebAlertHost } from '@/components/ui/WebAlertHost';
 import { installWebFrame } from '@/lib/webFrame';
 import { clearSignedOutMark, restoreAuthUser, subscribeAuth } from '@/features/auth/api';
+import { SignInCodeGate, signOutThisDevice } from '@/components/auth/SignInCodeGate';
+import { setRevokedHandler, startDeviceSession } from '@/features/security/session';
 import {
     configureNotificationHandler,
     listenForPushTokenChanges,
@@ -32,7 +34,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, View } from 'react-native';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -177,6 +179,8 @@ async function hydrateSignedInUser(uid: string, email: string | null) {
 function AuthGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const bootstrapped = useRef(false);
+  /** Account restored from storage at launch — its device session isn't a new sign-in. */
+  const restoredUid = useRef<string | null>(null);
   const segments = useSegments();
   const router = useRouter();
   const userId = useSessionStore((s) => s.userId);
@@ -223,6 +227,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         if (!mounted) return;
 
         if (user) {
+          restoredUid.current = user.uid;
           await hydrateSignedInUser(user.uid, user.email ?? null);
           
           // NOW update Firestore location completion after profile is loaded
@@ -394,7 +399,20 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const entered = hasEnteredApp(profile);
 
   useEffect(() => {
+    if (ready && !userId) restoredUid.current = null;
+  }, [ready, userId]);
+
+  useEffect(() => {
     if (!ready || !userId) return;
+    if (isBackendConfigured()) {
+      const fresh = restoredUid.current !== userId;
+      setRevokedHandler(() => {
+        void signOutThisDevice().then(() =>
+          Alert.alert('Signed out', 'This device was signed out of your DateToday account from another device.'),
+        );
+      });
+      void startDeviceSession(userId, fresh);
+    }
     void registerPushTokenAsync();
     return listenForPushTokenChanges();
   }, [ready, userId]);
@@ -441,7 +459,12 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {userId ? <SignInCodeGate /> : null}
+    </>
+  );
 }
 
 export default function RootLayout() {

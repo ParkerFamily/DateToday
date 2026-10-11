@@ -36,6 +36,7 @@ jest.mock('@/lib/firebase/client', () => ({
   getFirebaseAuth: () => ({ currentUser: { uid: 'u1' } }),
 }));
 jest.mock('react-native', () => ({ Platform: { OS: 'ios', Version: '26', constants: {} } }));
+jest.mock('@/features/security/session', () => ({ sessionIdFor: jest.fn(async () => 'session-1') }));
 
 const flush = () => new Promise((r) => setTimeout(r, 5));
 

@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { Platform } from 'react-native';
 import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
+import { sessionIdFor } from '@/features/security/session';
 
 /**
  * Android channel ids. Must match `CHANNEL_FOR_TYPE` in functions/index.js.
@@ -198,6 +199,8 @@ async function savePushToken(options: { prompt?: boolean }): Promise<boolean> {
       // Owned by the account previously signed in on this phone — take it over.
     }
 
+    const sessionId = await sessionIdFor(uid).catch(() => null);
+
     await setDoc(
       ref,
       {
@@ -207,6 +210,7 @@ async function savePushToken(options: { prompt?: boolean }): Promise<boolean> {
         enabled: true,
         appVersion: Constants.expoConfig?.version ?? null,
         ...deviceInfo(),
+        ...(sessionId ? { sessionId } : {}),
         updatedAt: serverTimestamp(),
         ...(isNewForThisUser ? { createdAt: serverTimestamp() } : {}),
       },

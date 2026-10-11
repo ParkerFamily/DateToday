@@ -269,6 +269,40 @@ const T = {
     code,
     footerNote: 'Didn’t request this? You can ignore this email.',
   }),
+  loginCode: (code, device, place) => ({
+    subject: `${code} is your DateToday sign-in code`,
+    preheader: 'Enter this code to finish signing in.',
+    heading: 'Confirm it’s you',
+    paragraphs: [
+      `Someone is signing in to your DateToday account on ${device}${place ? ` near ${place}` : ''}. Enter this code in the app to finish. It expires in 10 minutes.`,
+    ],
+    code,
+    footerNote:
+      'Wasn’t you? Don’t share this code. Change your password, then open Settings › Devices in DateToday and sign out anything you don’t recognize.',
+  }),
+  newSignIn: (device, place) => ({
+    subject: 'New sign-in to your DateToday account',
+    preheader: `${device}${place ? ` near ${place}` : ''}`,
+    heading: 'New sign-in',
+    paragraphs: [
+      `Your DateToday account was just signed in on ${device}${place ? ` near ${place}` : ''}.`,
+      'If this was you, there’s nothing to do. If not, sign that device out in Settings › Devices and change your password.',
+      'Location is approximate and based on the network the device used.',
+    ],
+    cta: { label: 'Review devices', url: openAppUrl('/settings/devices') },
+  }),
+  twoStepCode: (code, enabling) => ({
+    subject: `${code} is your DateToday security code`,
+    preheader: enabling ? 'Turn on two-step verification.' : 'Turn off two-step verification.',
+    heading: enabling ? 'Turn on two-step verification' : 'Turn off two-step verification',
+    paragraphs: [
+      enabling
+        ? 'Enter this code in DateToday to turn on two-step verification. After that, signing in on a new device will need a code sent to this email.'
+        : 'Enter this code in DateToday to turn off two-step verification. It expires in 10 minutes.',
+    ],
+    code,
+    footerNote: 'Didn’t request this? Change your password and contact DateToday support right away.',
+  }),
   welcome: (name) => ({
     subject: 'Welcome to DateToday',
     preheader: 'Go Live tonight and see who’s nearby.',

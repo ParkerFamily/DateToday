@@ -171,6 +171,10 @@ export async function signOut() {
       await unregisterPushTokenAsync();
     }),
     bestEffort(async () => {
+      const { endDeviceSession } = await import('@/features/security/session');
+      await endDeviceSession();
+    }),
+    bestEffort(async () => {
       const { endLiveActivity } = await import('@/features/live/liveActivity');
       await endLiveActivity();
     }),

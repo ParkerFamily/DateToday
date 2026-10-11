@@ -103,8 +103,27 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'uid', 'token', 'platform', 'enabled', 'appVersion', 'deviceName', 'deviceModel',
           'manufacturer', 'osName', 'osVersion', 'isPhysicalDevice', 'createdAt', 'updatedAt',
-          'lastError', 'invalidatedAt'
+          'lastError', 'invalidatedAt', 'sessionId'
         ]);
+    }
+
+    // Signed-in devices and two-step settings: the owner can see them, only Cloud Functions change them.
+    match /sessions/{sessionId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /securitySettings/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+
+    match /loginCodes/{sessionId} {
+      allow read, write: if false;
+    }
+
+    match /securityCodes/{userId} {
+      allow read, write: if false;
     }
 
     // Per-user notification choices; read by Cloud Functions before every push.
