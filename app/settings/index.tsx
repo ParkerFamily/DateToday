@@ -141,6 +141,16 @@ export default function SettingsScreen() {
           </SettingsGroup>
         ) : null}
 
+        <SettingsGroup title="Help & Learning">
+          <SettingsRow
+            label="Tutorials"
+            detail="Watch guides for swiping, going Live, messaging & more"
+            icon="school"
+            last
+            onPress={() => router.push('/settings/tutorials' as Href)}
+          />
+        </SettingsGroup>
+
         <SettingsGroup title="Account & profile">
           <SettingsRow
             label="Account information"
