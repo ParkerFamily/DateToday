@@ -104,11 +104,12 @@ async function ensureUserDoc(
       lastSignInAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    if (displayName) payload.displayName = displayName;
-    if (extras?.photoURL) payload.photoURL = extras.photoURL;
+    // Only prefill displayName and photoURL for NEW users. Existing users keep their DateToday profile data.
     if (extras?.isNewUser) {
       payload.createdAt = serverTimestamp();
       payload.verificationStatus = 'unverified';
+      if (displayName) payload.displayName = displayName;
+      if (extras.photoURL) payload.photoURL = extras.photoURL;
     }
     await setDoc(doc(getDb(), 'users', uid), payload, { merge: true });
   } catch (error) {
