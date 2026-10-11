@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, doc, getDocFromServer, serverTimestamp, setDoc } from 'firebase/firestore';
 import { create } from 'zustand';
 import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
+import { isChatGif, type ChatGif } from '@/features/matches/api';
 
 /**
  * Chat outbox. Firestore's RN SDK keeps unsent writes in memory only, so a message typed while
@@ -12,7 +13,9 @@ export type OutboxMessage = {
   id: string;
   matchId: string;
   senderId: string;
+  /** Empty for a GIF. */
   text: string;
+  gif?: ChatGif;
   queuedAt: number;
   failed?: boolean;
 };
@@ -29,7 +32,8 @@ function isOutboxMessage(v: unknown): v is OutboxMessage {
   const o = v as OutboxMessage;
   return Boolean(
     o && typeof o.id === 'string' && typeof o.matchId === 'string' && typeof o.senderId === 'string'
-      && typeof o.text === 'string' && typeof o.queuedAt === 'number',
+      && typeof o.text === 'string' && typeof o.queuedAt === 'number'
+      && (o.gif === undefined || isChatGif(o.gif)),
   );
 }
 
@@ -79,12 +83,17 @@ async function deliver(item: OutboxMessage): Promise<void> {
   inFlight.add(item.id);
   setFailed(item.id, false);
   const ref = doc(getDb(), 'matches', item.matchId, 'messages', item.id);
-  const write = setDoc(ref, {
-    senderId: item.senderId,
-    type: 'text',
-    text: item.text,
-    createdAt: serverTimestamp(),
-  });
+  const write = setDoc(
+    ref,
+    item.gif
+      ? {
+          senderId: item.senderId,
+          type: 'gif',
+          gif: { id: item.gif.id, w: item.gif.w, h: item.gif.h },
+          createdAt: serverTimestamp(),
+        }
+      : { senderId: item.senderId, type: 'text', text: item.text, createdAt: serverTimestamp() },
+  );
   // The SDK keeps retrying after our timeout; a late ack still clears the outbox.
   write.then(() => removeFromOutbox(item.id)).catch(() => undefined);
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -124,6 +133,24 @@ export async function sendTextMessage(matchId: string, text: string): Promise<Ou
     matchId,
     senderId,
     text: body,
+    queuedAt: Date.now(),
+  };
+  update((items) => [...items, item]);
+  void deliver(item).catch(() => undefined);
+  return item;
+}
+
+/** Queue a GIF the same way as text. */
+export async function sendGifMessage(matchId: string, gif: ChatGif): Promise<OutboxMessage | null> {
+  const senderId = getFirebaseAuth().currentUser?.uid;
+  if (!senderId || !isChatGif(gif)) return null;
+  await hydrate();
+  const item: OutboxMessage = {
+    id: doc(collection(getDb(), 'matches', matchId, 'messages')).id,
+    matchId,
+    senderId,
+    text: '',
+    gif: { id: gif.id, w: gif.w, h: gif.h },
     queuedAt: Date.now(),
   };
   update((items) => [...items, item]);

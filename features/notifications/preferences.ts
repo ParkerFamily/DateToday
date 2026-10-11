@@ -30,7 +30,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
 
 export const NOTIFICATION_PREF_ROWS: { key: NotificationPrefKey; label: string; detail: string; locked?: boolean }[] = [
   { key: 'matches', label: 'New matches', detail: 'When someone you liked likes you back' },
-  { key: 'messages', label: 'Messages', detail: 'New messages from your matches' },
+  { key: 'messages', label: 'Messages', detail: 'New messages and reactions from your matches' },
   { key: 'likes', label: 'Likes', detail: 'When someone taps Interested on you' },
   { key: 'dateRequests', label: 'Date requests', detail: 'When a match proposes a plan' },
   { key: 'dateUpdates', label: 'Date confirmations & changes', detail: 'When a plan is accepted, declined or canceled' },

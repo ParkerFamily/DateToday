@@ -56,7 +56,7 @@ export async function blockUser(
   blockedId: string,
   reason?: string,
   displayName?: string | null,
-  report?: { reason: ReportReason; details?: string },
+  report?: { reason: ReportReason; details?: string; messageId?: string },
 ): Promise<void> {
   if (!blockedId || blockedId === 'unknown') {
     throw new Error('Missing user to block.');
@@ -69,7 +69,9 @@ export async function blockUser(
       targetUid: blockedId,
       displayName: displayName ?? null,
       reason: reason ?? null,
-      report: report ? { reason: report.reason, details: report.details?.trim() || null } : null,
+      report: report
+        ? { reason: report.reason, details: report.details?.trim() || null, messageId: report.messageId ?? null }
+        : null,
     });
     await useBlocksStore.getState().addLocal({
       blockedId,
@@ -175,6 +177,8 @@ export async function reportUser(input: {
   reason: ReportReason;
   details?: string;
   matchId?: string;
+  /** The specific chat message being reported; the server attaches its content to the report. */
+  messageId?: string;
   dateId?: string;
   contentType?: 'profile' | 'photo' | 'video' | 'message' | 'behavior' | 'other';
   alsoBlock?: boolean;
@@ -188,6 +192,7 @@ export async function reportUser(input: {
     await blockUser(input.reportedId, input.reason, input.displayName, {
       reason: input.reason,
       details: input.details,
+      messageId: input.messageId,
     });
     return;
   }
@@ -201,6 +206,7 @@ export async function reportUser(input: {
       reason: input.reason,
       details: input.details?.trim() || null,
       matchId: input.matchId ?? null,
+      messageId: input.messageId ?? null,
       dateId: input.dateId ?? null,
       contentType: input.contentType ?? 'profile',
       status: 'open' satisfies ModerationStatus,

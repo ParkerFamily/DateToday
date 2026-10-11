@@ -26,6 +26,7 @@ const personaName = require('./personaName');
 const stripeBilling = require('./stripeBilling');
 const priorityLikes = require('./priorityLikes');
 const freeLikes = require('./freeLikes');
+const chat = require('./chat');
 
 const LIKE_LIMIT_MESSAGE =
   'You’ve used your free Likes. Get DateToday+ to keep liking. Liking back people who like you is always free.';
@@ -704,6 +705,7 @@ const EXPO_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts';
 /** Android channel per push type. Must match ANDROID_CHANNELS in features/notifications/push.ts. */
 const CHANNEL_FOR_TYPE = {
   message: 'messages',
+  message_reaction: 'messages',
   match: 'matches',
   interest: 'activity',
   priority_like: 'activity',
@@ -733,6 +735,7 @@ const CATEGORY_FOR_TYPE = {
 /** Preference that gates each push type. Must match NotificationPrefKey in features/notifications/preferences.ts. */
 const PREF_FOR_TYPE = {
   message: 'messages',
+  message_reaction: 'messages',
   match: 'matches',
   interest: 'likes',
   priority_like: 'likes',
@@ -847,6 +850,7 @@ async function sendExpoMessages(db, uid, type, entries) {
 /** Seconds a push may wait for an offline phone. Chat must survive a phone that's off overnight. */
 const TTL_FOR_TYPE = {
   message: 7 * 24 * 60 * 60,
+  message_reaction: 24 * 60 * 60,
   match: 7 * 24 * 60 * 60,
   date_proposal: 7 * 24 * 60 * 60,
   date_accepted: 7 * 24 * 60 * 60,
@@ -1381,9 +1385,31 @@ async function conversationEvidence(db, matchId) {
       type: m.type || 'text',
       text: typeof m.text === 'string' ? m.text.slice(0, 2000) : null,
       proposal: m.proposal ? proposalSummary(m.proposal) : null,
+      gifId: m.gif && typeof m.gif.id === 'string' ? m.gif.id : null,
+      messageId: d.id,
       createdAt: m.createdAt || null,
     };
   });
+}
+
+/** Evidence for a report: the recent conversation, plus the exact message when one was reported. */
+async function reportEvidence(db, matchId, messageId, reportedId) {
+  const messageSnapshot = await conversationEvidence(db, matchId);
+  let reportedMessage = null;
+  if (typeof messageId === 'string' && messageId && !messageId.includes('/')) {
+    const snap = await db.collection('matches').doc(matchId).collection('messages').doc(messageId).get();
+    const m = snap.exists ? snap.data() : null;
+    if (m && m.senderId === reportedId) {
+      reportedMessage = {
+        messageId,
+        type: m.type || 'text',
+        text: typeof m.text === 'string' ? m.text.slice(0, 2000) : null,
+        gifId: m.gif && typeof m.gif.id === 'string' ? m.gif.id : null,
+        createdAt: m.createdAt || null,
+      };
+    }
+  }
+  return { messageSnapshot, reportedMessage };
 }
 
 /**
@@ -1428,7 +1454,9 @@ exports.blockUser = onRequest({ cors: true }, async (req, res) => {
 
     if (report) {
       const matchSnap = existingMatch;
-      const evidence = matchSnap.exists ? await conversationEvidence(db, matchId) : [];
+      const { messageSnapshot: evidence, reportedMessage } = matchSnap.exists
+        ? await reportEvidence(db, matchId, report.messageId, targetUid)
+        : { messageSnapshot: [], reportedMessage: null };
       await db.collection('reports').add({
         reporterId: uid,
         reportedId: targetUid,
@@ -1437,6 +1465,8 @@ exports.blockUser = onRequest({ cors: true }, async (req, res) => {
         matchId: matchSnap.exists ? matchId : null,
         dateId: null,
         contentType: evidence.length ? 'message' : 'profile',
+        messageId: reportedMessage ? reportedMessage.messageId : null,
+        reportedMessage,
         messageSnapshot: evidence,
         blocked: true,
         status: 'open',
@@ -1862,10 +1892,7 @@ exports.onMatchMessageCreated = onDocumentCreated(
     const matchRef = db.collection('matches').doc(matchId);
     const senderId = msg.senderId;
     const isProposal = msg.type === 'date_proposal';
-    const preview = (isProposal
-      ? `Date idea: ${proposalSummary(msg.proposal)}`
-      : String(msg.text || '')
-    ).slice(0, 140);
+    const preview = chat.messagePreview(msg, proposalSummary);
     const sentAt = msg.createdAt && msg.createdAt.toMillis ? msg.createdAt : Timestamp.now();
 
     const outcome = await db.runTransaction(async (tx) => {
@@ -1914,6 +1941,51 @@ exports.onMatchMessageCreated = onDocumentCreated(
         });
   },
 );
+
+/** Someone reacted to a message → tell its sender, at most once per person per message. */
+async function notifyReaction(event, before, after) {
+  const added = chat.reactionAdded(before, after);
+  if (!added) return;
+  const { matchId, messageId } = event.params;
+  const db = getFirestore();
+  const once = await db
+    .collection('processedEvents')
+    .doc(`reaction_${matchId}_${messageId}_${added.uid}`)
+    .create({ at: FieldValue.serverTimestamp(), expireAt: Timestamp.fromMillis(Date.now() + 30 * 24 * 3600 * 1000) })
+    .then(() => true)
+    .catch(() => false);
+  if (!once) return;
+  const matchSnap = await db.collection('matches').doc(matchId).get();
+  const match = matchSnap.exists ? matchSnap.data() : null;
+  if (!match || !(match.userIds || []).includes(added.uid) || !(match.userIds || []).includes(after.senderId)) return;
+  if (await isHiddenFrom(db, after.senderId, added.uid)) return;
+  const name = match.users?.[added.uid]?.displayName || 'Your match';
+  const copy = chat.reactionPush(name, added.emoji, after);
+  await pushToUser(db, after.senderId, {
+    ...copy,
+    data: { type: 'message_reaction', matchId, url: `/chat/${matchId}` },
+  });
+}
+
+/**
+ * A report filed from the app → attach the conversation (and the reported message) so moderators
+ * still have it if the chat is later deleted. Only for a match the reporter is actually in.
+ */
+exports.onReportCreated = onDocumentCreated('reports/{reportId}', async (event) => {
+  const report = event.data && event.data.data();
+  if (!report || report.messageSnapshot || typeof report.matchId !== 'string' || !report.matchId) return;
+  if (report.matchId.includes('/')) return;
+  const db = getFirestore();
+  const matchSnap = await db.collection('matches').doc(report.matchId).get();
+  const userIds = (matchSnap.exists && matchSnap.get('userIds')) || [];
+  if (!userIds.includes(report.reporterId) || !userIds.includes(report.reportedId)) return;
+  const evidence = await reportEvidence(db, report.matchId, report.messageId, report.reportedId);
+  await event.data.ref.update({
+    ...evidence,
+    messageId: evidence.reportedMessage ? evidence.reportedMessage.messageId : null,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+});
 
 /** A confirmed date was called off → clear it from the match and tell the other person. */
 async function handleDateCanceled(event, after) {
@@ -1968,6 +2040,10 @@ exports.onMatchMessageUpdated = onDocumentUpdated(
   async (event) => {
     const before = event.data && event.data.before.data();
     const after = event.data && event.data.after.data();
+    if (before && after && after.type !== 'date_proposal') {
+      await notifyReaction(event, before, after);
+      return;
+    }
     if (!before || !after || after.type !== 'date_proposal') return;
     if (before.status === after.status) return;
     if (before.status === 'accepted' && after.status === 'canceled') {
@@ -2743,6 +2819,67 @@ exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req,
   } catch (error) {
     console.error('searchPlaces', error.message || error);
     res.status(error.status || 502).json({ error: 'Couldn’t load places right now.' });
+  }
+});
+
+const gifInFlight = new Map();
+
+/**
+ * GIF picker for chat. Body: { query?, offset? } → { gifs: [{ id, w, h }], next: number | null }.
+ * Proxies GIPHY so the key stays on the server; results are cached because the key is rate limited.
+ */
+exports.searchGifs = onRequest({ cors: true, timeoutSeconds: 20 }, async (req, res) => {
+  try {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    await requireUser(req);
+    const apiKey = process.env.GIPHY_API_KEY || '';
+    if (!apiKey) {
+      res.status(503).json({ error: 'GIFs aren’t available right now.' });
+      return;
+    }
+    const query = chat.cleanQuery(req.body && req.body.query);
+    const offset = chat.cleanOffset(req.body && req.body.offset);
+    const key = chat.cacheKey(query, offset);
+    const cacheRef = getFirestore()
+      .collection('gifCache')
+      .doc(require('crypto').createHash('sha1').update(key).digest('hex'));
+    const cached = await cacheRef.get().catch(() => null);
+    const stale = cached && cached.exists ? cached.data() : null;
+    let gifs = stale && Date.now() - (stale.at || 0) < chat.cacheTtlMs(query) ? stale.gifs : null;
+    if (!gifs) {
+      if (!gifInFlight.has(key)) {
+        const task = fetch(chat.giphyUrl(apiKey, query, offset), { signal: AbortSignal.timeout(8000) })
+          .then(async (r) => {
+            if (!r.ok) throw new Error(`GIPHY ${r.status}`);
+            const fresh = chat.parseGifs(await r.json());
+            await cacheRef
+              .set({ gifs: fresh, at: Date.now(), expireAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 3600 * 1000) })
+              .catch(() => undefined);
+            return fresh;
+          })
+          .finally(() => gifInFlight.delete(key));
+        gifInFlight.set(key, task);
+      }
+      try {
+        gifs = await gifInFlight.get(key);
+      } catch (error) {
+        console.warn('searchGifs upstream failed', error.message);
+        if (!stale) throw error;
+        gifs = stale.gifs || [];
+      }
+    }
+    res.set('Cache-Control', 'private, max-age=300');
+    res.json({ gifs, next: gifs.length >= chat.PAGE_SIZE && offset + chat.PAGE_SIZE <= 240 ? offset + chat.PAGE_SIZE : null });
+  } catch (error) {
+    if (error.status) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    console.error('searchGifs', error.message || error);
+    res.status(502).json({ error: 'Couldn’t load GIFs right now.' });
   }
 });
 

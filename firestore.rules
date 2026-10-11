@@ -253,6 +253,10 @@ service cloud.firestore {
     match /placeCache/{key} {
       allow read, write: if false;
     }
+    // GIF search results cache; searchGifs only.
+    match /gifCache/{key} {
+      allow read, write: if false;
+    }
 
     // Mutual matches; created only by Cloud Functions. Members may reset their own unread count.
     match /matches/{matchId} {
@@ -287,6 +291,17 @@ service cloud.firestore {
               && request.resource.data.text.size() <= 2000
             )
             || (
+              // GIPHY GIF by id; the app builds the media URL, so nothing else can be linked.
+              request.resource.data.type == 'gif'
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'gif', 'createdAt'])
+              && request.resource.data.gif is map
+              && request.resource.data.gif.keys().hasOnly(['id', 'w', 'h'])
+              && request.resource.data.gif.id is string
+              && request.resource.data.gif.id.matches('^[A-Za-z0-9]{4,40}$')
+              && request.resource.data.gif.w is int && request.resource.data.gif.w > 0 && request.resource.data.gif.w <= 2000
+              && request.resource.data.gif.h is int && request.resource.data.gif.h > 0 && request.resource.data.gif.h <= 2000
+            )
+            || (
               request.resource.data.type == 'date_proposal'
               && request.resource.data.keys().hasOnly(['senderId', 'type', 'proposal', 'status', 'createdAt'])
               && request.resource.data.status == 'proposed'
@@ -297,6 +312,18 @@ service cloud.firestore {
               ])
             )
           );
+
+        // React to the other person's message: one emoji each, set or cleared, nothing else touched.
+        // The list must match MESSAGE_REACTIONS in features/matches/reactions.ts.
+        allow update: if isMatchMember()
+          && resource.data.type in ['text', 'gif']
+          && resource.data.senderId != request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+          && request.resource.data.reactions is map
+          && request.resource.data.reactions.diff(resource.data.get('reactions', {})).affectedKeys()
+            .hasOnly([request.auth.uid])
+          && (!(request.auth.uid in request.resource.data.reactions)
+            || request.resource.data.reactions[request.auth.uid] in ['❤️', '😂', '😮', '😢', '🔥', '👍']);
 
         // Only the recipient answers a date proposal, once.
         allow update: if isMatchMember()

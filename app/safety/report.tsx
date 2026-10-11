@@ -37,13 +37,15 @@ const MIN_PROBLEM_DETAILS = 20;
 
 export default function ReportScreen() {
   const router = useRouter();
-  const { userId, name, block, matchId } = useLocalSearchParams<{
+  const { userId, name, block, matchId, messageId } = useLocalSearchParams<{
     userId?: string;
     name?: string;
     block?: string;
     matchId?: string;
+    messageId?: string;
   }>();
   const blockFirst = block === '1';
+  const reportedMessageId = typeof messageId === 'string' && messageId ? messageId : undefined;
   const [reason, setReason] = useState<string[]>([]);
   const [details, setDetails] = useState('');
   const [loading, setLoading] = useState(false);
@@ -84,7 +86,9 @@ export default function ReportScreen() {
         details,
         alsoBlock: alsoBlock && reportedId !== APP_PROBLEM_ID,
         displayName,
-        ...(typeof matchId === 'string' && matchId ? { matchId, contentType: 'message' as const } : {}),
+        ...(typeof matchId === 'string' && matchId
+          ? { matchId, contentType: 'message' as const, messageId: reportedMessageId }
+          : {}),
       });
       Alert.alert(
         'Thanks',
@@ -103,7 +107,7 @@ export default function ReportScreen() {
   return (
     <Screen padded={false}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <SettingsHeader title={blockFirst ? 'Report & block' : 'Report'} />
+        <SettingsHeader title={blockFirst ? 'Report & block' : reportedMessageId ? 'Report message' : 'Report'} />
         <AppText variant="secondary">
           {resolvedUserId
             ? 'Reports are confidential. False reports may affect your account.'

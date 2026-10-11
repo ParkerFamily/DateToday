@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteField,
   doc,
   getDoc,
   limit,
@@ -16,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { env } from '@/lib/env';
 import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
+import { parseReactions, type MessageReaction } from '@/features/matches/reactions';
 
 export type MatchUser = { displayName: string; mainPhotoUrl: string | null };
 
@@ -48,11 +50,27 @@ export type MatchDoc = {
   priorityLike: { fromUid: string; note: string | null } | null;
 };
 
+/** A GIPHY GIF as stored on a chat message: the id plus the 200px-wide rendition's size. */
+export type ChatGif = { id: string; w: number; h: number };
+
+const GIF_ID = /^[A-Za-z0-9]{4,40}$/;
+
+export function isChatGif(value: unknown): value is ChatGif {
+  const g = value as ChatGif;
+  return Boolean(
+    g && typeof g.id === 'string' && GIF_ID.test(g.id)
+      && Number.isInteger(g.w) && g.w > 0 && Number.isInteger(g.h) && g.h > 0,
+  );
+}
+
 export type MatchMessage = {
   id: string;
   senderId: string;
-  type: 'text' | 'date_proposal';
+  type: 'text' | 'date_proposal' | 'gif';
   text?: string;
+  gif?: ChatGif;
+  /** Emoji reactions keyed by who reacted (only the other person can react to a message). */
+  reactions?: Record<string, MessageReaction>;
   proposal?: DateProposal;
   status?: 'proposed' | 'accepted' | 'declined' | 'canceled';
   respondedBy?: string;
@@ -335,8 +353,15 @@ export function subscribeMessages(
           return {
             id: d.id,
             senderId: String(data.senderId ?? ''),
-            type: data.type === 'date_proposal' ? 'date_proposal' : 'text',
+            type:
+              data.type === 'date_proposal'
+                ? 'date_proposal'
+                : data.type === 'gif' && isChatGif(data.gif)
+                  ? 'gif'
+                  : 'text',
             text: typeof data.text === 'string' ? data.text : undefined,
+            gif: isChatGif(data.gif) ? data.gif : undefined,
+            reactions: parseReactions(data.reactions),
             proposal: (data.proposal as DateProposal) ?? undefined,
             status: data.status as MatchMessage['status'],
             respondedBy: data.respondedBy as string | undefined,
@@ -413,6 +438,14 @@ export async function cancelDate(matchId: string, messageId: string) {
     status: 'canceled',
     canceledBy: requireUid(),
     canceledAt: serverTimestamp(),
+  });
+}
+
+/** Put my emoji on their message, or clear it with null. */
+export async function setReaction(matchId: string, messageId: string, emoji: MessageReaction | null) {
+  const uid = requireUid();
+  await updateDoc(doc(getDb(), 'matches', matchId, 'messages', messageId), {
+    [`reactions.${uid}`]: emoji ?? deleteField(),
   });
 }
 

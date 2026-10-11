@@ -16,6 +16,8 @@ import {
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Image as GifImage } from 'expo-image';
+import * as Haptics from 'expo-haptics';
 import { Screen } from '@/components/ui/Screen';
 import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
@@ -33,10 +35,12 @@ import {
   proposalSummary,
   respondToDate,
   cancelDate,
+  setReaction,
   setTyping,
   subscribeMatch,
   subscribeMessages,
   unmatch,
+  type ChatGif,
   type MatchDoc,
   type MatchMessage,
 } from '@/features/matches/api';
@@ -44,9 +48,14 @@ import {
   flushOutbox,
   removeFromOutbox,
   retryOutboxMessage,
+  sendGifMessage,
   sendTextMessage,
   useOutbox,
 } from '@/features/matches/outbox';
+import { gifUrl } from '@/features/matches/gifs';
+import { LIKE_REACTION, reactionsKey, type MessageReaction } from '@/features/matches/reactions';
+import { GifPicker } from '@/components/chat/GifPicker';
+import { MessageActions } from '@/components/chat/MessageActions';
 import { useTheirChatState } from '@/features/matches/useTheirChatState';
 import { TypingDots } from '@/components/chat/TypingDots';
 import { clearActiveChat, dismissNotificationsForMatch, setActiveChat } from '@/features/notifications/push';
@@ -168,11 +177,13 @@ const Composer = memo(function Composer({
   onSend,
   onDraftChange,
   onBlur,
+  onGif,
 }: {
   bottomPad: number;
   onSend: (text: string) => Promise<boolean>;
   onDraftChange: (text: string) => void;
   onBlur: () => void;
+  onGif: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const draftRef = useRef('');
@@ -193,6 +204,14 @@ const Composer = memo(function Composer({
 
   return (
     <View style={[styles.composer, { paddingBottom: bottomPad }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Send a GIF"
+        onPress={onGif}
+        style={({ pressed }) => [styles.gifBtn, pressed && styles.pressed]}
+      >
+        <AppText style={styles.gifBtnText}>GIF</AppText>
+      </Pressable>
       <TextInput
         value={draft}
         onChangeText={(text) => {
@@ -241,6 +260,8 @@ const MessageRow = memo(function MessageRow({
   onRespond,
   onPlan,
   onRetry,
+  onLike,
+  onActions,
 }: {
   matchId: string;
   message: MatchMessage;
@@ -252,7 +273,11 @@ const MessageRow = memo(function MessageRow({
   onRespond: (message: MatchMessage, status: 'accepted' | 'declined' | 'canceled') => Promise<void>;
   onPlan: () => void;
   onRetry: (message: MatchMessage) => void;
+  onLike: (message: MatchMessage) => void;
+  onActions: (message: MatchMessage) => void;
 }) {
+  const lastTapRef = useRef(0);
+
   if (message.type === 'date_proposal') {
     const p = message.proposal;
     const startsMs = p?.startsAt ? Date.parse(p.startsAt) : NaN;
@@ -335,11 +360,84 @@ const MessageRow = memo(function MessageRow({
     );
   }
 
+  const gif = message.type === 'gif' ? message.gif : undefined;
+  const gifWidth = rs(220);
+  const body = gif ? (
+    <GifImage
+      source={{ uri: gifUrl(gif.id) }}
+      recyclingKey={gif.id}
+      style={[
+        styles.gif,
+        mine ? styles.gifMine : styles.gifTheirs,
+        message.failed && styles.bubbleFailed,
+        { width: gifWidth, height: Math.min(rs(300), Math.round((gifWidth * gif.h) / gif.w)) },
+      ]}
+      contentFit="cover"
+      cachePolicy="memory-disk"
+      accessibilityLabel="GIF"
+    />
+  ) : (
+    <View
+      style={[
+        styles.bubble,
+        mine ? styles.mine : [styles.theirs, styles.bubbleFill],
+        message.failed && styles.bubbleFailed,
+      ]}
+    >
+      <AppText style={mine ? styles.mineText : undefined}>{message.text}</AppText>
+    </View>
+  );
+  const reactions = message.reactions ? Object.values(message.reactions) : [];
+
+  // Their messages: double-tap to like, long-press for emoji reactions and Report. A click opens
+  // the menu on web, where double-tap and long-press aren't how people use a mouse.
+  const onBodyPress = () => {
+    if (Platform.OS === 'web') {
+      onActions(message);
+      return;
+    }
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      lastTapRef.current = 0;
+      onLike(message);
+    } else {
+      lastTapRef.current = now;
+    }
+  };
+
   return (
     <View>
-      <View style={[styles.bubble, mine ? styles.mine : styles.theirs, message.failed && styles.bubbleFailed]}>
-        <AppText style={mine ? styles.mineText : undefined}>{message.text}</AppText>
-      </View>
+      {mine ? (
+        body
+      ) : (
+        <Pressable
+          onPress={onBodyPress}
+          onLongPress={() => onActions(message)}
+          delayLongPress={350}
+          style={styles.theirsPress}
+          accessibilityHint="Double-tap and hold for reactions"
+          accessibilityActions={[
+            { name: 'like', label: 'Like' },
+            { name: 'react', label: 'React or report' },
+          ]}
+          onAccessibilityAction={(e) =>
+            e.nativeEvent.actionName === 'like' ? onLike(message) : onActions(message)
+          }
+        >
+          {body}
+        </Pressable>
+      )}
+      {reactions.length ? (
+        <Pressable
+          disabled={mine}
+          onPress={() => onActions(message)}
+          accessibilityRole={mine ? 'text' : 'button'}
+          accessibilityLabel={mine ? `${theirName} reacted ${reactions.join(' ')}` : `You reacted ${reactions.join(' ')}`}
+          style={[styles.reactionPill, mine ? styles.reactionMine : styles.reactionTheirs]}
+        >
+          <AppText style={styles.reactionText}>{reactions.join('')}</AppText>
+        </Pressable>
+      ) : null}
       {message.failed ? (
         <Pressable accessibilityRole="button" hitSlop={8} onPress={() => onRetry(message)}>
           <AppText style={styles.failedLabel}>Not delivered · Tap to retry</AppText>
@@ -354,6 +452,8 @@ const MessageRow = memo(function MessageRow({
 (a, b) =>
   a.message.id === b.message.id &&
   a.message.text === b.message.text &&
+  a.message.gif?.id === b.message.gif?.id &&
+  reactionsKey(a.message.reactions) === reactionsKey(b.message.reactions) &&
   a.message.status === b.message.status &&
   a.message.failed === b.message.failed &&
   a.mine === b.mine &&
@@ -363,7 +463,9 @@ const MessageRow = memo(function MessageRow({
   a.responding === b.responding &&
   a.onRespond === b.onRespond &&
   a.onPlan === b.onPlan &&
-  a.onRetry === b.onRetry);
+  a.onRetry === b.onRetry &&
+  a.onLike === b.onLike &&
+  a.onActions === b.onActions);
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -396,8 +498,9 @@ export default function ChatScreen() {
       .map((o) => ({
         id: o.id,
         senderId: o.senderId,
-        type: 'text',
+        type: o.gif ? 'gif' : 'text',
         text: o.text,
+        gif: o.gif,
         createdAt: new Date(o.queuedAt),
         pending: true,
         failed: Boolean(o.failed),
@@ -518,7 +621,7 @@ export default function ChatScreen() {
   const openers = useMemo(() => icebreakersFor({ food: '', name: theirName }), [theirName]);
   // Wait for the first snapshot so openers don't flash over an existing conversation.
   const showIcebreakers = matchState === 'ready' && messagesLoaded && messages.length === 0;
-  const mySentCount = messages.filter((m) => m.senderId === userId && m.type === 'text').length;
+  const mySentCount = messages.filter((m) => m.senderId === userId && m.type !== 'date_proposal').length;
   const hasProposal = messages.some((m) => m.type === 'date_proposal');
 
   const items = useMemo<ListItem[]>(() => {
@@ -575,6 +678,50 @@ export default function ChatScreen() {
   const retryMessage = useCallback((message: MatchMessage) => {
     void retryOutboxMessage(message.id).catch(() => undefined);
   }, []);
+
+  const [gifOpen, setGifOpen] = useState(false);
+  const openGifs = useCallback(() => setGifOpen(true), []);
+  const sendGif = useCallback(
+    (gif: ChatGif) => {
+      setGifOpen(false);
+      if (!matchId) return;
+      stopTyping();
+      nearBottomRef.current = true;
+      void sendGifMessage(matchId, gif).then((queued) => {
+        if (!queued) Alert.alert('GIF not sent', 'You’re signed out. Log in again and retry.');
+      });
+    },
+    [matchId, stopTyping],
+  );
+
+  const applyReaction = useCallback(
+    (message: MatchMessage, emoji: MessageReaction | null) => {
+      if (Platform.OS !== 'web') void Haptics.selectionAsync();
+      setReaction(matchId, message.id, emoji).catch((error) =>
+        Alert.alert('Couldn’t react', friendlyError(error, 'Try again.')),
+      );
+    },
+    [matchId],
+  );
+
+  const toggleLike = useCallback(
+    (message: MatchMessage) => {
+      if (message.senderId === userId || message.pending) return;
+      applyReaction(message, message.reactions?.[userId] === LIKE_REACTION ? null : LIKE_REACTION);
+    },
+    [applyReaction, userId],
+  );
+
+  const [actionsFor, setActionsFor] = useState<MatchMessage | null>(null);
+  const openActions = useCallback(
+    (message: MatchMessage) => {
+      if (message.senderId === userId || message.pending) return;
+      if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setActionsFor(message);
+    },
+    [userId],
+  );
+  const myReactionOnActions = actionsFor?.reactions?.[userId] ?? null;
 
   const confirmUnmatch = () => {
     Alert.alert(
@@ -735,11 +882,23 @@ export default function ChatScreen() {
           onRespond={respond}
           onPlan={openPlan}
           onRetry={retryMessage}
+          onLike={toggleLike}
+          onActions={openActions}
         />
       );
     },
-    [openPlan, dismissNudge, receiptsOn, lastMineId, userId, theirName, theirReadMs, respondingId, respond, retryMessage, matchId],
+    [openPlan, dismissNudge, receiptsOn, lastMineId, userId, theirName, theirReadMs, respondingId, respond, retryMessage, matchId, toggleLike, openActions],
   );
+
+  const reportMessage = () => {
+    const message = actionsFor;
+    setActionsFor(null);
+    if (!message || !theirId) return;
+    router.push({
+      pathname: '/safety/report',
+      params: { userId: theirId, name: theirName, matchId, messageId: message.id },
+    });
+  };
 
   const openChatMenu = () => {
     const blockAndReport = () => confirmBlockAndReport(router, { uid: theirId, name: theirName });
@@ -947,8 +1106,21 @@ export default function ChatScreen() {
           onSend={sendBody}
           onDraftChange={onDraftChange}
           onBlur={stopTyping}
+          onGif={openGifs}
         />
       </KeyboardAvoidingView>
+      <GifPicker visible={gifOpen} onClose={() => setGifOpen(false)} onPick={sendGif} />
+      <MessageActions
+        message={actionsFor}
+        myReaction={myReactionOnActions}
+        onReact={(emoji) => {
+          const message = actionsFor;
+          setActionsFor(null);
+          if (message) applyReaction(message, myReactionOnActions === emoji ? null : emoji);
+        }}
+        onReport={reportMessage}
+        onClose={() => setActionsFor(null)}
+      />
     </Screen>
   );
 }
@@ -1104,6 +1276,38 @@ const styles = ScaledSheet.create({
     borderWidth: 1,
   },
   mineText: { color: colors.text },
+  theirsPress: { alignSelf: 'flex-start', maxWidth: '78%' },
+  bubbleFill: { maxWidth: '100%' },
+  gif: {
+    borderRadius: radii.card,
+    borderWidth: 1,
+    backgroundColor: colors.card,
+  },
+  gifMine: { alignSelf: 'flex-end', borderColor: colors.brand },
+  gifTheirs: { alignSelf: 'flex-start', borderColor: colors.border },
+  reactionPill: {
+    marginTop: -8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  reactionMine: { alignSelf: 'flex-end', marginRight: 10 },
+  reactionTheirs: { alignSelf: 'flex-start', marginLeft: 10 },
+  reactionText: { fontSize: 14, lineHeight: 18 },
+  gifBtn: {
+    height: 48,
+    paddingHorizontal: 10,
+    borderRadius: radii.input,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  gifBtnText: { color: colors.brandBright, fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
   bubbleFailed: { opacity: 0.6 },
   failedLabel: {
     alignSelf: 'flex-end',
