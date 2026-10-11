@@ -41,9 +41,9 @@ export default function AccountInformationScreen() {
     void isAppleSignInAvailable().then(setAppleOk).catch(() => setAppleOk(false));
   }, []);
 
-  const { displayEmail, uid } = useMemo(() => {
+  const displayEmail = useMemo(() => {
     const user = isBackendConfigured() ? getFirebaseAuth().currentUser : null;
-    return { displayEmail: user?.email ?? email, uid: user?.uid ?? sessionUserId };
+    return user?.email ?? email;
   }, [email, sessionUserId]);
 
   const has = (id: string) => providerIds.includes(id);
@@ -153,9 +153,9 @@ export default function AccountInformationScreen() {
             detail={
               needsVerify ? `${displayEmail} · Not verified — tap to verify` : (displayEmail ?? 'Not available')
             }
+            last
             onPress={() => (needsVerify ? setVerifyOpen((v) => !v) : undefined)}
           />
-          <SettingsRow label="User ID" detail={uid ?? '—'} last onPress={() => undefined} />
         </SettingsGroup>
 
         {needsVerify && verifyOpen ? (
