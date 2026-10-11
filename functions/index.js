@@ -25,6 +25,10 @@ const geo = require('./geo');
 const personaName = require('./personaName');
 const stripeBilling = require('./stripeBilling');
 const priorityLikes = require('./priorityLikes');
+const freeLikes = require('./freeLikes');
+
+const LIKE_LIMIT_MESSAGE =
+  'You’ve used your free Likes. Get DateToday+ to keep liking. Liking back people who like you is always free.';
 const functionsV1 = require('firebase-functions/v1');
 
 initializeApp();
@@ -1015,7 +1019,6 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
     const matchId = pairId(fromUid, toUid);
     const matchRef = db.collection('matches').doc(matchId);
 
-    // Free: one new match a day. Only a heart that completes a match counts.
     const [reverseNow, matchNow, interestNow] = await Promise.all([reverseRef.get(), matchRef.get(), interestRef.get()]);
     if (priority) {
       const prior = interestNow.exists ? interestNow.data() : null;
@@ -1038,20 +1041,29 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
         return;
       }
     }
-    if (reverseNow.exists && !matchNow.exists && !(await hasDateTodayPlus(db, fromUid))) {
-      const tz = Number(req.body && req.body.tzOffsetMinutes);
-      const since = Number.isFinite(tz) ? likes.localDayStart(Date.now(), tz) : Date.now() - 24 * 3600 * 1000;
-      const mine = await db.collection('matches').where('userIds', 'array-contains', fromUid).limit(500).get();
-      const today = mine.docs.filter((d) => {
-        const at = d.data().createdAt;
-        return at && typeof at.toMillis === 'function' && at.toMillis() >= since;
-      }).length;
-      if (today >= 1) {
-        res.status(403).json({
-          error: 'Free includes 1 new match a day. Get DateToday+ for unlimited matches.',
-          code: 'match_limit',
-        });
-        return;
+    // Free: a starter batch of Likes, no daily reset (freeLikes.js). Liking back never counts.
+    let plus = priority || (await hasDateTodayPlus(db, fromUid));
+    const likeConfig = plus ? null : await freeLikes.loadConfig(db);
+    const creditsRef = db.collection('likeCredits').doc(fromUid);
+    let likeUser = {};
+    if (
+      freeLikes.countsAsLike({
+        plus,
+        config: likeConfig,
+        priority,
+        alreadySent: interestNow.exists,
+        theyLikedMe: reverseNow.exists,
+      })
+    ) {
+      const [creditsSnap, userSnap] = await Promise.all([creditsRef.get(), db.collection('users').doc(fromUid).get()]);
+      likeUser = userSnap.exists ? userSnap.data() : {};
+      if (freeLikes.likesSummary(likeConfig, creditsSnap.data(), likeUser, fromUid).left <= 0) {
+        // Don't wall someone whose purchase just went through.
+        plus = await hasDateTodayPlus(db, fromUid, { fresh: true });
+        if (!plus) {
+          res.status(403).json({ error: LIKE_LIMIT_MESSAGE, code: 'like_limit', likesLeft: 0 });
+          return;
+        }
       }
     }
 
@@ -1061,16 +1073,44 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
     ]);
 
     const outcome = await db.runTransaction(async (tx) => {
-      const [existing, reverse, match, blockMine, blockTheirs, unmatched] = await Promise.all([
+      const [existing, reverse, match, blockMine, blockTheirs, unmatched, credits] = await Promise.all([
         tx.get(interestRef),
         tx.get(reverseRef),
         tx.get(matchRef),
         tx.get(db.collection('blocks').doc(`${fromUid}_${toUid}`)),
         tx.get(db.collection('blocks').doc(`${toUid}_${fromUid}`)),
         tx.get(db.collection('unmatches').doc(matchId)),
+        plus ? null : tx.get(creditsRef),
       ]);
       if (blockMine.exists || blockTheirs.exists || unmatched.exists) {
         throw Object.assign(new Error('You can’t interact with this person.'), { status: 403 });
+      }
+      let likesLeft = null;
+      if (
+        freeLikes.countsAsLike({
+          plus,
+          config: likeConfig,
+          priority,
+          alreadySent: existing.exists,
+          theyLikedMe: reverse.exists,
+        })
+      ) {
+        const had = credits.exists ? credits.data() : {};
+        const summary = freeLikes.likesSummary(likeConfig, had, likeUser, fromUid);
+        if (summary.left <= 0) {
+          throw Object.assign(new Error(LIKE_LIMIT_MESSAGE), { status: 403, code: 'like_limit' });
+        }
+        tx.set(
+          creditsRef,
+          {
+            used: (Number(had.used) || 0) + 1,
+            verifiedBonus: summary.verifiedBonus,
+            videoBonus: summary.videoBonus,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+        likesLeft = summary.left - 1;
       }
       const prior = existing.exists ? existing.data() : null;
       if (priority && (match.exists || (prior && (prior.type === 'priority' || prior.passedAt)))) {
@@ -1115,7 +1155,7 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
         });
         createdMatch = true;
       }
-      return { mutual, createdMatch, firstHeart: !existing.exists };
+      return { mutual, createdMatch, firstHeart: !existing.exists, likesLeft };
     });
 
     // Tells each person's app to refetch "Likes you" (the list itself is served by getLikes).
@@ -1158,6 +1198,7 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
       matchId: outcome.mutual ? matchId : null,
       other: outcome.mutual ? { uid: toUid, ...them } : null,
       priority,
+      likesLeft: outcome.likesLeft,
     });
   } catch (error) {
     if (!error.status || error.status >= 500) console.error(error);
@@ -1206,7 +1247,7 @@ exports.passLike = onRequest({ cors: true }, async (req, res) => {
 
 /**
  * "Likes you" for the signed-in member. DateToday+ (verified with RevenueCat) gets everyone;
- * free gets the oldest like plus blurred, identity-free thumbnails for the rest.
+ * free gets Priority Likes and their one Like Reveal, plus blurred, identity-free tiles for the rest.
  * Query: ?fresh=1 re-checks the subscription (after a purchase or restore).
  */
 exports.getLikes = onRequest({ cors: true, memory: '512MiB' }, async (req, res) => {
@@ -1218,12 +1259,80 @@ exports.getLikes = onRequest({ cors: true, memory: '512MiB' }, async (req, res) 
     const { uid } = await requireUser(req);
     const db = getFirestore();
     const fresh = req.query && (req.query.fresh === '1' || req.query.fresh === 'true');
-    const [plus, rows] = await Promise.all([hasDateTodayPlus(db, uid, { fresh }), likes.pendingLikes(db, uid)]);
+    const [plus, rows, creditsSnap, userSnap, config] = await Promise.all([
+      hasDateTodayPlus(db, uid, { fresh }),
+      likes.pendingLikes(db, uid),
+      db.collection('likeCredits').doc(uid).get(),
+      db.collection('users').doc(uid).get(),
+      freeLikes.loadConfig(db),
+    ]);
+    const credits = creditsSnap.exists ? creditsSnap.data() : {};
+    const revealAvailable = !plus && !credits.revealUsed;
+    const salt = revealAvailable && rows.length ? await freeLikes.revealSalt(db, uid) : null;
+    const out = await likes.buildLikes(db, rows, plus, {
+      revealedUid: typeof credits.revealedUid === 'string' ? credits.revealedUid : null,
+      revealAvailable,
+      tokenFor: salt ? (fromUid) => freeLikes.revealToken(salt, fromUid) : null,
+    });
     res.set('Cache-Control', 'private, no-store');
-    res.json(await likes.buildLikes(db, rows, plus));
+    res.json({
+      ...out,
+      likesLeft:
+        plus || !config.enabled
+          ? null
+          : freeLikes.likesSummary(config, credits, userSnap.exists ? userSnap.data() : {}, uid).left,
+    });
   } catch (error) {
     console.error('getLikes failed', error && error.message);
     res.status(error.status || 500).json({ error: 'Couldn’t load your likes right now.' });
+  }
+});
+
+/**
+ * Free members' one Like Reveal. Body: { token } from a locked entry in getLikes. Reveals that
+ * person for good (until they match or pass); the rest stay locked.
+ */
+exports.revealLike = onRequest({ cors: true }, async (req, res) => {
+  try {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    const { uid } = await requireUser(req);
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+    if (!token || token.length > 64) {
+      res.status(400).json({ error: 'Pick a like to reveal.' });
+      return;
+    }
+    const db = getFirestore();
+    const creditsRef = db.collection('likeCredits').doc(uid);
+    const [rows, salt] = await Promise.all([likes.pendingLikes(db, uid), freeLikes.revealSalt(db, uid)]);
+    const row = rows.find((r) => !r.priority && freeLikes.revealToken(salt, r.fromUid) === token);
+    if (!row) {
+      res.status(404).json({ error: 'That like isn’t available anymore. Pull to refresh.', code: 'reveal_gone' });
+      return;
+    }
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(creditsRef);
+      if (snap.exists && snap.data().revealUsed) {
+        throw Object.assign(new Error('You’ve already used your free Like Reveal.'), { status: 409, code: 'reveal_used' });
+      }
+      tx.set(
+        creditsRef,
+        { revealUsed: true, revealedUid: row.fromUid, revealedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      );
+    });
+    await db.collection('likeInbox').doc(uid)
+      .set({ version: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+      .catch(() => undefined);
+    res.json({ like: likes.publicLike(row) });
+  } catch (error) {
+    if (!error.status) console.error('revealLike failed', error && error.message);
+    res.status(error.status || 500).json({
+      error: error.status ? error.message : 'Couldn’t reveal that right now.',
+      ...(error.code ? { code: error.code } : {}),
+    });
   }
 });
 

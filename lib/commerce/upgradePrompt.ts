@@ -3,16 +3,12 @@ import * as Haptics from 'expo-haptics';
 
 type Router = ReturnType<typeof useRouter>;
 
-export type UpgradeReason = 'match' | 'message' | 'filters' | 'likes' | 'travel' | 'priority';
+export type UpgradeReason = 'likes_out' | 'filters' | 'likes' | 'travel' | 'priority';
 
 export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; body: string }> = {
-  match: {
-    title: 'You’ve got today’s free match ✦',
-    body: 'Free includes 1 match a day. Keep matching tonight — unlimited with DateToday+.',
-  },
-  message: {
-    title: 'Talk to everyone you match ✦',
-    body: 'Free includes chatting with 1 person a day. Message all your matches with DateToday+.',
+  likes_out: {
+    title: 'You’ve used your free Likes ✦',
+    body: 'Keep liking with DateToday+. Liking back people who like you is always free.',
   },
   filters: {
     title: 'Find exactly your type ✦',
@@ -20,7 +16,7 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
   },
   likes: {
     title: 'See everyone who likes you ✦',
-    body: 'Free shows 1 like at a time. See every like and match instantly with DateToday+.',
+    body: 'See every person who liked you and match instantly with DateToday+.',
   },
   travel: {
     title: 'Travel Mode ✦',
@@ -31,8 +27,8 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
     body: 'Send a short note and show them you’re serious about meeting.',
   },
   default: {
-    title: 'More matches. More conversation. ✦',
-    body: 'Unlimited matches and messages — so you can actually go out tonight.',
+    title: 'Like without limits ✦',
+    body: 'Unlimited Likes, see everyone who liked you, and Advanced Filters — so you can actually go out tonight.',
   },
 };
 

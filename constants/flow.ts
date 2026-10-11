@@ -42,7 +42,7 @@ export const flowCopy = {
   goLiveToEnter: 'Go live to appear higher and let people know you’re actually free tonight.',
   seeWhosLive: "SEE WHO'S LIVE →",
   fineTuneTitle: 'More time. More conversation. ✦',
-  fineTuneBody: 'Unlimited matches + messages with DateToday+',
+  fineTuneBody: 'Unlimited Likes + see who liked you with DateToday+',
   quietTitle: 'Quiet right now. Not dead.',
   quietTitleLead: 'Quiet right now.',
   quietTitleAccent: 'Not dead.',

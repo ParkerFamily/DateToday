@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, radii, spacing } from '@/constants/theme';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { FREE_LIKES_PREVIEW as FREE_PREVIEW } from '@/features/matches/likes';
+import { useLikeReveal } from '@/features/matches/useLikeReveal';
 import { usePendingLikes } from '@/store/matches';
 import { ScaledSheet, rs } from '@/lib/scale';
 import { PRIORITY, PRIORITY_TEXT } from '@/components/likes/PriorityLikeSheet';
@@ -17,11 +17,12 @@ import type { RevealedLike } from '@/features/matches/api';
 
 /**
  * People who tapped Interested on you. Heart them back from their profile to match.
- * Free: limited preview. DateToday+: full list.
+ * Free: Priority Likes plus one Like Reveal of their choice. DateToday+: full list.
  */
 export default function LikesScreen() {
   const router = useRouter();
   const likes = usePendingLikes();
+  const { revealAvailable, revealing, onLockedPress } = useLikeReveal();
   const visible = likes?.revealed ?? [];
   const priority = visible.filter((l) => l.priority);
   const normal = visible.filter((l) => !l.priority);
@@ -55,8 +56,9 @@ export default function LikesScreen() {
                 {total} {total === 1 ? 'person likes' : 'people like'} you
               </AppText>
               <AppText style={styles.heroBody}>
-                Liked You shows everyone who tapped Interested on you, so you can like them back and match
-                instantly. Free shows {FREE_PREVIEW} at a time. Seeing everyone needs a DateToday+ subscription.
+                {revealAvailable
+                  ? 'Tap any hidden like below to use your 1 free Like Reveal. Seeing everyone who liked you needs a DateToday+ subscription.'
+                  : 'Liked You shows everyone who tapped Interested on you, so you can like them back and match instantly. Seeing everyone needs a DateToday+ subscription.'}
               </AppText>
               <Button label="Unlock with DateToday+" onPress={unlock} />
             </LinearGradient>
@@ -76,7 +78,7 @@ export default function LikesScreen() {
             </AppText>
             {!likes.plus ? (
               <AppText variant="secondary" style={styles.emptyPlus}>
-                Free shows {FREE_PREVIEW} like at a time. DateToday+ shows everyone who likes you.
+                Free includes 1 Like Reveal. DateToday+ shows everyone who likes you.
               </AppText>
             ) : null}
             <Button label="Go to Live" onPress={() => router.navigate('/(tabs)/live')} />
@@ -87,7 +89,7 @@ export default function LikesScreen() {
             {priority.map((card) => (
               <LikeRow key={card.uid} card={card} />
             ))}
-            {!likes.plus && normal.length ? <AppText style={styles.section}>YOUR FREE PREVIEW</AppText> : null}
+            {!likes.plus && normal.length ? <AppText style={styles.section}>YOUR FREE REVEAL</AppText> : null}
             {likes.plus && priority.length && normal.length ? <AppText style={styles.section}>LIKES</AppText> : null}
             {normal.map((card) => (
               <LikeRow key={card.uid} card={card} />
@@ -100,17 +102,20 @@ export default function LikesScreen() {
             <View style={styles.sectionRow}>
               <AppText style={styles.section}>HIDDEN LIKES</AppText>
               <View style={styles.sectionTag}>
-                <Ionicons name="lock-closed" size={rs(10)} color={colors.brandBright} />
-                <AppText style={styles.sectionTagText}>DATETODAY+</AppText>
+                <Ionicons name={revealAvailable ? 'eye' : 'lock-closed'} size={rs(10)} color={colors.brandBright} />
+                <AppText style={styles.sectionTagText}>{revealAvailable ? '1 FREE REVEAL' : 'DATETODAY+'}</AppText>
               </View>
             </View>
             <View style={styles.grid}>
               {locked.map((tile, i) => (
                 <Pressable
                   key={`locked-${i}`}
-                  style={styles.tile}
-                  onPress={unlock}
-                  accessibilityLabel="Hidden like. Unlock with DateToday+"
+                  style={({ pressed }) => [styles.tile, (pressed || revealing) && { opacity: 0.8 }]}
+                  onPress={() => onLockedPress(tile)}
+                  disabled={revealing}
+                  accessibilityLabel={
+                    revealAvailable ? 'Hidden like. Use your free Like Reveal' : 'Hidden like. Unlock with DateToday+'
+                  }
                 >
                   {tile.blur ? (
                     <Image source={{ uri: tile.blur }} style={StyleSheet.absoluteFill} blurRadius={14} transition={150} />
@@ -123,7 +128,7 @@ export default function LikesScreen() {
                     pointerEvents="none"
                   />
                   <View style={styles.tileLock}>
-                    <Ionicons name="lock-closed" size={rs(16)} color={colors.text} />
+                    <Ionicons name={revealAvailable ? 'eye' : 'lock-closed'} size={rs(16)} color={colors.text} />
                   </View>
                 </Pressable>
               ))}

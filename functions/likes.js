@@ -1,14 +1,13 @@
 /**
  * Server-trusted DateToday+ checks and the "Likes you" inbox.
  *
- * Free members see one like (the oldest, until they match with that person); everyone else who
- * liked them comes back only as a tiny blurred thumbnail. Their uid, name and photo URL never
- * leave the server for a free member, so hidden likes can't be unmasked from the client.
+ * Free members see Priority Likes and the one like they chose with their free Like Reveal;
+ * everyone else who liked them comes back only as a tiny blurred thumbnail. Their uid, name and
+ * photo URL never leave the server for a free member, so hidden likes can't be unmasked from the client.
  */
 const { rankLikes } = require('./priorityLikes');
 
 const ENTITLEMENT_ID = 'datetoday_pro';
-const FREE_REVEALED = 1;
 const MAX_LOCKED_THUMBS = 12;
 /** Trust a positive check this long (capped at the entitlement's expiry). */
 const PLUS_TTL_MS = 60 * 60 * 1000;
@@ -155,23 +154,26 @@ function publicLike(row) {
 
 /**
  * What a member may see of their likes. Locked entries carry no identity at all.
- * Priority Likes are always revealed: the sender paid to be seen.
+ * Priority Likes are always revealed: the sender paid to be seen. Free members also see the one
+ * person they picked with their free Like Reveal (`revealedUid`). While that reveal is unused,
+ * each locked entry carries an opaque `token` (from `tokenFor`) to pick with.
  */
 async function buildLikes(db, rows, plus, opts = {}) {
   const priorityRows = rows.filter((r) => r.priority);
   const normalRows = rows.filter((r) => !r.priority);
-  const revealedRows = [...priorityRows, ...(plus ? normalRows : normalRows.slice(0, FREE_REVEALED))];
-  const lockedRows = plus ? [] : normalRows.slice(FREE_REVEALED);
+  const picked = (r) => opts.revealedUid != null && r.fromUid === opts.revealedUid;
+  const revealedRows = [...priorityRows, ...(plus ? normalRows : normalRows.filter(picked))];
+  const lockedRows = plus ? [] : normalRows.filter((r) => !picked(r)).slice(0, MAX_LOCKED_THUMBS);
   const thumbs = await Promise.all(
-    lockedRows
-      .slice(0, MAX_LOCKED_THUMBS)
-      .map((r) => blurThumb(db, r.fromUid, r.profile && r.profile.mainPhotoUrl, opts)),
+    lockedRows.map((r) => blurThumb(db, r.fromUid, r.profile && r.profile.mainPhotoUrl, opts)),
   );
+  const tokenFor = !plus && opts.revealAvailable && opts.tokenFor ? opts.tokenFor : null;
   return {
     plus,
     total: rows.length,
     revealed: revealedRows.map(publicLike),
-    locked: thumbs.map((blur) => ({ blur })),
+    locked: lockedRows.map((r, i) => (tokenFor ? { blur: thumbs[i], token: tokenFor(r.fromUid) } : { blur: thumbs[i] })),
+    reveal: { available: Boolean(!plus && opts.revealAvailable) },
   };
 }
 
@@ -184,9 +186,9 @@ function localDayStart(now, tzOffsetMinutes) {
 
 module.exports = {
   ENTITLEMENT_ID,
-  FREE_REVEALED,
   MAX_LOCKED_THUMBS,
   buildLikes,
+  publicLike,
   entitlementState,
   isPlusUser,
   localDayStart,

@@ -27,7 +27,7 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { useMatchesStore } from '@/store/matches';
 import { useBlocksStore } from '@/store/blocks';
-import { errorCode, isMatchLimitError, passLike, sendInterest } from '@/features/matches/api';
+import { errorCode, passLike, sendInterest } from '@/features/matches/api';
 import { PRIORITY, PRIORITY_TEXT, PriorityLikeSheet } from '@/components/likes/PriorityLikeSheet';
 import { isPlusActive } from '@/lib/entitlements';
 import { analytics } from '@/lib/analytics';
@@ -36,7 +36,6 @@ import { registerPushTokenAsync } from '@/features/notifications/push';
 import { getDb } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { canMatchToday } from '@/lib/usage/dailyLimits';
 import { calculateAge } from '@/utils/time';
 import type { Profile } from '@/types';
 import { useContentLayout } from '@/lib/layout';
@@ -195,9 +194,9 @@ export default function PublicProfileScreen() {
     } catch (error) {
       const code = errorCode(error);
       if (code === 'priority_already_sent') setPrioritySent(true);
-      if (code === 'plus_required' || code === 'match_limit') {
+      if (code === 'plus_required') {
         setComposing(false);
-        openUpgrade(router, code === 'plus_required' ? 'priority' : 'match');
+        openUpgrade(router, 'priority');
         return;
       }
       throw new Error(friendlyError(error, 'Couldn’t send that. Try again.'));
@@ -220,15 +219,14 @@ export default function PublicProfileScreen() {
 
   const onInterested = async () => {
     if (!profile || !userId) return;
-    const { entitlements } = useSessionStore.getState();
-    if (!canMatchToday(entitlements, useMatchesStore.getState().matches).ok) {
-      openUpgrade(router, 'match');
-      return;
-    }
     setSendingInterest(true);
     try {
       void registerPushTokenAsync({ prompt: true });
       const result = await sendInterest(String(userId));
+      const likes = useMatchesStore.getState().likes;
+      if (likes && result.likesLeft != null) {
+        useMatchesStore.getState().set({ likes: { ...likes, likesLeft: result.likesLeft } });
+      }
       if (result.mutual && result.matchId && !result.created) {
         router.replace({ pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } });
         return;
@@ -246,8 +244,8 @@ export default function PublicProfileScreen() {
       }
       setInterestSent(true);
     } catch (error) {
-      if (isMatchLimitError(error)) {
-        openUpgrade(router, 'match');
+      if (errorCode(error) === 'like_limit') {
+        openUpgrade(router, 'likes_out');
         return;
       }
       Alert.alert('Couldn’t send interest', friendlyError(error, 'Try again.'));

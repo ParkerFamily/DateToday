@@ -231,8 +231,8 @@ service cloud.firestore {
       allow read, write: if false;
     }
     match /appConfig/{docId} {
-      // Priority Like limits (note length, daily cap) so the composer matches the server.
-      allow read: if signedIn() && docId == 'priorityLikes';
+      // Priority Like limits and the free Likes allowance, so the app's copy matches the server.
+      allow read: if signedIn() && docId in ['priorityLikes', 'freeLikes'];
       allow write: if false;
     }
 

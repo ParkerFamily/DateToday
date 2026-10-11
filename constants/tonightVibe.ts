@@ -33,16 +33,16 @@ export const FREE_MAX_RADIUS = 25;
 export const FREE_FILTER_FEATURES = [
   'Go live as long as you want',
   'Browse everyone who’s out tonight',
-  '1 match a day + Make a Plan',
-  'Chat with 1 person a day',
+  '15 free Likes + 1 free Like Reveal',
+  'Match and chat with everyone you match',
   'Age, distance, vibe & verified filters',
 ] as const;
 
 export const PLUS_FILTER_FEATURES = [
-  'Unlimited matches every day',
-  'Message everyone you match with',
-  'Advanced filters: age, intent, height, lifestyle',
+  'Unlimited Likes',
   'See everyone who liked you',
+  'Advanced filters: age, intent, height, lifestyle',
+  'Priority Likes with a note',
   'Priority Pool + 50 mi radius',
   'Travel Mode: go Live in another city',
 ] as const;

@@ -23,7 +23,6 @@ import { foodLabel } from '@/constants/tonightVibe';
 import { promptDisplayLabel } from '@/constants/videoPrompts';
 import { compareDiscoveryRank } from '@/lib/commerce/sessionCommerce';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { canMatchToday } from '@/lib/usage/dailyLimits';
 import {
   ageRangeLabel,
   applyDiscoverFilters,
@@ -54,7 +53,7 @@ import {
   subscribeActiveLiveSessions,
   updateMyLiveSession,
 } from '@/features/live/firestoreLive';
-import { errorCode, isMatchLimitError, passLike, sendInterest, subscribeSentInterests } from '@/features/matches/api';
+import { errorCode, passLike, sendInterest, subscribeSentInterests } from '@/features/matches/api';
 import { PRIORITY, PRIORITY_TEXT, PriorityLikeSheet } from '@/components/likes/PriorityLikeSheet';
 import { registerPushTokenAsync } from '@/features/notifications/push';
 import { useHiddenUserMap } from '@/store/blocks';
@@ -551,6 +550,12 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     flashTimer.current = setTimeout(() => setInterestFlash(false), 1200);
   };
 
+  const likesLeft = useMatchesStore((s) => s.likes?.likesLeft ?? null);
+  const setLikesLeft = (n: number) => {
+    const s = useMatchesStore.getState();
+    if (s.likes) s.set({ likes: { ...s.likes, likesLeft: Math.max(0, n) } });
+  };
+
   /** A heart that didn't go through: put them back on top so it can be retried. */
   const restoreCard = (userId: string) => {
     setHandled((prev) => {
@@ -582,17 +587,40 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   /**
    * Moves on the instant you tap; the server answers in the background (match screen if mutual).
-   * False when nothing was sent (daily match limit), so a swipe can spring back.
+   * False when the card should stay put (out of free Likes), so a swipe can spring back.
    */
   const onInterested = (): boolean => {
     if (!card) return false;
-    if (!canMatchToday(entitlements, useMatchesStore.getState().matches).ok) {
-      openUpgrade(router, 'match');
+    const target = card;
+    const left = useMatchesStore.getState().likes?.likesLeft ?? null;
+    const counts = left != null && !isPlusActive(entitlements) && !likedMe.has(target.userId);
+    if (counts && left <= 0 && isBackendConfigured()) {
+      // Out of free Likes: only liking back someone who already liked you still goes through.
+      void (async () => {
+        try {
+          const result = await sendInterest(target.userId);
+          markHandled(target.userId);
+          if (result.mutual && result.matchId) {
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            if (result.created) openMatch(target, result.matchId);
+            else router.push({ pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } });
+          } else {
+            flashInterestSent();
+          }
+        } catch (error) {
+          if (errorCode(error) === 'like_limit') {
+            openUpgrade(router, 'likes_out');
+            return;
+          }
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          Alert.alert('Could not send interest', friendlyError(error, 'Try again'));
+        }
+      })();
       return false;
     }
-    const target = card;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     markHandled(target.userId);
+    if (counts) setLikesLeft(left - 1);
     // Never invent mutual matches from demo ids outside explicit mock mode.
     if (env.useMockData && target.userId.startsWith('demo-')) {
       interestsSentRef.current += 1;
@@ -606,7 +634,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         let result: { mutual: boolean; matchId?: string | null; created: boolean };
         if (isBackendConfigured()) {
           void registerPushTokenAsync({ prompt: true });
-          result = await sendInterest(target.userId);
+          const sent = await sendInterest(target.userId);
+          if (sent.likesLeft != null) setLikesLeft(sent.likesLeft);
+          result = sent;
         } else {
           result = { ...(await sendPing(target.userId)), created: true };
         }
@@ -620,10 +650,12 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         openMatch(target, result.matchId);
       } catch (error) {
         restoreCard(target.userId);
-        if (isMatchLimitError(error)) {
-          openUpgrade(router, 'match');
+        if (errorCode(error) === 'like_limit') {
+          setLikesLeft(0);
+          openUpgrade(router, 'likes_out');
           return;
         }
+        if (counts) setLikesLeft(left);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert('Could not send interest', friendlyError(error, 'Try again'));
       }
@@ -667,9 +699,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       flashInterestSent();
     } catch (error) {
       const code = errorCode(error);
-      if (code === 'plus_required' || code === 'match_limit') {
+      if (code === 'plus_required') {
         setPriorityTarget(null);
-        openUpgrade(router, code === 'plus_required' ? 'priority' : 'match');
+        openUpgrade(router, 'priority');
         return;
       }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -1501,6 +1533,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         {interestFlash ? (
           <View style={[styles.interestFlash, { bottom: actionBarH + rs(12) }]} pointerEvents="none">
             <AppText style={styles.interestFlashTitle}>{flowCopy.interestSentTitle}</AppText>
+            {likesLeft != null && likesLeft <= 5 && !isPlusActive(entitlements) ? (
+              <AppText style={styles.interestFlashSub}>
+                {likesLeft === 0
+                  ? 'That was your last free Like'
+                  : `${likesLeft} free Like${likesLeft === 1 ? '' : 's'} left`}
+              </AppText>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -2086,6 +2125,14 @@ const styles = ScaledSheet.create({
     fontSize: 14,
     fontWeight: '800',
     letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  interestFlashSub: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 2,
   },
   pressed: {
     opacity: 0.85,

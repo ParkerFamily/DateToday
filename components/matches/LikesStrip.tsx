@@ -7,14 +7,16 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { ScaledSheet, rs } from '@/lib/scale';
 import { usePendingLikes } from '@/store/matches';
+import { useLikeReveal } from '@/features/matches/useLikeReveal';
 import { PRIORITY } from '@/components/likes/PriorityLikeSheet';
 
 const MAX_LOCKED_TILES = 8;
 
-/** "Likes you" row for the Matches tab: free users see one like, the rest are blurred behind DateToday+. */
+/** "Likes you" row for the Matches tab: free users get one Like Reveal, the rest stay blurred behind DateToday+. */
 export function LikesStrip() {
   const router = useRouter();
   const likes = usePendingLikes();
+  const { revealAvailable, revealing, onLockedPress } = useLikeReveal();
   const upgrade = () => openUpgrade(router, 'likes');
 
   if (likes === null) return null;
@@ -89,9 +91,12 @@ export function LikesStrip() {
               return (
                 <Pressable
                   key={`locked-${i}`}
-                  style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
-                  onPress={upgrade}
-                  accessibilityLabel="Hidden like. Unlock with DateToday+"
+                  style={({ pressed }) => [styles.tile, (pressed || revealing) && styles.pressed]}
+                  onPress={() => onLockedPress(tile)}
+                  disabled={revealing}
+                  accessibilityLabel={
+                    revealAvailable ? 'Hidden like. Use your free Like Reveal' : 'Hidden like. Unlock with DateToday+'
+                  }
                 >
                   <View style={[styles.ring, styles.ringLocked]}>
                     {tile.blur ? (
@@ -100,11 +105,11 @@ export function LikesStrip() {
                       <View style={[styles.avatar, styles.avatarEmpty]} />
                     )}
                     <View style={styles.lockOverlay}>
-                      <Ionicons name="lock-closed" size={rs(18)} color="#fff" />
+                      <Ionicons name={revealAvailable ? 'eye' : 'lock-closed'} size={rs(18)} color="#fff" />
                     </View>
                   </View>
                   <AppText style={styles.hiddenName} numberOfLines={1}>
-                    Hidden
+                    {revealAvailable ? 'Reveal' : 'Hidden'}
                   </AppText>
                 </Pressable>
               );

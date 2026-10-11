@@ -70,6 +70,8 @@ export type InterestResult = {
   created: boolean;
   matchId: string | null;
   other: ({ uid: string } & MatchUser) | null;
+  /** Free Likes left after this one; null when it didn't use a Like (DateToday+, liking back). */
+  likesLeft: number | null;
 };
 
 function toDate(value: unknown): Date | null {
@@ -112,6 +114,7 @@ export async function sendInterest(
     created: typeof json.created === 'boolean' ? json.created : Boolean(json.mutual),
     matchId: json.matchId ?? null,
     other: json.other ?? null,
+    likesLeft: typeof json.likesLeft === 'number' ? json.likesLeft : null,
   };
 }
 
@@ -140,10 +143,6 @@ export function subscribeSentInterests(uid: string, onChange: (toUids: Set<strin
     if (retry) clearTimeout(retry);
     unsub();
   };
-}
-
-export function isMatchLimitError(error: unknown): boolean {
-  return (error as { code?: string } | null)?.code === 'match_limit';
 }
 
 export function errorCode(error: unknown): string | null {
@@ -185,8 +184,29 @@ export type LikesFeed = {
   plus: boolean;
   total: number;
   revealed: RevealedLike[];
-  locked: { blur: string | null }[];
+  /** `token` is only present while the free Like Reveal is unused. */
+  locked: { blur: string | null; token?: string }[];
+  /** Free members' one-time Like Reveal. */
+  revealAvailable: boolean;
+  /** Free Likes left; null with DateToday+. */
+  likesLeft: number | null;
 };
+
+/** Free members' one Like Reveal: shows the person behind a locked like. */
+export async function revealLike(token: string): Promise<RevealedLike> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Sign in first.');
+  const res = await fetch(functionsUrl('revealLike'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await user.getIdToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { like?: RevealedLike; error?: string; code?: string };
+  if (!res.ok || !json.like) {
+    throw Object.assign(new Error(json.error || 'Couldn’t reveal that right now.'), { code: json.code ?? null });
+  }
+  return json.like;
+}
 
 /** `fresh` re-checks DateToday+ with the store (after a purchase or restore). */
 export async function fetchLikes(fresh = false): Promise<LikesFeed> {
@@ -196,13 +216,18 @@ export async function fetchLikes(fresh = false): Promise<LikesFeed> {
   const res = await fetch(`${functionsUrl('getLikes')}${fresh ? '?fresh=1' : ''}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  const json = (await res.json().catch(() => ({}))) as Partial<LikesFeed> & { error?: string };
+  const json = (await res.json().catch(() => ({}))) as Partial<LikesFeed> & {
+    error?: string;
+    reveal?: { available?: boolean };
+  };
   if (!res.ok) throw new Error(json.error || 'Couldn’t load your likes right now.');
   return {
     plus: Boolean(json.plus),
     total: Number(json.total) || 0,
     revealed: Array.isArray(json.revealed) ? json.revealed : [],
     locked: Array.isArray(json.locked) ? json.locked : [],
+    revealAvailable: Boolean(json.reveal?.available),
+    likesLeft: typeof json.likesLeft === 'number' ? json.likesLeft : null,
   };
 }
 

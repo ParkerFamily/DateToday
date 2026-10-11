@@ -130,7 +130,7 @@ export default function PaywallScreen() {
   })();
 
   const finishUnlocked = (title = 'DateToday+ unlocked') => {
-    Alert.alert(title, 'Unlimited matches, messages and Advanced Filters are ready.', [
+    Alert.alert(title, 'Unlimited Likes, every like you’ve received and Advanced Filters are ready.', [
       { text: 'OK', onPress: () => router.back() },
     ]);
   };

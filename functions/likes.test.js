@@ -101,14 +101,27 @@ const rows = [
   { fromUid: 'c', createdAt: 3, profile: { displayName: 'Cy' } },
 ];
 
-test('buildLikes: free reveals only the oldest like and locks the rest without identity', async () => {
-  const out = await likes.buildLikes(fakeDb(), rows, false);
+test('buildLikes: free locks every like without identity until a reveal is used', async () => {
+  const out = await likes.buildLikes(fakeDb(), rows, false, {
+    revealAvailable: true,
+    tokenFor: (uid) => `tok-${uid.charCodeAt(0)}`,
+  });
   assert.equal(out.plus, false);
   assert.equal(out.total, 3);
-  assert.deepEqual(out.revealed.map((r) => r.uid), ['a']);
-  assert.equal(out.locked.length, 2);
+  assert.deepEqual(out.revealed, []);
+  assert.equal(out.locked.length, 3);
+  assert.deepEqual(out.reveal, { available: true });
+  assert.ok(out.locked.every((l) => typeof l.token === 'string'));
   const lockedJson = JSON.stringify(out.locked);
-  for (const secret of ['"b"', '"c"', 'Bea', 'Cy']) assert.equal(lockedJson.includes(secret), false);
+  for (const secret of ['"a"', '"b"', '"c"', 'Ava', 'Bea', 'Cy']) assert.equal(lockedJson.includes(secret), false);
+});
+
+test('buildLikes: the revealed like shows; the rest stay locked with no tokens once the reveal is spent', async () => {
+  const out = await likes.buildLikes(fakeDb(), rows, false, { revealedUid: 'b', revealAvailable: false, tokenFor: () => 'x' });
+  assert.deepEqual(out.revealed.map((r) => r.uid), ['b']);
+  assert.equal(out.locked.length, 2);
+  assert.ok(out.locked.every((l) => !('token' in l)));
+  assert.deepEqual(out.reveal, { available: false });
 });
 
 test('buildLikes: DateToday+ reveals everyone', async () => {
@@ -125,12 +138,10 @@ test('buildLikes: Priority Likes are always revealed, ranked first, and carry th
   const { rankLikes } = require('./priorityLikes');
   const out = await likes.buildLikes(fakeDb(), rankLikes(withPriority), false);
   assert.equal(out.total, 4);
-  assert.deepEqual(out.revealed.map((r) => r.uid), ['p', 'a']);
+  assert.deepEqual(out.revealed.map((r) => r.uid), ['p']);
   assert.equal(out.revealed[0].priority, true);
   assert.equal(out.revealed[0].note, 'Drinks tonight?');
-  assert.equal(out.revealed[1].priority, false);
-  assert.equal(out.revealed[1].note, null);
-  assert.equal(out.locked.length, 2);
+  assert.equal(out.locked.length, 3);
 });
 
 test('localDayStart: midnight in the caller\'s timezone', () => {
