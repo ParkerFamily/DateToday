@@ -28,6 +28,7 @@ const priorityLikes = require('./priorityLikes');
 const freeLikes = require('./freeLikes');
 const chat = require('./chat');
 const sessions = require('./sessions');
+const ownerConsole = require('./admin');
 
 const LIKE_LIMIT_MESSAGE =
   'You’ve used your free Likes. Get DateToday+ to keep liking. Liking back people who like you is always free.';
@@ -187,62 +188,8 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public', timeoutSecond
     }
 
     const decoded = await getAuth().verifyIdToken(token);
-    const uid = decoded.uid;
-    const db = getFirestore();
-    const bucket = getStorage().bucket();
-    const gone = (p) => p.catch(() => undefined);
-    const accountEmail = (await getAuth().getUser(uid).catch(() => null))?.email || decoded.email || null;
-
-    // Pull every public surface first, so a failure partway through never leaves a discoverable
-    // account. Every step is idempotent; a retry with the same session finishes the job.
-    await Promise.all([
-      gone(db.collection('profiles').doc(uid).delete()),
-      gone(db.collection('liveSessions').doc(uid).delete()),
-      gone(db.collection('nearbyProfiles').doc(uid).delete()),
-    ]);
-    await deleteByField(db, 'pushTokens', 'uid', uid);
-    await deleteByField(db, 'pushTickets', 'uid', uid);
-    await sessions.deleteSecurityData(db, uid);
-
-    const matches = await db.collection('matches').where('userIds', 'array-contains', uid).get();
-    for (const d of matches.docs) await db.recursiveDelete(d.ref);
-    await deleteByField(db, 'interests', 'fromUid', uid);
-    await deleteByField(db, 'interests', 'toUid', uid);
-    const compat = await db.collection('compatibility').where('userIds', 'array-contains', uid).get();
-    await Promise.all(compat.docs.map((d) => d.ref.delete()));
-
-    await deletePrefix(bucket, `users/${uid}/`);
-    await anonymizeReports(db, uid);
-    await gone(stripeBilling.cancelForDeletedAccount(db, uid));
-    await Promise.all(
-      ['notificationPrefs', 'promoLog', 'userStats', 'emailOtps', 'emailLog', 'users'].map((c) =>
-        gone(db.collection(c).doc(uid).delete()),
-      ),
-    );
-
-    // Blocks go last: removing them earlier would make a half-deleted account visible again
-    // to everyone who blocked it.
-    await deleteByField(db, 'blocks', 'blockerId', uid);
-    await deleteByField(db, 'blocks', 'blockedId', uid);
-    await gone(db.collection('hiddenUsers').doc(uid).delete());
-    const hiddenBy = await db.collection('hiddenUsers').where('uids', 'array-contains', uid).get();
-    await Promise.all(hiddenBy.docs.map((d) => d.ref.update({ uids: FieldValue.arrayRemove(uid) })));
-
-    await db.collection('deleted_users').doc(uid).set({
-      uid,
-      deletedAt: new Date().toISOString(),
-      deletionSource: 'cloud_function',
-    });
-    await getAuth().deleteUser(uid).catch((e) => {
-      if (!e || e.code !== 'auth/user-not-found') throw e;
-    });
-
-    if (accountEmail) {
-      await emailIdentity.releaseInbox(db, uid, accountEmail).catch(() => undefined);
-      await email.removeContact(accountEmail).catch(() => undefined);
-      await email.sendEmail(db, { to: accountEmail, idempotencyKey: `deleted-${uid}`, ...email.T.accountDeleted() });
-    }
-
+    const accountEmail = (await getAuth().getUser(decoded.uid).catch(() => null))?.email || decoded.email || null;
+    await purgeAccount(decoded.uid, accountEmail);
     res.json({ result: { ok: true } });
   } catch (error) {
     console.error(error);
@@ -251,6 +198,62 @@ exports.deleteAccount = onRequest({ cors: true, invoker: 'public', timeoutSecond
     });
   }
 });
+
+/** Permanently removes an account and everything tied to it. Used by self-deletion and the owner console. */
+async function purgeAccount(uid, accountEmail, source = 'cloud_function') {
+  const db = getFirestore();
+  const bucket = getStorage().bucket();
+  const gone = (p) => p.catch(() => undefined);
+  // Pull every public surface first, so a failure partway through never leaves a discoverable
+  // account. Every step is idempotent; a retry with the same session finishes the job.
+  await Promise.all([
+    gone(db.collection('profiles').doc(uid).delete()),
+    gone(db.collection('liveSessions').doc(uid).delete()),
+    gone(db.collection('nearbyProfiles').doc(uid).delete()),
+  ]);
+  await deleteByField(db, 'pushTokens', 'uid', uid);
+  await deleteByField(db, 'pushTickets', 'uid', uid);
+  await sessions.deleteSecurityData(db, uid);
+
+  const matches = await db.collection('matches').where('userIds', 'array-contains', uid).get();
+  for (const d of matches.docs) await db.recursiveDelete(d.ref);
+  await deleteByField(db, 'interests', 'fromUid', uid);
+  await deleteByField(db, 'interests', 'toUid', uid);
+  const compat = await db.collection('compatibility').where('userIds', 'array-contains', uid).get();
+  await Promise.all(compat.docs.map((d) => d.ref.delete()));
+
+  await deletePrefix(bucket, `users/${uid}/`);
+  await anonymizeReports(db, uid);
+  await gone(stripeBilling.cancelForDeletedAccount(db, uid));
+  await Promise.all(
+    ['notificationPrefs', 'promoLog', 'userStats', 'emailOtps', 'emailLog', 'users'].map((c) =>
+      gone(db.collection(c).doc(uid).delete()),
+    ),
+  );
+
+  // Blocks go last: removing them earlier would make a half-deleted account visible again
+  // to everyone who blocked it.
+  await deleteByField(db, 'blocks', 'blockerId', uid);
+  await deleteByField(db, 'blocks', 'blockedId', uid);
+  await gone(db.collection('hiddenUsers').doc(uid).delete());
+  const hiddenBy = await db.collection('hiddenUsers').where('uids', 'array-contains', uid).get();
+  await Promise.all(hiddenBy.docs.map((d) => d.ref.update({ uids: FieldValue.arrayRemove(uid) })));
+
+  await db.collection('deleted_users').doc(uid).set({
+    uid,
+    deletedAt: new Date().toISOString(),
+    deletionSource: source,
+  });
+  await getAuth().deleteUser(uid).catch((e) => {
+    if (!e || e.code !== 'auth/user-not-found') throw e;
+  });
+
+  if (accountEmail) {
+    await emailIdentity.releaseInbox(db, uid, accountEmail).catch(() => undefined);
+    await email.removeContact(accountEmail).catch(() => undefined);
+    await email.sendEmail(db, { to: accountEmail, idempotencyKey: `deleted-${uid}`, ...email.T.accountDeleted() });
+  }
+}
 
 /**
  * Confirm Persona inquiry for the signed-in user and grant VERIFIED when approved.
@@ -604,6 +607,17 @@ exports.sendPasswordResetEmail = onRequest({ cors: true }, jsonEndpoint(emailFlo
 exports.security = onRequest(
   { cors: true, invoker: 'public' },
   jsonEndpoint(sessions.createSecurityEndpoint({ pushToUser: (...args) => pushToUser(...args) }), { signedIn: true }),
+);
+exports.admin = onRequest(
+  { cors: true, invoker: 'public', timeoutSeconds: 540, memory: '512MiB' },
+  jsonEndpoint(
+    ownerConsole.createAdminEndpoint({
+      pushToUser: (...args) => pushToUser(...args),
+      purgeAccount: (...args) => purgeAccount(...args),
+      promoBroadcast: (...args) => promoBroadcast(...args),
+    }),
+    { signedIn: true },
+  ),
 );
 
 /** DateToday+ from any approved source: DateToday's web checkout (Stripe) or the app stores (RevenueCat). */
@@ -1678,53 +1692,53 @@ exports.broadcastPush = onRequest({ cors: false, timeoutSeconds: 540 }, async (r
       res.status(400).json({ error: 'title, body required; url must start with /' });
       return;
     }
-    const send = req.body?.send === true;
-
-    const db = getFirestore();
-    const optedIn = await db.collection('notificationPrefs').where('promotions', '==', true).get();
-    const now = Date.now();
-    const audience = [];
-    let capped = 0;
-    let noDevice = 0;
-    for (const prefDoc of optedIn.docs) {
-      const uid = prefDoc.id;
-      const [log, tokens] = await Promise.all([
-        db.collection('promoLog').doc(uid).get(),
-        db.collection('pushTokens').where('uid', '==', uid).get(),
-      ]);
-      const last = log.exists && log.data().lastSentAt ? log.data().lastSentAt.toMillis() : 0;
-      if (now - last < PROMO_CAP_MS) capped += 1;
-      else if (!tokens.docs.some((d) => d.data().enabled !== false)) noDevice += 1;
-      else audience.push(uid);
-    }
-
-    const summary = { optedIn: optedIn.size, willReceive: audience.length, capped, noDevice, send };
-    if (!send) {
-      res.json({ dryRun: true, ...summary });
-      return;
-    }
-
-    for (let i = 0; i < audience.length; i += 20) {
-      await Promise.all(
-        audience.slice(i, i + 20).map(async (uid) => {
-          await pushToUser(db, uid, { title, body, data: { type: 'promotion', url } });
-          await db.collection('promoLog').doc(uid).set({ lastSentAt: FieldValue.serverTimestamp() });
-        }),
-      );
-    }
-    await db.collection('broadcasts').add({
-      title,
-      body,
-      url,
-      ...summary,
-      createdAt: FieldValue.serverTimestamp(),
-    });
-    res.json({ dryRun: false, ...summary });
+    res.json(await promoBroadcast(getFirestore(), { title, body, url, send: req.body?.send === true }));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Broadcast failed.' });
   }
 });
+
+/** Only members who opted in to promotions, at most once per PROMO_CAP_MS. `send: false` is a dry run. */
+async function promoBroadcast(db, { title, body, url, send, sentBy = null }) {
+  const optedIn = await db.collection('notificationPrefs').where('promotions', '==', true).get();
+  const now = Date.now();
+  const audience = [];
+  let capped = 0;
+  let noDevice = 0;
+  for (const prefDoc of optedIn.docs) {
+    const uid = prefDoc.id;
+    const [log, tokens] = await Promise.all([
+      db.collection('promoLog').doc(uid).get(),
+      db.collection('pushTokens').where('uid', '==', uid).get(),
+    ]);
+    const last = log.exists && log.data().lastSentAt ? log.data().lastSentAt.toMillis() : 0;
+    if (now - last < PROMO_CAP_MS) capped += 1;
+    else if (!tokens.docs.some((d) => d.data().enabled !== false)) noDevice += 1;
+    else audience.push(uid);
+  }
+
+  const summary = { optedIn: optedIn.size, willReceive: audience.length, capped, noDevice, send };
+  if (!send) return { dryRun: true, ...summary };
+
+  for (let i = 0; i < audience.length; i += 20) {
+    await Promise.all(
+      audience.slice(i, i + 20).map(async (uid) => {
+        await pushToUser(db, uid, { title, body, data: { type: 'promotion', url } });
+        await db.collection('promoLog').doc(uid).set({ lastSentAt: FieldValue.serverTimestamp() });
+      }),
+    );
+  }
+  await db.collection('broadcasts').add({
+    title,
+    body,
+    url,
+    ...summary,
+    ...(sentBy ? { sentBy } : {}),
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  return { dryRun: false, ...summary };
+}
 
 /**
  * Reply / Mark as read straight from a message notification. Runs while the app

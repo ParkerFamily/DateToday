@@ -368,6 +368,14 @@ function createSecurityEndpoint({ pushToUser, fetchImpl = (...args) => fetch(...
   };
 }
 
+/** Owner console: mark every live session of `uid` signed out. Pair with auth.revokeRefreshTokens. */
+async function revokeAllSessions(db, uid, by) {
+  const all = await db.collection('sessions').where('uid', '==', uid).get();
+  const active = all.docs.filter((d) => !d.get('revokedAt'));
+  await revoke(db, uid, active, by);
+  return active.length;
+}
+
 /** Account deletion: drop every session, code and setting tied to `uid`. */
 async function deleteSecurityData(db, uid) {
   for (const name of ['sessions', 'loginCodes']) {
@@ -391,5 +399,6 @@ module.exports = {
   maskEmail,
   placeLabel,
   readDevice,
+  revokeAllSessions,
   signInPush,
 };

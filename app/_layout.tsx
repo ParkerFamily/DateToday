@@ -368,6 +368,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       'discovery',
       'mutual',
       'likes',
+      'admin',
     ]);
 
     if (entered && !agreed) {
@@ -535,6 +536,7 @@ export default function RootLayout() {
               <Stack.Screen name="safety" />
               <Stack.Screen name="legal" />
               <Stack.Screen name="settings" />
+              <Stack.Screen name="admin" />
               <Stack.Screen name="+not-found" />
             </Stack>
           </AuthGate>

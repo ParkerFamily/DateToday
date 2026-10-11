@@ -22,6 +22,7 @@ import { useSessionStore } from '@/store/session';
 import { useOnboardingDraft } from '@/store/onboardingDraft';
 import { signOut } from '@/features/auth/api';
 import { subscribeTwoStep } from '@/features/security/devices';
+import { isOwnerAdmin } from '@/features/admin/api';
 import { isBackendConfigured } from '@/lib/env';
 import { ScaledSheet } from '@/lib/scale';
 
@@ -35,6 +36,7 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const userId = useSessionStore((s) => s.userId);
   const [twoStep, setTwoStepOn] = useState(false);
+  const [owner, setOwner] = useState(false);
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const verified = profile?.verificationStatus === 'verified';
   const quizLevel = profile?.quizLevel ?? 0;
@@ -43,6 +45,15 @@ export default function SettingsScreen() {
   useEffect(() => {
     if (!userId || !isBackendConfigured()) return;
     return subscribeTwoStep(userId, setTwoStepOn);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId || !isBackendConfigured()) return;
+    let live = true;
+    void isOwnerAdmin().then((ok) => live && setOwner(ok));
+    return () => {
+      live = false;
+    };
   }, [userId]);
 
   const leaveToWelcome = () => {
@@ -117,6 +128,17 @@ export default function SettingsScreen() {
             <ActivityIndicator color={colors.brandBright} />
             <AppText style={styles.busyLabel}>Logging out…</AppText>
           </View>
+        ) : null}
+
+        {owner ? (
+          <SettingsGroup title="Owner">
+            <SettingsRow
+              label="Owner console"
+              detail="Users, reports, Live, broadcasts, controls"
+              last
+              onPress={() => router.push('/admin' as Href)}
+            />
+          </SettingsGroup>
         ) : null}
 
         <SettingsGroup title="Account & profile">
