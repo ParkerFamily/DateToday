@@ -1,4 +1,6 @@
 import { colors } from '@/constants/theme';
+import { WebAlertHost } from '@/components/ui/WebAlertHost';
+import { installWebFrame } from '@/lib/webFrame';
 import { clearSignedOutMark, restoreAuthUser, subscribeAuth } from '@/features/auth/api';
 import {
     configureNotificationHandler,
@@ -38,6 +40,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 export { ErrorBoundary } from 'expo-router';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
+installWebFrame();
 // A throw at module scope kills the app before anything renders, so startup extras must never throw.
 try {
   configureNotificationHandler();
@@ -400,7 +403,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const handledColdStart = useRef(false);
   const lastHandledResponse = useRef<string | null>(null);
   useEffect(() => {
-    if (!ready || !userId || profileHydration === 'loading' || !entered) return;
+    if (Platform.OS === 'web' || !ready || !userId || profileHydration === 'loading' || !entered) return;
     const open = (response: Notifications.NotificationResponse | null) => {
       // Reply / Mark as read are handled in the background by installNotificationActions.
       if (isNotificationAction(response)) return;
@@ -512,6 +515,7 @@ export default function RootLayout() {
               <Stack.Screen name="+not-found" />
             </Stack>
           </AuthGate>
+          <WebAlertHost />
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

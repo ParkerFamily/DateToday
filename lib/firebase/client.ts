@@ -84,6 +84,11 @@ export function getFirebaseApp(): FirebaseApp {
 export function getFirebaseAuth(): Auth {
   if (auth) return auth;
   const firebaseApp = getFirebaseApp();
+  if (Platform.OS === 'web') {
+    // Browser defaults: stays signed in across reloads (IndexedDB) and supports the Google popup.
+    auth = getAuth(firebaseApp);
+    return auth;
+  }
   try {
     const persistence = rnAuthPersistence();
     auth = persistence

@@ -125,7 +125,8 @@ export default function TabsLayout() {
     [liveSession?.id, liveSession?.expiresAt]
   );
   const tabPadBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 8);
-  const tabBarHeight = rs(52) + tabPadBottom;
+  // Browsers lay out the label line taller, so web needs a little more room to avoid clipping it.
+  const tabBarHeight = rs(52) + tabPadBottom + (Platform.OS === 'web' ? 10 : 0);
 
   return (
     <Tabs

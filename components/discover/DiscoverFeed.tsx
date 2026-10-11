@@ -46,7 +46,7 @@ import { AFTER_HOURS_TAGS, isAfterHours } from '@/constants/afterHours';
 import { canUseAdvancedFilters, canUsePriorityPool, isPlusActive, maxRadiusMiles } from '@/lib/entitlements';
 import { analytics } from '@/lib/analytics';
 import { env, isBackendConfigured } from '@/lib/env';
-import { useContentLayout } from '@/lib/layout';
+import { useAppWindow, useContentLayout } from '@/lib/layout';
 import { fetchDiscoveryFeed, sendPing } from '@/services/api';
 import {
   fetchFirestoreNearbyBrowse,
@@ -83,7 +83,6 @@ import {
     Pressable,
     ScrollView,
     StyleSheet,
-    useWindowDimensions,
     View,
 } from 'react-native';
 import { Gesture, GestureDetector, ScrollView as GestureScrollView } from 'react-native-gesture-handler';
@@ -709,7 +708,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     }
   };
 
-  const { width: screenW } = useWindowDimensions();
+  const { width: screenW } = useAppWindow();
   const dragX = useSharedValue(0);
   useEffect(() => {
     dragX.value = 0;

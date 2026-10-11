@@ -47,6 +47,7 @@ export function syncAppBadge(count: number) {
 }
 
 export function configureNotificationHandler() {
+  if (Platform.OS === 'web') return;
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const data = notification.request.content.data as { matchId?: unknown; type?: unknown } | undefined;

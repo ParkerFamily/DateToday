@@ -8,10 +8,12 @@ import {
   GoogleAuthProvider,
   OAuthProvider,
   signInWithCredential,
+  signInWithPopup,
   getAdditionalUserInfo,
   type AuthCredential,
   type UserCredential,
 } from 'firebase/auth';
+import type { FirebaseError } from 'firebase/app';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getFirebaseAuth, getDb } from '@/lib/firebase/client';
 import { assertFirebaseConfigured, env } from '@/lib/env';
@@ -358,6 +360,37 @@ export async function getGoogleIdTokenNative(): Promise<string> {
   }
 
   return idToken;
+}
+
+/**
+ * Web: Google's popup through Firebase. The domain must be in Firebase Auth › Authorized domains.
+ * An email that already has a DateToday account with another sign-in method goes to the link flow.
+ */
+export async function signInWithGoogleWeb(): Promise<SocialAuthResult> {
+  assertFirebaseConfigured();
+  analytics.track('signup_started', { provider: 'google' });
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  let cred: UserCredential;
+  try {
+    cred = await signInWithPopup(getFirebaseAuth(), provider);
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      throw new Error('Google sign-in was cancelled.');
+    }
+    if (code === 'auth/popup-blocked') {
+      throw new Error('Your browser blocked the Google window. Allow pop-ups for this site and try again.');
+    }
+    const email = (error as { customData?: { email?: string } }).customData?.email;
+    const credential = GoogleAuthProvider.credentialFromError(error as FirebaseError);
+    if (code === 'auth/account-exists-with-different-credential' && email && credential) {
+      setPendingLink(email, 'google', credential);
+      throw new LinkRequiredError(email.toLowerCase(), 'google', []);
+    }
+    throw error;
+  }
+  return finishSocialSignIn(cred, 'google', cred.user.displayName);
 }
 
 /**

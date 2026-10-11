@@ -4,7 +4,11 @@ const { width, height } = Dimensions.get('window');
 const shortSide = Math.min(width, height);
 const longSide = Math.max(width, height);
 
-export const IS_TABLET = Platform.OS === 'ios' ? Platform.isPad : shortSide >= 600;
+/** Web shows the phone design in a centered column this wide (styles in lib/webFrame.ts). */
+export const WEB_COLUMN_WIDTH = 480;
+
+export const IS_TABLET =
+  Platform.OS === 'ios' ? Platform.isPad : Platform.OS === 'web' ? false : shortSide >= 600;
 
 /**
  * Tablets render the phone design proportionally larger (sized against a 430×932 phone) so it

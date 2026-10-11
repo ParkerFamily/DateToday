@@ -20,6 +20,7 @@ import {
   isExpoGo,
   signInWithApple,
   signInWithGoogleNative,
+  signInWithGoogleWeb,
   useGoogleAuthRequest,
 } from '@/features/auth/social';
 import { env } from '@/lib/env';
@@ -200,7 +201,7 @@ function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
           );
           return;
         }
-        if (expoGo) {
+        if (expoGo && Platform.OS !== 'web') {
           Alert.alert(
             'Google needs a real build',
             Platform.OS === 'android'
@@ -211,7 +212,7 @@ function SocialAuthNativeOnly({ onSuccess, disabled }: Props) {
         }
         try {
           setBusy('google');
-          succeed(await signInWithGoogleNative());
+          succeed(await (Platform.OS === 'web' ? signInWithGoogleWeb() : signInWithGoogleNative()));
         } catch (error) {
           if (!(error instanceof LinkRequiredError)) console.warn('[DateToday] Google sign-in failed', error);
           fail(error, 'Google sign-in failed', 'Google sign-in didn’t work. Try again, or sign up with email.');
@@ -296,7 +297,7 @@ function SocialAuthChrome({
 
 export function SocialAuthButtons(props: Props) {
   // Android: native Google Sign-In only. Web AuthSession + custom scheme is rejected by Google.
-  if (Platform.OS === 'android') {
+  if (Platform.OS === 'android' || Platform.OS === 'web') {
     return <SocialAuthNativeOnly {...props} />;
   }
   if (!env.googleIosClientId) {
