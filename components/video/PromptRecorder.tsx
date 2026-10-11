@@ -259,6 +259,8 @@ export function PromptRecorder({
     try {
       const result = await cameraRef.current.recordAsync({
         maxDuration: VIDEO_DURATION.maxSeconds,
+        // iPhones default to HEVC, which some Android phones can't play; H.264 plays everywhere.
+        ...(Platform.OS === 'ios' ? { codec: 'avc1' as const } : null),
       });
       clearTimers();
       recordingRef.current = false;

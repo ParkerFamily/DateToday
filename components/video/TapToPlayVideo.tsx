@@ -3,8 +3,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useVideoPlayer, VideoView, type VideoContentFit } from 'expo-video';
 import { useCallback } from 'react';
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { rs } from '@/lib/scale';
+
+/**
+ * Android's VideoView swallows touches and re-sends them itself, which never reaches the Pressable
+ * around it; wrapping it in a `none` view keeps taps on our own controls.
+ */
+export const VIDEO_POINTER_EVENTS = Platform.OS === 'android' ? 'none' : 'auto';
 
 /** Never autoplays: shows the first frame with a play button, tap toggles play / pause. */
 export function TapToPlayVideo({
@@ -47,13 +53,15 @@ export function TapToPlayVideo({
       accessibilityLabel={isPlaying ? 'Pause video' : 'Play video'}
       style={style}
     >
-      <VideoView
-        player={player}
-        style={StyleSheet.absoluteFill}
-        contentFit={contentFit}
-        nativeControls={false}
-        surfaceType="textureView"
-      />
+      <View pointerEvents={VIDEO_POINTER_EVENTS} style={StyleSheet.absoluteFill}>
+        <VideoView
+          player={player}
+          style={StyleSheet.absoluteFill}
+          contentFit={contentFit}
+          nativeControls={false}
+          surfaceType="textureView"
+        />
+      </View>
       {isPlaying ? null : <PlayBadge />}
     </Pressable>
   );

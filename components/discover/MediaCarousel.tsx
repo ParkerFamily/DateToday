@@ -8,6 +8,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
+import { VIDEO_POINTER_EVENTS } from '@/components/video/TapToPlayVideo';
 import { rs } from '@/lib/scale';
 
 export type CarouselItem =
@@ -145,13 +146,15 @@ function CarouselVideo({
 
   return (
     <>
-      <VideoView
-        player={player}
-        style={StyleSheet.absoluteFill}
-        contentFit="cover"
-        nativeControls={false}
-        surfaceType="textureView"
-      />
+      <View pointerEvents={VIDEO_POINTER_EVENTS} style={StyleSheet.absoluteFill}>
+        <VideoView
+          player={player}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          nativeControls={false}
+          surfaceType="textureView"
+        />
+      </View>
       {overlay}
       <View style={styles.videoCaption} pointerEvents="none">
         <AppText style={styles.videoLabel}>🎥 {item.label}</AppText>
