@@ -75,7 +75,7 @@ import { tonightCompatibility } from '@/utils/tonightCompatibility';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -1126,6 +1126,15 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 : 'They haven’t gone live tonight, but you can still match'}
             </AppText>
           </View>
+          <Pressable
+            onPress={() => router.push('/settings/tour?step=swipe' as Href)}
+            hitSlop={10}
+            style={styles.helpButton}
+            accessibilityRole="button"
+            accessibilityLabel="App tour: how Discover works"
+          >
+            <Ionicons name="help-circle-outline" size={rs(22)} color={colors.textSecondary} />
+          </Pressable>
         </View>
         <FilterBar />
         {outsideFilters ? (
@@ -1566,6 +1575,9 @@ const styles = ScaledSheet.create({
     flex: 1,
     gap: 2,
     minWidth: 0,
+  },
+  helpButton: {
+    paddingTop: 2,
   },
   pingHeaderEyebrow: {
     color: colors.live,

@@ -70,7 +70,9 @@ function reactionAdded(before, after) {
 
 /** Inbox / push line for a new message. */
 function messagePreview(msg, proposalSummary) {
-  if (msg.type === 'date_proposal') return `Date idea: ${proposalSummary(msg.proposal)}`.slice(0, 140);
+  if (msg.type === 'date_proposal') {
+    return `${msg.editOf ? 'Date change' : 'Date idea'}: ${proposalSummary(msg.proposal)}`.slice(0, 140);
+  }
   if (msg.type === 'gif') return 'Sent a GIF';
   return String(msg.text || '').slice(0, 140);
 }

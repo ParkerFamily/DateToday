@@ -102,6 +102,7 @@ export function cardStatusTags(card: DiscoveryCard, now: Date = new Date(), max 
       tags.push({ key: 'tonight', label: 'Free all night', tone: 'brand' });
     }
   }
+  if (card.topInviter) tags.push({ key: 'inviter', label: 'Top Inviter', tone: 'brand' });
   if (repliesFast(card)) tags.push({ key: 'replies', label: 'Usually replies fast', tone: 'neutral' });
   if (nowMs - ms(card.lastPlanAt) <= RECENT_PLAN_MS) {
     tags.push({ key: 'plans', label: 'Made plans recently', tone: 'neutral' });

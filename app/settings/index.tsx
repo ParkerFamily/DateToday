@@ -141,6 +141,22 @@ export default function SettingsScreen() {
           </SettingsGroup>
         ) : null}
 
+        <SettingsGroup title="Rewards & help">
+          {isBackendConfigured() ? (
+            <SettingsRow
+              label="Invite Friends"
+              detail="Share your code · earn free Likes and Like Reveals"
+              onPress={() => router.push('/settings/invite' as Href)}
+            />
+          ) : null}
+          <SettingsRow
+            label="App tour"
+            detail="A quick walkthrough of the main buttons"
+            last
+            onPress={() => router.push('/settings/tour' as Href)}
+          />
+        </SettingsGroup>
+
         <SettingsGroup title="Account & profile">
           <SettingsRow
             label="Account information"

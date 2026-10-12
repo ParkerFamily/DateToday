@@ -83,7 +83,7 @@ export function useMatchesSubscription() {
   useEffect(() => {
     const store = useMatchesStore.getState();
     if (!uid || !isFirebaseConfigured()) {
-      store.set({ matches: [], loaded: true, error: null, likes: { plus: false, total: 0, revealed: [], locked: [], revealAvailable: false, likesLeft: null } });
+      store.set({ matches: [], loaded: true, error: null, likes: { plus: false, total: 0, revealed: [], locked: [], revealAvailable: false, revealsLeft: 0, likesLeft: null } });
       useBlocksStore.getState().setHidden([]);
       return;
     }

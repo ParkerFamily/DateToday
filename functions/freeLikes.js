@@ -3,7 +3,8 @@
  * photo-verified and adding both profile videos. Liking back someone who already liked you is
  * always free. One free Like Reveal lets them pick a single hidden like to see.
  *
- * likeCredits/{uid} (server only): { used, verifiedBonus, videoBonus, revealUsed, revealedUid }
+ * likeCredits/{uid} (server only): { used, verifiedBonus, videoBonus, revealUsed, revealedUid, revealedUids,
+ *   referralLikes, referralReveals, invitedLikes }
  * likeRevealKeys/{uid} (server only): { salt } — keys the opaque tokens on locked likes.
  */
 const crypto = require('crypto');
@@ -55,10 +56,33 @@ function allowance(config, bonuses) {
   );
 }
 
+const count = (v) => Math.max(0, Math.floor(Number(v) || 0));
+
+/** Likes earned from Invite Friends: as the inviter, and as the friend who used a code. */
+function inviteLikes(credits) {
+  const c = credits || {};
+  return count(c.referralLikes) + count(c.invitedLikes);
+}
+
+/** Everyone the member has revealed, including the single pick from before reveals were counted. */
+function revealedUids(credits) {
+  const c = credits || {};
+  const list = Array.isArray(c.revealedUids) ? c.revealedUids.filter((u) => typeof u === 'string') : [];
+  if (typeof c.revealedUid === 'string' && !list.includes(c.revealedUid)) list.unshift(c.revealedUid);
+  return list;
+}
+
+/** One free Like Reveal, plus any earned by inviting friends. */
+function revealsLeft(credits) {
+  const c = credits || {};
+  const used = Math.max(revealedUids(c).length, c.revealUsed ? 1 : 0);
+  return Math.max(0, 1 + count(c.referralReveals) - used);
+}
+
 /** What the app shows: Likes left, out of how many. */
 function likesSummary(config, credits, user, uid) {
   const bonuses = earnedBonuses(credits, user, uid);
-  const total = allowance(config, bonuses);
+  const total = allowance(config, bonuses) + inviteLikes(credits);
   const used = Math.max(0, Number(credits && credits.used) || 0);
   return { left: Math.max(0, total - used), total, ...bonuses };
 }
@@ -92,9 +116,12 @@ module.exports = {
   countsAsLike,
   earnedBonuses,
   freeLikesConfig,
+  inviteLikes,
   isOwnVideo,
   likesSummary,
   loadConfig,
   revealSalt,
   revealToken,
+  revealedUids,
+  revealsLeft,
 };

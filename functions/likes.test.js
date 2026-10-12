@@ -103,25 +103,32 @@ const rows = [
 
 test('buildLikes: free locks every like without identity until a reveal is used', async () => {
   const out = await likes.buildLikes(fakeDb(), rows, false, {
-    revealAvailable: true,
+    revealsLeft: 1,
     tokenFor: (uid) => `tok-${uid.charCodeAt(0)}`,
   });
   assert.equal(out.plus, false);
   assert.equal(out.total, 3);
   assert.deepEqual(out.revealed, []);
   assert.equal(out.locked.length, 3);
-  assert.deepEqual(out.reveal, { available: true });
+  assert.deepEqual(out.reveal, { available: true, left: 1 });
   assert.ok(out.locked.every((l) => typeof l.token === 'string'));
   const lockedJson = JSON.stringify(out.locked);
   for (const secret of ['"a"', '"b"', '"c"', 'Ava', 'Bea', 'Cy']) assert.equal(lockedJson.includes(secret), false);
 });
 
 test('buildLikes: the revealed like shows; the rest stay locked with no tokens once the reveal is spent', async () => {
-  const out = await likes.buildLikes(fakeDb(), rows, false, { revealedUid: 'b', revealAvailable: false, tokenFor: () => 'x' });
+  const out = await likes.buildLikes(fakeDb(), rows, false, { revealedUids: ['b'], revealsLeft: 0, tokenFor: () => 'x' });
   assert.deepEqual(out.revealed.map((r) => r.uid), ['b']);
   assert.equal(out.locked.length, 2);
   assert.ok(out.locked.every((l) => !('token' in l)));
-  assert.deepEqual(out.reveal, { available: false });
+  assert.deepEqual(out.reveal, { available: false, left: 0 });
+});
+
+test('buildLikes: an extra reveal from inviting friends keeps tokens on the rest', async () => {
+  const out = await likes.buildLikes(fakeDb(), rows, false, { revealedUids: ['a'], revealsLeft: 1, tokenFor: () => 'x' });
+  assert.deepEqual(out.revealed.map((r) => r.uid), ['a']);
+  assert.ok(out.locked.every((l) => l.token === 'x'));
+  assert.deepEqual(out.reveal, { available: true, left: 1 });
 });
 
 test('buildLikes: DateToday+ reveals everyone', async () => {

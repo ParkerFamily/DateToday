@@ -322,13 +322,20 @@ service cloud.firestore {
             )
             || (
               request.resource.data.type == 'date_proposal'
-              && request.resource.data.keys().hasOnly(['senderId', 'type', 'proposal', 'status', 'createdAt'])
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'proposal', 'status', 'createdAt', 'editOf'])
               && request.resource.data.status == 'proposed'
               && request.resource.data.proposal is map
               && request.resource.data.proposal.keys().hasOnly([
                 'activity', 'activityLabel', 'whenLabel', 'venueName', 'venueAddress',
                 'neighborhood', 'venueLat', 'venueLng', 'startsAt', 'note', 'timeZone'
               ])
+              // A change request points at a date that's still on.
+              && (!('editOf' in request.resource.data) || (
+                request.resource.data.editOf is string
+                && request.resource.data.editOf.matches('^[A-Za-z0-9]{10,40}$')
+                && get(/databases/$(database)/documents/matches/$(matchId)/messages/$(request.resource.data.editOf)).data.type == 'date_proposal'
+                && get(/databases/$(database)/documents/matches/$(matchId)/messages/$(request.resource.data.editOf)).data.status == 'accepted'
+              ))
             )
           );
 
@@ -352,7 +359,24 @@ service cloud.firestore {
           && request.resource.data.status in ['accepted', 'declined']
           && request.resource.data.respondedAt == request.time
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt', 'respondedBy'])
-          && request.resource.data.respondedBy == request.auth.uid;
+          && request.resource.data.respondedBy == request.auth.uid
+          // Accepting a change request retires the old date in the same write.
+          && (request.resource.data.status != 'accepted'
+            || !('editOf' in resource.data)
+            || (getAfter(/databases/$(database)/documents/matches/$(matchId)/messages/$(resource.data.editOf)).data.status == 'rescheduled'
+              && getAfter(/databases/$(database)/documents/matches/$(matchId)/messages/$(resource.data.editOf)).data.get('rescheduledTo', '') == messageId));
+
+        // The old date of an accepted change request, retired alongside it.
+        allow update: if isMatchMember()
+          && resource.data.type == 'date_proposal'
+          && resource.data.status == 'accepted'
+          && request.resource.data.status == 'rescheduled'
+          && request.resource.data.rescheduledAt == request.time
+          && request.resource.data.rescheduledTo is string
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'rescheduledTo', 'rescheduledAt'])
+          && getAfter(/databases/$(database)/documents/matches/$(matchId)/messages/$(request.resource.data.rescheduledTo)).data.get('editOf', '') == messageId
+          && getAfter(/databases/$(database)/documents/matches/$(matchId)/messages/$(request.resource.data.rescheduledTo)).data.status == 'accepted'
+          && getAfter(/databases/$(database)/documents/matches/$(matchId)/messages/$(request.resource.data.rescheduledTo)).data.respondedBy == request.auth.uid;
 
         // Either person can call off a confirmed date, once.
         allow update: if isMatchMember()

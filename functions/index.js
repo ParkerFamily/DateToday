@@ -29,6 +29,7 @@ const freeLikes = require('./freeLikes');
 const chat = require('./chat');
 const sessions = require('./sessions');
 const ownerConsole = require('./admin');
+const referrals = require('./referrals');
 
 const LIKE_LIMIT_MESSAGE =
   'You’ve used your free Likes. Get DateToday+ to keep liking. Liking back people who like you is always free.';
@@ -214,6 +215,12 @@ async function purgeAccount(uid, accountEmail, source = 'cloud_function') {
   await deleteByField(db, 'pushTokens', 'uid', uid);
   await deleteByField(db, 'pushTickets', 'uid', uid);
   await sessions.deleteSecurityData(db, uid);
+  const inviteCode = await db.collection('referralStats').doc(uid).get().then((s) => s.get('code')).catch(() => null);
+  await Promise.all([
+    typeof inviteCode === 'string' && inviteCode ? gone(db.collection('referralCodes').doc(inviteCode).delete()) : null,
+    gone(db.collection('referralStats').doc(uid).delete()),
+    gone(db.collection('referrals').doc(uid).delete()),
+  ]);
 
   const matches = await db.collection('matches').where('userIds', 'array-contains', uid).get();
   for (const d of matches.docs) await db.recursiveDelete(d.ref);
@@ -595,7 +602,11 @@ function jsonEndpoint(handler, { signedIn = false } = {}) {
       res.json(await handler(req, { db: getFirestore(), auth: getAuth(), decoded }));
     } catch (error) {
       if (!error.status) console.error(error);
-      res.status(error.status || 500).json({ error: error.status ? error.message : 'Something went wrong. Try again.' });
+      res.status(error.status || 500).json(
+        error.status
+          ? { error: error.message, ...(typeof error.code === 'string' ? { code: error.code } : {}) }
+          : { error: 'Something went wrong. Try again.' },
+      );
     }
   };
 }
@@ -619,6 +630,33 @@ exports.admin = onRequest(
     { signedIn: true },
   ),
 );
+
+const FUNCTIONS_BASE = 'https://us-central1-datetoday-e1331.cloudfunctions.net';
+const APP_STORE_URL = 'https://apps.apple.com/app/id6810919273';
+
+exports.referrals = onRequest(
+  { cors: true, invoker: 'public' },
+  jsonEndpoint(
+    referrals.createReferralsEndpoint({
+      functionsBase: FUNCTIONS_BASE,
+      pushToUser: (...args) => pushToUser(...args),
+    }),
+    { signedIn: true },
+  ),
+);
+
+/** The page an invite link opens (GET ?c=CODE). */
+exports.invite = onRequest({ invoker: 'public' }, (req, res) => {
+  if (req.method !== 'GET') {
+    res.status(405).send('Method not allowed');
+    return;
+  }
+  const code = referrals.normalizeCode((req.query && req.query.c) || req.path);
+  const android = /android/i.test(String(req.headers['user-agent'] || ''));
+  res.set('Cache-Control', 'public, max-age=300');
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(referrals.landingPage(code, { appStoreUrl: APP_STORE_URL, android }));
+});
 
 /** DateToday+ from any approved source: DateToday's web checkout (Stripe) or the app stores (RevenueCat). */
 async function hasDateTodayPlus(db, uid, opts) {
@@ -734,6 +772,7 @@ const CHANNEL_FOR_TYPE = {
   date_declined: 'dates',
   date_canceled: 'dates',
   reminder: 'dates',
+  referral: 'activity',
   verification: 'system',
   security: 'system',
   promotion: 'promotions',
@@ -764,6 +803,7 @@ const PREF_FOR_TYPE = {
   date_declined: 'dateUpdates',
   date_canceled: 'dateUpdates',
   reminder: 'reminders',
+  referral: 'likes',
   promotion: 'promotions',
   live_ending: 'reminders',
   live_check: 'reminders',
@@ -1292,11 +1332,11 @@ exports.getLikes = onRequest({ cors: true, memory: '512MiB' }, async (req, res) 
       freeLikes.loadConfig(db),
     ]);
     const credits = creditsSnap.exists ? creditsSnap.data() : {};
-    const revealAvailable = !plus && !credits.revealUsed;
-    const salt = revealAvailable && rows.length ? await freeLikes.revealSalt(db, uid) : null;
+    const revealsLeft = plus ? 0 : freeLikes.revealsLeft(credits);
+    const salt = revealsLeft > 0 && rows.length ? await freeLikes.revealSalt(db, uid) : null;
     const out = await likes.buildLikes(db, rows, plus, {
-      revealedUid: typeof credits.revealedUid === 'string' ? credits.revealedUid : null,
-      revealAvailable,
+      revealedUids: freeLikes.revealedUids(credits),
+      revealsLeft,
       tokenFor: salt ? (fromUid) => freeLikes.revealToken(salt, fromUid) : null,
     });
     res.set('Cache-Control', 'private, no-store');
@@ -1339,12 +1379,19 @@ exports.revealLike = onRequest({ cors: true }, async (req, res) => {
     }
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(creditsRef);
-      if (snap.exists && snap.data().revealUsed) {
-        throw Object.assign(new Error('You’ve already used your free Like Reveal.'), { status: 409, code: 'reveal_used' });
+      const credits = snap.exists ? snap.data() : {};
+      if (freeLikes.revealedUids(credits).includes(row.fromUid)) return;
+      if (freeLikes.revealsLeft(credits) <= 0) {
+        throw Object.assign(new Error('You’ve used your free Like Reveals.'), { status: 409, code: 'reveal_used' });
       }
       tx.set(
         creditsRef,
-        { revealUsed: true, revealedUid: row.fromUid, revealedAt: FieldValue.serverTimestamp() },
+        {
+          revealUsed: true,
+          revealedUid: row.fromUid,
+          revealedUids: [...freeLikes.revealedUids(credits), row.fromUid],
+          revealedAt: FieldValue.serverTimestamp(),
+        },
         { merge: true },
       );
     });
@@ -1949,7 +1996,7 @@ exports.onMatchMessageCreated = onDocumentCreated(
     const badge = await unreadTotal(db, otherId);
     await pushToUser(db, otherId, isProposal
       ? {
-          title: `${senderName} wants to plan a date`,
+          title: msg.editOf ? `${senderName} wants to change your date` : `${senderName} wants to plan a date`,
           body: proposalSummary(msg.proposal).slice(0, 140),
           data: { type: 'date_proposal', matchId, url: `/chat/${matchId}` },
           badge,
@@ -2080,6 +2127,7 @@ exports.onMatchMessageUpdated = onDocumentUpdated(
     const responderId = after.respondedBy;
     const summary = proposalSummary(after.proposal).slice(0, 140);
     const accepted = after.status === 'accepted';
+    const change = Boolean(after.editOf);
 
     const match = await db.runTransaction(async (tx) => {
       const marker = eventMarker(db, event.id);
@@ -2088,7 +2136,11 @@ exports.onMatchMessageUpdated = onDocumentUpdated(
       markEvent(tx, marker);
       tx.update(matchRef, {
         lastMessage: {
-          text: accepted ? `It’s a date: ${summary}` : 'Date idea declined',
+          text: accepted
+            ? `${change ? 'Date updated' : 'It’s a date'}: ${summary}`
+            : change
+              ? 'Kept the original plan'
+              : 'Date idea declined',
           senderId: responderId,
           type: 'date_response',
           messageId,
@@ -2123,8 +2175,18 @@ exports.onMatchMessageUpdated = onDocumentUpdated(
 
     await Promise.all([
       pushToUser(db, proposerId, {
-        title: accepted ? `${responderName} said yes!` : `${responderName} passed on that plan`,
-        body: accepted ? `It’s a date: ${summary}` : 'Suggest another time or place in the chat.',
+        title: change
+          ? accepted
+            ? `${responderName} accepted your change`
+            : `${responderName} wants to keep the original plan`
+          : accepted
+            ? `${responderName} said yes!`
+            : `${responderName} passed on that plan`,
+        body: accepted
+          ? `${change ? 'Your date is now' : 'It’s a date'}: ${summary}`
+          : change
+            ? 'Your date is still on as planned.'
+            : 'Suggest another time or place in the chat.',
         data: { type: accepted ? 'date_accepted' : 'date_declined', matchId, url: `/chat/${matchId}` },
         badge: await unreadTotal(db, proposerId),
       }),

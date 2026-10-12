@@ -64,6 +64,46 @@ function displayName(raw: string) {
   return first.charAt(0).toUpperCase() + first.slice(1);
 }
 
+type EditStart = { category: PlanCategory | null; startsAt: string | null; place: Place | null };
+
+/** The accepted date being changed, from the chat's JSON param. */
+function parseEdit(raw: string | undefined): EditStart | null {
+  try {
+    const p = JSON.parse(String(raw ?? '')) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null);
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const category = KINDS.find((k) => k.value === p.activity)?.value ?? null;
+    const startsAtIso = str(p.startsAt);
+    const name = str(p.venueName);
+    return {
+      category,
+      startsAt: startsAtIso && Number.isFinite(Date.parse(startsAtIso)) ? startsAtIso : null,
+      place: name
+        ? {
+            id: `edit:${name}`,
+            name,
+            address: str(p.venueAddress),
+            area: str(p.neighborhood),
+            lat: num(p.venueLat),
+            lng: num(p.venueLng),
+            distanceMiles: null,
+            kind: null,
+          }
+        : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function dayChoiceFor(day: Date, now: Date): DayChoice {
+  const today = new Date(now.toDateString());
+  for (const choice of ['tonight', 'tomorrow', 'weekend'] as const) {
+    if (sameDay(dateForChoice(choice, today), day)) return choice;
+  }
+  return 'pick';
+}
+
 function Avatar({ uri, size: sizeProp, style }: { uri?: string | null; size: number; style?: object }) {
   const size = rs(sizeProp);
   const box = { width: size, height: size, borderRadius: size / 2 };
@@ -85,8 +125,12 @@ export default function PlanDateScreen() {
     food?: string;
     mode?: string;
     conversationId?: string;
-    /** '1' when they already wrote or the chat started before today. */
+    /** Changing an accepted date: its message id, and its details as JSON to start from. */
+    editOf?: string;
+    edit?: string;
   }>();
+  const editOf = typeof params.editOf === 'string' && params.editOf ? params.editOf : null;
+  const original = useMemo(() => (editOf ? parseEdit(params.edit) : null), [editOf, params.edit]);
   const theirName = displayName(params.name ?? 'them');
   const myPhoto = useSessionStore((s) => s.profile?.mainPhotoUrl ?? null);
   const myUid = useSessionStore((s) => s.userId);
@@ -106,9 +150,16 @@ export default function PlanDateScreen() {
   }, []);
 
   const tonightOpen = availableSlots(now, now).length > 0;
-  const [category, setCategory] = useState<PlanCategory>(sharedFood ? 'dinner' : 'drinks');
-  const [dayChoice, setDayChoice] = useState<DayChoice>(tonightOpen ? 'tonight' : 'tomorrow');
-  const [pickedDay, setPickedDay] = useState<Date>(() => pickableDays(now)[0]);
+  const start = original?.startsAt ? new Date(original.startsAt) : null;
+  const [category, setCategory] = useState<PlanCategory>(
+    original?.category ?? (sharedFood ? 'dinner' : 'drinks'),
+  );
+  const [dayChoice, setDayChoice] = useState<DayChoice>(() =>
+    start ? dayChoiceFor(start, now) : tonightOpen ? 'tonight' : 'tomorrow',
+  );
+  const [pickedDay, setPickedDay] = useState<Date>(() =>
+    start && dayChoiceFor(start, now) === 'pick' ? new Date(start.toDateString()) : pickableDays(now)[0],
+  );
   const todayKey = now.toDateString();
   const day = useMemo(
     () => (dayChoice === 'pick' ? pickedDay : dateForChoice(dayChoice, new Date(todayKey))),
@@ -116,9 +167,11 @@ export default function PlanDateScreen() {
   );
   const suggestions = useMemo(() => suggestedTimes(category, day, now), [category, day, now]);
   const allSlots = useMemo(() => availableSlots(day, now), [day, now]);
-  const [time, setTime] = useState<number>(() => suggestions[1] ?? suggestions[0] ?? 20 * 60 + 30);
-  const [moreTimes, setMoreTimes] = useState(false);
-  const [place, setPlace] = useState<Place | null>(null);
+  const [time, setTime] = useState<number>(() =>
+    start ? start.getHours() * 60 + start.getMinutes() : (suggestions[1] ?? suggestions[0] ?? 20 * 60 + 30),
+  );
+  const [moreTimes, setMoreTimes] = useState(() => Boolean(start));
+  const [place, setPlace] = useState<Place | null>(() => original?.place ?? null);
   const [picking, setPicking] = useState(false);
   const [sending, setSending] = useState(false);
 
@@ -161,19 +214,33 @@ export default function PlanDateScreen() {
       Alert.alert('Open a chat first', 'Plans are sent inside a chat with your match.');
       return;
     }
+    const when = startsAt(day, time).toISOString();
+    if (
+      original &&
+      original.category === category &&
+      original.startsAt === when &&
+      original.place?.name === place.name
+    ) {
+      Alert.alert('Nothing changed yet', 'Pick a different time, place or kind of date first.');
+      return;
+    }
     setSending(true);
     try {
-      await proposeDate(matchId, {
-        activity: category,
-        activityLabel: `${kind.emoji} ${kind.label}`,
-        whenLabel: whenLabel(day, time, now),
-        startsAt: startsAt(day, time).toISOString(),
-        venueName: place.name,
-        venueAddress: place.address,
-        neighborhood: place.area,
-        venueLat: place.lat,
-        venueLng: place.lng,
-      });
+      await proposeDate(
+        matchId,
+        {
+          activity: category,
+          activityLabel: `${kind.emoji} ${kind.label}`,
+          whenLabel: whenLabel(day, time, now),
+          startsAt: when,
+          venueName: place.name,
+          venueAddress: place.address,
+          neighborhood: place.area,
+          venueLat: place.lat,
+          venueLng: place.lng,
+        },
+        editOf ?? undefined,
+      );
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (router.canGoBack()) router.back();
       else router.replace({ pathname: '/chat/[conversationId]', params: { conversationId: matchId } });
@@ -209,8 +276,10 @@ export default function PlanDateScreen() {
                 </View>
               </View>
               <View style={styles.headerText}>
-                <AppText style={styles.title}>Plan your date</AppText>
-                <AppText style={styles.subtitle}>You + {theirName}</AppText>
+                <AppText style={styles.title}>{original ? 'Change your date' : 'Plan your date'}</AppText>
+                <AppText style={styles.subtitle}>
+                  {original ? `${theirName} can accept or keep the original` : `You + ${theirName}`}
+                </AppText>
               </View>
               <CloseButton onPress={() => dismissToLive(router)} />
             </View>
@@ -425,7 +494,7 @@ export default function PlanDateScreen() {
                 {sending ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <AppText style={styles.ctaText}>Send date invite ⚡</AppText>
+                  <AppText style={styles.ctaText}>{original ? 'Send change request ⚡' : 'Send date invite ⚡'}</AppText>
                 )}
               </Pressable>
             </View>

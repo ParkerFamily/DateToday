@@ -3,6 +3,7 @@ import { Alert, AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { getNotificationPrefs, setNotificationPref } from '@/features/notifications/preferences';
+import { appTourSeen } from '@/lib/appTour';
 import { useSessionStore } from '@/store/session';
 
 const ASKED_KEY = 'dt.tonightNudgesAsked.v1';
@@ -21,6 +22,7 @@ export function useTonightNudgeOptIn() {
       void (async () => {
         try {
           if (await AsyncStorage.getItem(ASKED_KEY)) return;
+          if (!(await appTourSeen())) return;
           const permission = await Notifications.getPermissionsAsync();
           if (!permission.granted) return;
           const prefs = await getNotificationPrefs(uid);

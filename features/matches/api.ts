@@ -13,6 +13,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
   type Timestamp,
 } from 'firebase/firestore';
 import { env } from '@/lib/env';
@@ -72,9 +73,11 @@ export type MatchMessage = {
   /** Emoji reactions keyed by who reacted (only the other person can react to a message). */
   reactions?: Record<string, MessageReaction>;
   proposal?: DateProposal;
-  status?: 'proposed' | 'accepted' | 'declined' | 'canceled';
+  status?: 'proposed' | 'accepted' | 'declined' | 'canceled' | 'rescheduled';
   respondedBy?: string;
   canceledBy?: string;
+  /** On a change request: the accepted date it would replace. */
+  editOf?: string;
   createdAt: Date | null;
   /** Still only on this device; the server hasn't confirmed it yet. */
   pending?: boolean;
@@ -204,8 +207,9 @@ export type LikesFeed = {
   revealed: RevealedLike[];
   /** `token` is only present while the free Like Reveal is unused. */
   locked: { blur: string | null; token?: string }[];
-  /** Free members' one-time Like Reveal. */
+  /** Free members' Like Reveals: one, plus any earned by inviting friends. */
   revealAvailable: boolean;
+  revealsLeft: number;
   /** Free Likes left; null with DateToday+. */
   likesLeft: number | null;
 };
@@ -236,15 +240,17 @@ export async function fetchLikes(fresh = false): Promise<LikesFeed> {
   });
   const json = (await res.json().catch(() => ({}))) as Partial<LikesFeed> & {
     error?: string;
-    reveal?: { available?: boolean };
+    reveal?: { available?: boolean; left?: number };
   };
   if (!res.ok) throw new Error(json.error || 'Couldn’t load your likes right now.');
+  const revealAvailable = Boolean(json.reveal?.available);
   return {
     plus: Boolean(json.plus),
     total: Number(json.total) || 0,
     revealed: Array.isArray(json.revealed) ? json.revealed : [],
     locked: Array.isArray(json.locked) ? json.locked : [],
-    revealAvailable: Boolean(json.reveal?.available),
+    revealAvailable,
+    revealsLeft: typeof json.reveal?.left === 'number' ? json.reveal.left : revealAvailable ? 1 : 0,
     likesLeft: typeof json.likesLeft === 'number' ? json.likesLeft : null,
   };
 }
@@ -366,6 +372,7 @@ export function subscribeMessages(
             status: data.status as MatchMessage['status'],
             respondedBy: data.respondedBy as string | undefined,
             canceledBy: data.canceledBy as string | undefined,
+            editOf: typeof data.editOf === 'string' ? data.editOf : undefined,
             createdAt: toDate(data.createdAt),
             pending: d.metadata.hasPendingWrites,
           };
@@ -414,22 +421,40 @@ function deviceTimeZone(): string | null {
   }
 }
 
-export async function proposeDate(matchId: string, proposal: DateProposal) {
+/** `editOf`: the accepted date this asks to change; it stays on until the other person accepts. */
+export async function proposeDate(matchId: string, proposal: DateProposal, editOf?: string) {
   await addDoc(collection(getDb(), 'matches', matchId, 'messages'), {
     senderId: requireUid(),
     type: 'date_proposal',
     proposal: cleanProposal({ timeZone: deviceTimeZone(), ...proposal }),
     status: 'proposed',
+    ...(editOf ? { editOf } : {}),
     createdAt: serverTimestamp(),
   });
 }
 
-export async function respondToDate(matchId: string, messageId: string, status: 'accepted' | 'declined') {
-  await updateDoc(doc(getDb(), 'matches', matchId, 'messages', messageId), {
+/** Accepting a change request also retires the date it replaces, in the same write. */
+export async function respondToDate(
+  matchId: string,
+  messageId: string,
+  status: 'accepted' | 'declined',
+  editOf?: string,
+) {
+  const uid = requireUid();
+  const batch = writeBatch(getDb());
+  batch.update(doc(getDb(), 'matches', matchId, 'messages', messageId), {
     status,
-    respondedBy: requireUid(),
+    respondedBy: uid,
     respondedAt: serverTimestamp(),
   });
+  if (status === 'accepted' && editOf) {
+    batch.update(doc(getDb(), 'matches', matchId, 'messages', editOf), {
+      status: 'rescheduled',
+      rescheduledTo: messageId,
+      rescheduledAt: serverTimestamp(),
+    });
+  }
+  await batch.commit();
 }
 
 /** Call off a confirmed date; the other person gets a push and an email. */

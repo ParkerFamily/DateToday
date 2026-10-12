@@ -154,26 +154,28 @@ function publicLike(row) {
 
 /**
  * What a member may see of their likes. Locked entries carry no identity at all.
- * Priority Likes are always revealed: the sender paid to be seen. Free members also see the one
- * person they picked with their free Like Reveal (`revealedUid`). While that reveal is unused,
- * each locked entry carries an opaque `token` (from `tokenFor`) to pick with.
+ * Priority Likes are always revealed: the sender paid to be seen. Free members also see the
+ * people they picked with their Like Reveals (`revealedUids`). While they have reveals left
+ * (`revealsLeft`), each locked entry carries an opaque `token` (from `tokenFor`) to pick with.
  */
 async function buildLikes(db, rows, plus, opts = {}) {
   const priorityRows = rows.filter((r) => r.priority);
   const normalRows = rows.filter((r) => !r.priority);
-  const picked = (r) => opts.revealedUid != null && r.fromUid === opts.revealedUid;
+  const revealedSet = new Set(opts.revealedUids || []);
+  const picked = (r) => revealedSet.has(r.fromUid);
   const revealedRows = [...priorityRows, ...(plus ? normalRows : normalRows.filter(picked))];
   const lockedRows = plus ? [] : normalRows.filter((r) => !picked(r)).slice(0, MAX_LOCKED_THUMBS);
   const thumbs = await Promise.all(
     lockedRows.map((r) => blurThumb(db, r.fromUid, r.profile && r.profile.mainPhotoUrl, opts)),
   );
-  const tokenFor = !plus && opts.revealAvailable && opts.tokenFor ? opts.tokenFor : null;
+  const left = plus ? 0 : Math.max(0, Number(opts.revealsLeft) || 0);
+  const tokenFor = left > 0 && opts.tokenFor ? opts.tokenFor : null;
   return {
     plus,
     total: rows.length,
     revealed: revealedRows.map(publicLike),
     locked: lockedRows.map((r, i) => (tokenFor ? { blur: thumbs[i], token: tokenFor(r.fromUid) } : { blur: thumbs[i] })),
-    reveal: { available: Boolean(!plus && opts.revealAvailable) },
+    reveal: { available: left > 0, left },
   };
 }
 

@@ -168,11 +168,19 @@ export async function finishSocialSignIn(
   const providerIds = cred.user.providerData.map((p) => p.providerId);
   const hadPassword = Array.isArray(before?.providerIds) && before.providerIds.includes('password');
   const name = displayName || cred.user.displayName;
-  await ensureUserDoc(cred.user.uid, cred.user.email, name, provider, {
-    photoURL: cred.user.photoURL,
-    providerIds,
-    isNewUser,
-  });
+  // Returning users keep their DateToday name/photo; only fill gaps (never when the read failed).
+  const known = before !== null;
+  await ensureUserDoc(
+    cred.user.uid,
+    cred.user.email,
+    isNewUser || (known && !before?.displayName) ? name : null,
+    provider,
+    {
+      photoURL: isNewUser || (known && !before?.photoURL) ? cred.user.photoURL : null,
+      providerIds,
+      isNewUser,
+    },
+  );
   const linked = await completePendingLink().catch(() => null);
   analytics.track('signup_completed', { provider });
   return {

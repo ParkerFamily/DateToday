@@ -686,6 +686,7 @@ export async function fetchFirestoreDiscoveryFeed(
     c.lastPlanAt = s.lastPlanAt;
     c.replies = s.replies;
     c.fastReplies = s.fastReplies;
+    c.topInviter = s.topInviter;
   }
 
   return cards;
@@ -828,7 +829,7 @@ async function fetchNearbyCards(
   return out;
 }
 
-type UserStats = Pick<DiscoveryCard, 'joinedAt' | 'lastPlanAt' | 'replies' | 'fastReplies'>;
+type UserStats = Pick<DiscoveryCard, 'joinedAt' | 'lastPlanAt' | 'replies' | 'fastReplies' | 'topInviter'>;
 
 function optionalIso(value: unknown): string | null {
   return value ? tsToIso(value) : null;
@@ -850,6 +851,7 @@ async function fetchUserStats(uids: string[]): Promise<Map<string, UserStats>> {
         lastPlanAt: optionalIso(s.lastPlanAt),
         replies: Number(s.replies) || 0,
         fastReplies: Number(s.fastReplies) || 0,
+        topInviter: s.topInviter === true,
       });
     }
   }

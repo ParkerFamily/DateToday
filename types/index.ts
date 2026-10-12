@@ -307,6 +307,8 @@ export interface DiscoveryCard extends ProfileTraits {
   lastPlanAt?: string | null;
   replies?: number;
   fastReplies?: number;
+  /** Invited 10+ friends (server-set). */
+  topInviter?: boolean;
 }
 
 export interface Ping {

@@ -259,12 +259,20 @@ const MessageRow = memo(function MessageRow({
   responding,
   onRespond,
   onPlan,
+  onRequestEdit,
   onRetry,
   onLike,
   onActions,
+  original,
+  changePending,
 }: {
   matchId: string;
   message: MatchMessage;
+  /** On a change request: the date it would replace. */
+  original?: MatchMessage;
+  /** On an accepted date: a change request is waiting for an answer. */
+  changePending?: boolean;
+  onRequestEdit: (message: MatchMessage) => void;
   mine: boolean;
   myId: string | undefined;
   theirName: string;
@@ -282,10 +290,37 @@ const MessageRow = memo(function MessageRow({
     const p = message.proposal;
     const startsMs = p?.startsAt ? Date.parse(p.startsAt) : NaN;
     const expired = Number.isFinite(startsMs) && startsMs < Date.now() - 60 * 60 * 1000;
+    const isChange = Boolean(message.editOf);
+    // A change request can only be answered while the date it replaces is still on.
+    const originalOff = isChange && original != null && original.status !== 'accepted';
+    if (message.status === 'rescheduled') {
+      return (
+        <View
+          style={[
+            styles.proposal,
+            styles.proposalRetired,
+            mine ? styles.proposalMine : styles.proposalTheirs,
+          ]}
+        >
+          <AppText style={styles.proposalMeta} numberOfLines={1}>
+            {proposalSummary(p)}
+          </AppText>
+          <AppText style={[styles.proposalStatus, styles.proposalDeclined]}>
+            Changed to a new plan ↓
+          </AppText>
+        </View>
+      );
+    }
     return (
       <View style={[styles.proposal, mine ? styles.proposalMine : styles.proposalTheirs]}>
         <AppText style={styles.proposalEyebrow}>
-          {mine ? 'YOU SUGGESTED A DATE' : `${theirName.toUpperCase()} SUGGESTED A DATE`}
+          {isChange
+            ? mine
+              ? 'YOU ASKED TO CHANGE THE DATE'
+              : `${theirName.toUpperCase()} WANTS TO CHANGE THE DATE`
+            : mine
+              ? 'YOU SUGGESTED A DATE'
+              : `${theirName.toUpperCase()} SUGGESTED A DATE`}
         </AppText>
         <AppText style={styles.proposalVenue}>{p?.venueName || 'Somewhere fun'}</AppText>
         {p?.venueAddress || p?.neighborhood ? (
@@ -296,6 +331,11 @@ const MessageRow = memo(function MessageRow({
         <AppText style={styles.proposalMeta}>
           {[p?.activityLabel, p?.whenLabel].filter(Boolean).join(' · ')}
         </AppText>
+        {isChange && original?.proposal && message.status === 'proposed' ? (
+          <AppText style={styles.proposalWas} numberOfLines={2}>
+            {`Was: ${proposalSummary(original.proposal)}`}
+          </AppText>
+        ) : null}
         {(p && typeof p.venueLat === 'number' && typeof p.venueLng === 'number') ||
         (message.status === 'accepted' && !expired && !message.pending) ? (
           <View style={styles.proposalLinks}>
@@ -310,10 +350,30 @@ const MessageRow = memo(function MessageRow({
           </View>
         ) : null}
         {message.status === 'proposed' && expired ? (
-          <AppText style={[styles.proposalStatus, styles.proposalDeclined]}>This plan’s time has passed</AppText>
+          <AppText style={[styles.proposalStatus, styles.proposalDeclined]}>
+            This plan’s time has passed
+          </AppText>
+        ) : message.status === 'proposed' && originalOff ? (
+          <AppText style={[styles.proposalStatus, styles.proposalDeclined]}>
+            This change no longer applies
+          </AppText>
         ) : message.status === 'proposed' ? (
           mine ? (
             <AppText style={styles.proposalStatus}>Waiting for {theirName}…</AppText>
+          ) : isChange ? (
+            <View style={styles.proposalActions}>
+              <Button
+                label="Accept change"
+                loading={responding}
+                onPress={() => void onRespond(message, 'accepted')}
+              />
+              <Button
+                label="Keep original plan"
+                variant="ghost"
+                disabled={responding}
+                onPress={() => void onRespond(message, 'declined')}
+              />
+            </View>
           ) : (
             <View style={styles.proposalActions}>
               <Button
@@ -337,22 +397,43 @@ const MessageRow = memo(function MessageRow({
               : `${theirName} canceled this date`}
           </AppText>
         ) : (
-          <View style={styles.proposalLinks}>
+          <View style={styles.proposalOutcome}>
             <AppText
               style={[styles.proposalStatus, message.status === 'declined' && styles.proposalDeclined]}
             >
-              {message.status === 'accepted' ? 'It’s a date ⚡' : 'Declined'}
+              {message.status === 'accepted'
+                ? isChange
+                  ? 'Date updated ⚡'
+                  : 'It’s a date ⚡'
+                : isChange
+                  ? 'Kept the original plan'
+                  : 'Declined'}
             </AppText>
             {message.status === 'accepted' && !expired && !message.pending ? (
-              <Pressable
-                hitSlop={8}
-                disabled={responding}
-                onPress={() => void onRespond(message, 'canceled')}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel this date"
-              >
-                <AppText style={styles.proposalCancel}>Cancel date</AppText>
-              </Pressable>
+              <View style={styles.proposalLinks}>
+                {changePending ? (
+                  <AppText style={styles.proposalCancel}>Change requested</AppText>
+                ) : (
+                  <Pressable
+                    hitSlop={8}
+                    disabled={responding}
+                    onPress={() => onRequestEdit(message)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Request a change to this date"
+                  >
+                    <AppText style={styles.proposalEdit}>Request edit</AppText>
+                  </Pressable>
+                )}
+                <Pressable
+                  hitSlop={8}
+                  disabled={responding}
+                  onPress={() => void onRespond(message, 'canceled')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel this date"
+                >
+                  <AppText style={styles.proposalCancel}>Cancel date</AppText>
+                </Pressable>
+              </View>
             ) : null}
           </View>
         )}
@@ -463,6 +544,10 @@ const MessageRow = memo(function MessageRow({
   a.responding === b.responding &&
   a.onRespond === b.onRespond &&
   a.onPlan === b.onPlan &&
+  a.onRequestEdit === b.onRequestEdit &&
+  a.original?.id === b.original?.id &&
+  a.original?.status === b.original?.status &&
+  a.changePending === b.changePending &&
   a.onRetry === b.onRetry &&
   a.onLike === b.onLike &&
   a.onActions === b.onActions);
@@ -762,6 +847,34 @@ export default function ChatScreen() {
     });
   }, [router, theirName, themPhoto, matchId]);
 
+  const requestEdit = useCallback(
+    (message: MatchMessage) => {
+      router.push({
+        pathname: '/dates/plan',
+        params: {
+          name: theirName,
+          photo: themPhoto,
+          conversationId: matchId,
+          mode: 'plan',
+          editOf: message.id,
+          edit: JSON.stringify(message.proposal ?? {}),
+        },
+      });
+    },
+    [router, theirName, themPhoto, matchId],
+  );
+
+  const messagesById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
+  const pendingChangeFor = useMemo(
+    () =>
+      new Set(
+        messages
+          .filter((m) => m.type === 'date_proposal' && m.editOf && m.status === 'proposed')
+          .map((m) => m.editOf as string),
+      ),
+    [messages],
+  );
+
   const openProfile = () => {
     if (!theirId) return;
     router.push({ pathname: '/profile/[userId]', params: { userId: theirId, fromMatch: '1' } });
@@ -795,8 +908,10 @@ export default function ChatScreen() {
       if (status === 'canceled') return cancelPlannedDate(message);
       setRespondingId(message.id);
       try {
-        await respondToDate(matchId, message.id, status);
-        if (status === 'accepted') {
+        await respondToDate(matchId, message.id, status, message.editOf);
+        if (status === 'accepted' && message.editOf) {
+          if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else if (status === 'accepted') {
           router.push({
             pathname: '/dates/its-a-date',
             params: {
@@ -881,13 +996,16 @@ export default function ChatScreen() {
           responding={respondingId === message.id}
           onRespond={respond}
           onPlan={openPlan}
+          onRequestEdit={requestEdit}
+          original={message.editOf ? messagesById.get(message.editOf) : undefined}
+          changePending={pendingChangeFor.has(message.id)}
           onRetry={retryMessage}
           onLike={toggleLike}
           onActions={openActions}
         />
       );
     },
-    [openPlan, dismissNudge, receiptsOn, lastMineId, userId, theirName, theirReadMs, respondingId, respond, retryMessage, matchId, toggleLike, openActions],
+    [openPlan, requestEdit, messagesById, pendingChangeFor, dismissNudge, receiptsOn, lastMineId, userId, theirName, theirReadMs, respondingId, respond, retryMessage, matchId, toggleLike, openActions],
   );
 
   const reportMessage = () => {
@@ -1252,11 +1370,15 @@ const styles = ScaledSheet.create({
   proposalMeta: { color: colors.textSecondary, fontSize: 15 },
   proposalDirections: { color: colors.brandBright, fontSize: 14, fontWeight: '800', marginTop: 2 },
   proposalLinks: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.lg, rowGap: 4 },
+  proposalOutcome: { gap: 6 },
   proposalLinkBusy: { opacity: 0.6 },
   proposalActions: { gap: 8, marginTop: 6 },
   proposalStatus: { color: colors.brandBright, fontWeight: '700' },
   proposalDeclined: { color: colors.textSecondary },
   proposalCancel: { color: colors.textSecondary, fontSize: 14, fontWeight: '700' },
+  proposalEdit: { color: colors.brandBright, fontSize: 14, fontWeight: '700' },
+  proposalWas: { color: colors.textSecondary, fontSize: 13, textDecorationLine: 'line-through' },
+  proposalRetired: { opacity: 0.6 },
   bubble: {
     maxWidth: '78%',
     paddingHorizontal: 14,

@@ -22,7 +22,8 @@ import type { RevealedLike } from '@/features/matches/api';
 export default function LikesScreen() {
   const router = useRouter();
   const likes = usePendingLikes();
-  const { revealAvailable, revealing, onLockedPress } = useLikeReveal();
+  const { revealAvailable, revealsLeft, revealing, onLockedPress } = useLikeReveal();
+  const revealCount = `${revealsLeft} free Like Reveal${revealsLeft === 1 ? '' : 's'}`;
   const visible = likes?.revealed ?? [];
   const priority = visible.filter((l) => l.priority);
   const normal = visible.filter((l) => !l.priority);
@@ -57,7 +58,7 @@ export default function LikesScreen() {
               </AppText>
               <AppText style={styles.heroBody}>
                 {revealAvailable
-                  ? 'Tap any hidden like below to use your 1 free Like Reveal. Seeing everyone who liked you needs a DateToday+ subscription.'
+                  ? `Tap any hidden like below to use your ${revealCount}. Seeing everyone who liked you needs a DateToday+ subscription.`
                   : 'Liked You shows everyone who tapped Interested on you, so you can like them back and match instantly. Seeing everyone needs a DateToday+ subscription.'}
               </AppText>
               <Button label="Unlock with DateToday+" onPress={unlock} />
@@ -103,7 +104,7 @@ export default function LikesScreen() {
               <AppText style={styles.section}>HIDDEN LIKES</AppText>
               <View style={styles.sectionTag}>
                 <Ionicons name={revealAvailable ? 'eye' : 'lock-closed'} size={rs(10)} color={colors.brandBright} />
-                <AppText style={styles.sectionTagText}>{revealAvailable ? '1 FREE REVEAL' : 'DATETODAY+'}</AppText>
+                <AppText style={styles.sectionTagText}>{revealAvailable ? `${revealsLeft} FREE REVEAL${revealsLeft === 1 ? '' : 'S'}` : 'DATETODAY+'}</AppText>
               </View>
             </View>
             <View style={styles.grid}>

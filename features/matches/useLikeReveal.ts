@@ -16,6 +16,7 @@ export function useLikeReveal() {
   const likes = usePendingLikes();
   const [revealing, setRevealing] = useState(false);
   const available = Boolean(likes && !likes.plus && likes.revealAvailable);
+  const left = available ? Math.max(1, likes?.revealsLeft ?? 1) : 0;
 
   const reveal = async (token: string) => {
     setRevealing(true);
@@ -52,7 +53,9 @@ export function useLikeReveal() {
     void Haptics.selectionAsync();
     Alert.alert(
       'Use your free Like Reveal?',
-      'You get one. See who this is and like them back — the rest stay hidden until DateToday+.',
+      left > 1
+        ? `You have ${left}. See who this is and like them back.`
+        : 'See who this is and like them back. The rest stay hidden until DateToday+.',
       [
         { text: 'Not now', style: 'cancel' },
         { text: 'Reveal', onPress: () => void reveal(token) },
@@ -60,5 +63,5 @@ export function useLikeReveal() {
     );
   };
 
-  return { revealAvailable: available, revealing, onLockedPress };
+  return { revealAvailable: available, revealsLeft: left, revealing, onLockedPress };
 }
