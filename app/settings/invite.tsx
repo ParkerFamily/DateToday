@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, Share, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter, type Href } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
@@ -10,11 +11,13 @@ import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, radii, spacing } from '@/constants/theme';
 import {
   clearPendingInvite,
+  inviteMessage,
   inviteSummary,
   pendingInvite,
   redeemInvite,
   type InviteSummary,
 } from '@/features/referrals/api';
+import { deviceContactsSupported, textInvite } from '@/features/safety/contactBlocks';
 import { refreshLikes } from '@/store/matches';
 import { friendlyError } from '@/lib/errors';
 import { ScaledSheet, rs } from '@/lib/scale';
@@ -26,6 +29,8 @@ const STEPS = [
 ] as const;
 
 export default function InviteScreen() {
+  const router = useRouter();
+  const canPickContacts = deviceContactsSupported();
   const [data, setData] = useState<InviteSummary | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -51,11 +56,24 @@ export default function InviteScreen() {
 
   const share = async () => {
     if (!data) return;
-    const message = `Join me on DateToday ⚡ See who’s out tonight and make real plans. Use my invite code ${data.code} for ${data.friendLikes} bonus Likes: ${data.link}`;
+    const message = inviteMessage(data);
     try {
       await Share.share(Platform.OS === 'ios' ? { message, url: data.link } : { message });
     } catch {
       // Closing the share sheet isn't an error worth showing.
+    }
+  };
+
+  const inviteContacts = async () => {
+    if (!data) return;
+    if (canPickContacts) {
+      router.push('/settings/contacts-picker?mode=invite' as Href);
+      return;
+    }
+    try {
+      await textInvite(inviteMessage(data));
+    } catch {
+      await share();
     }
   };
 
@@ -123,6 +141,13 @@ export default function InviteScreen() {
               </AppText>
               <View style={styles.codeActions}>
                 <Button label="Share invite" onPress={() => void share()} />
+                {Platform.OS !== 'web' ? (
+                  <Button
+                    label={canPickContacts ? 'Invite contacts' : 'Text a friend'}
+                    variant="secondary"
+                    onPress={() => void inviteContacts()}
+                  />
+                ) : null}
                 {Platform.OS === 'web' ? (
                   <Button label="Copy code" variant="secondary" onPress={() => void copy()} />
                 ) : null}

@@ -1,6 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { isBackendConfigured } from '@/lib/env';
 import { Screen } from '@/components/ui/Screen';
 import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
@@ -9,9 +11,10 @@ import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, radii, spacing } from '@/constants/theme';
 import { listBlockedUsers, unblockUser, type BlockedUser } from '@/features/safety/api';
 import { useBlocksStore } from '@/store/blocks';
-import { ScaledSheet } from '@/lib/scale';
+import { ScaledSheet, rs } from '@/lib/scale';
 
 export default function BlockedUsersScreen() {
+  const router = useRouter();
   const localBlocks = useBlocksStore((s) => s.byId);
   const [rows, setRows] = useState<BlockedUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +88,23 @@ export default function BlockedUsersScreen() {
           Blocked people stay out of discovery, dates, and chat. They are not told you blocked them.
         </AppText>
 
+        {isBackendConfigured() ? (
+          <Pressable
+            onPress={() => router.push('/settings/block-contacts' as Href)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.card, styles.contactsCard, pressed && styles.pressed]}
+          >
+            <Ionicons name="people-outline" size={rs(22)} color={colors.brandBright} />
+            <View style={styles.cardText}>
+              <AppText style={styles.id}>Block contacts</AppText>
+              <AppText variant="secondary" style={styles.meta}>
+                Pick people from your contacts or type a number. You won’t see each other.
+              </AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={rs(18)} color={colors.textSecondary} />
+          </Pressable>
+        ) : null}
+
         {loading ? (
           <View style={styles.busy}>
             <ActivityIndicator color={colors.brandBright} />
@@ -155,6 +175,12 @@ const styles = ScaledSheet.create({
   cardText: {
     flex: 1,
     gap: 4,
+  },
+  contactsCard: {
+    justifyContent: 'flex-start',
+  },
+  pressed: {
+    opacity: 0.8,
   },
   id: {
     color: colors.text,

@@ -223,6 +223,13 @@ export default function SettingsScreen() {
           <SettingsRow label="Dating Safety Tips" onPress={() => router.push('/safety/tips')} />
           <SettingsRow label="Chat & messaging" onPress={() => router.push('/settings/chat')} />
           <SettingsRow label="Blocked users" onPress={() => router.push('/settings/blocked')} />
+          {isBackendConfigured() ? (
+            <SettingsRow
+              label="Block contacts"
+              detail="Hide people you know, both ways"
+              onPress={() => router.push('/settings/block-contacts' as Href)}
+            />
+          ) : null}
           <SettingsRow
             label="Location services"
             onPress={() => router.push('/settings/location')}

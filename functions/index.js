@@ -30,6 +30,7 @@ const chat = require('./chat');
 const sessions = require('./sessions');
 const ownerConsole = require('./admin');
 const referrals = require('./referrals');
+const contactBlocks = require('./contactBlocks');
 
 const LIKE_LIMIT_MESSAGE =
   'You’ve used your free Likes. Get DateToday+ to keep liking. Liking back people who like you is always free.';
@@ -48,6 +49,10 @@ exports.onAuthUserCreated = functionsV1.auth.user().onCreate(async (user) => {
   const owner = await emailIdentity.findInboxOwner(db, auth, user.email, user.uid);
   if (!owner) {
     await emailIdentity.claimInbox(db, auth, user.uid, user.email);
+    // Anyone who already blocked this email from their contacts never sees the newcomer.
+    await contactBlocks
+      .syncIdentity(db, user.uid, { email: user.email })
+      .catch((e) => console.warn('contact block sync failed', user.uid, e && e.message));
     return;
   }
   await auth.updateUser(user.uid, { disabled: true });
@@ -242,6 +247,7 @@ async function purgeAccount(uid, accountEmail, source = 'cloud_function') {
   // to everyone who blocked it.
   await deleteByField(db, 'blocks', 'blockerId', uid);
   await deleteByField(db, 'blocks', 'blockedId', uid);
+  await gone(contactBlocks.purgeUser(db, uid));
   await gone(db.collection('hiddenUsers').doc(uid).delete());
   const hiddenBy = await db.collection('hiddenUsers').where('uids', 'array-contains', uid).get();
   await Promise.all(hiddenBy.docs.map((d) => d.ref.update({ uids: FieldValue.arrayRemove(uid) })));
@@ -643,6 +649,11 @@ exports.referrals = onRequest(
     }),
     { signedIn: true },
   ),
+);
+
+exports.contactBlocks = onRequest(
+  { cors: true, invoker: 'public', timeoutSeconds: 120 },
+  jsonEndpoint(contactBlocks.createContactBlocksEndpoint(), { signedIn: true }),
 );
 
 /** The page an invite link opens (GET ?c=CODE). */
@@ -1600,24 +1611,11 @@ exports.unblockUser = onRequest({ cors: true }, async (req, res) => {
     const db = getFirestore();
     const mine = await db
       .collection('blocks').where('blockerId', '==', uid).where('blockedId', '==', targetUid).get();
-    const theirs = await db
-      .collection('blocks').where('blockerId', '==', targetUid).where('blockedId', '==', uid).limit(1).get();
-
     const batch = db.batch();
     mine.docs.forEach((d) => batch.delete(d.ref));
-    if (theirs.empty) {
-      batch.set(
-        db.collection('hiddenUsers').doc(uid),
-        { uids: FieldValue.arrayRemove(targetUid), updatedAt: FieldValue.serverTimestamp() },
-        { merge: true },
-      );
-      batch.set(
-        db.collection('hiddenUsers').doc(targetUid),
-        { uids: FieldValue.arrayRemove(uid), updatedAt: FieldValue.serverTimestamp() },
-        { merge: true },
-      );
-    }
     await batch.commit();
+    // Still hidden if they blocked back, either one has the other in Block contacts, or they unmatched.
+    await contactBlocks.unhideIfFree(db, uid, targetUid);
     res.json({ ok: true });
   } catch (error) {
     console.error(error);
