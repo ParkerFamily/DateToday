@@ -368,6 +368,14 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
     ...(hasLegalConsent ? { communityStandards: true } : {}),
   };
 
+  console.log('[DateToday] loadUserProfile: Building profile object', {
+    uid,
+    displayName: d.displayName,
+    mainPhotoUrl: d.mainPhotoUrl,
+    photoURL: d.photoURL,
+    provider: d.provider,
+  });
+
   const profile: Profile = {
     userId: uid,
     displayName: String(d.displayName ?? 'You'),

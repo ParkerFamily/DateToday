@@ -109,7 +109,22 @@ async function ensureUserDoc(
       payload.createdAt = serverTimestamp();
       payload.verificationStatus = 'unverified';
       if (displayName) payload.displayName = displayName;
-      if (extras.photoURL) payload.photoURL = extras.photoURL;
+      // Only set photoURL if passed (we don't pass it if user has custom mainPhotoUrl)
+      if (extras.photoURL !== undefined) {
+        payload.photoURL = extras.photoURL;
+      }
+      console.log('[DateToday] ensureUserDoc: NEW USER - setting displayName and photoURL', {
+        uid,
+        displayName,
+        photoURL: extras.photoURL,
+      });
+    } else {
+      console.log('[DateToday] ensureUserDoc: EXISTING USER - NOT setting displayName or photoURL', {
+        uid,
+        hasExistingPhoto: extras?.hasExistingPhoto,
+        displayName: '(not writing)',
+        photoURL: extras?.photoURL !== undefined ? '(not writing - user has custom photo)' : '(not provided)',
+      });
     }
     await setDoc(doc(getDb(), 'users', uid), payload, { merge: true });
   } catch (error) {
@@ -166,13 +181,31 @@ export async function finishSocialSignIn(
     : await getDoc(doc(getDb(), 'users', cred.user.uid))
         .then((s) => s.data())
         .catch(() => null);
+  
+  console.log('[DateToday] finishSocialSignIn', {
+    provider,
+    isNewUser,
+    uid: cred.user.uid,
+    googleDisplayName: cred.user.displayName,
+    googlePhotoURL: cred.user.photoURL,
+    existingDisplayName: before?.displayName,
+    existingPhotoURL: before?.photoURL,
+    existingMainPhotoUrl: before?.mainPhotoUrl,
+  });
+  
   const providerIds = cred.user.providerData.map((p) => p.providerId);
   const hadPassword = Array.isArray(before?.providerIds) && before.providerIds.includes('password');
+  
+  // For EXISTING users: if they have custom displayName or mainPhotoUrl, NEVER pass Google data
+  // This prevents any chance of overwriting custom profile data
   const name = displayName || cred.user.displayName;
+  const shouldPassPhoto = isNewUser || !before?.mainPhotoUrl;
+  
   await ensureUserDoc(cred.user.uid, cred.user.email, name, provider, {
-    photoURL: cred.user.photoURL,
+    photoURL: shouldPassPhoto ? cred.user.photoURL : undefined,
     providerIds,
     isNewUser,
+    hasExistingPhoto: Boolean(before?.mainPhotoUrl),
   });
   const linked = await completePendingLink().catch(() => null);
   analytics.track('signup_completed', { provider });
