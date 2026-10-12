@@ -8,9 +8,11 @@ import { ScaledSheet } from '@/lib/scale';
 
 export function SettingsHeader({
   title,
+  subtitle,
   onBack,
 }: {
   title: string;
+  subtitle?: string;
   onBack?: () => void;
 }) {
   const router = useRouter();
@@ -34,9 +36,16 @@ export function SettingsHeader({
       >
         <AppText style={styles.headerBackLabel}>‹</AppText>
       </Pressable>
-      <AppText variant="hero" style={styles.headerTitle}>
-        {title}
-      </AppText>
+      <View style={styles.headerContent}>
+        <AppText variant="hero" style={styles.headerTitle}>
+          {title}
+        </AppText>
+        {subtitle ? (
+          <AppText variant="secondary" style={styles.headerSubtitle}>
+            {subtitle}
+          </AppText>
+        ) : null}
+      </View>
       <View style={styles.headerSpacer} />
     </View>
   );
@@ -65,12 +74,16 @@ export function SettingsRow({
   onPress,
   danger,
   last,
+  icon,
+  trailing,
 }: {
   label: string;
   detail?: string;
   onPress: () => void;
   danger?: boolean;
   last?: boolean;
+  icon?: string;
+  trailing?: React.ReactNode;
 }) {
   return (
     <Pressable
@@ -86,7 +99,7 @@ export function SettingsRow({
           </AppText>
         ) : null}
       </View>
-      <AppText variant="secondary">›</AppText>
+      {trailing || <AppText variant="secondary">›</AppText>}
     </Pressable>
   );
 }
@@ -204,6 +217,14 @@ const styles = ScaledSheet.create({
   },
   headerTitle: {
     flex: 1,
+  },
+  headerContent: {
+    flex: 1,
+    gap: 4,
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    marginTop: -2,
   },
   headerSpacer: {
     width: 40,

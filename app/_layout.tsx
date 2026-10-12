@@ -4,6 +4,7 @@ import { installWebFrame } from '@/lib/webFrame';
 import { clearSignedOutMark, restoreAuthUser, subscribeAuth } from '@/features/auth/api';
 import { SignInCodeGate, signOutThisDevice } from '@/components/auth/SignInCodeGate';
 import { setRevokedHandler, startDeviceSession } from '@/features/security/session';
+import { useReferralDeepLink } from '@/hooks/useReferralDeepLink';
 import {
     configureNotificationHandler,
     listenForPushTokenChanges,
@@ -477,6 +478,9 @@ export default function RootLayout() {
     Caveat_600SemiBold,
   });
   const [fontTimeout, setFontTimeout] = useState(false);
+
+  // Handle referral deep links
+  useReferralDeepLink();
 
   // AuthGate hides the splash once bootstrap finishes; this is only a backstop.
   useEffect(() => {

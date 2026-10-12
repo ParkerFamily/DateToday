@@ -10,6 +10,7 @@ import { firstName, type OnboardingDraft } from '@/store/onboardingDraft';
 import type { DatingPreferences, Profile } from '@/types';
 import { isAtLeast18 } from '@/utils/time';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { getPendingReferralCode, recordReferral, clearPendingReferralCode, completeReferral } from '@/lib/referrals/tracking';
 
 const DEV_SKIP = 'datetoday://dev-skip-video';
 
@@ -319,6 +320,26 @@ export async function saveOnboardingProfile(draft: DraftSnapshot): Promise<Saved
     intentions: draft.vibes,
   };
 
+  // Handle referral tracking (if user came from a referral link)
+  void (async () => {
+    try {
+      const referralCode = await getPendingReferralCode();
+      if (referralCode) {
+        console.log('[Referral] Processing referral code from deep link:', referralCode);
+        const success = await recordReferral(uid, referralCode);
+        if (success) {
+          await clearPendingReferralCode();
+          // Complete referral immediately after successful signup
+          await completeReferral(uid);
+          console.log('[Referral] Referral recorded and completed for new user');
+        }
+      }
+    } catch (error) {
+      console.error('[Referral] Error processing referral:', error);
+      // Don't block onboarding if referral tracking fails
+    }
+  })();
+
   return { profile, preferences, firestorePath: `users/${uid}`, dateOfBirth: draft.dateOfBirth || null };
 }
 export async function loadUserProfile(uid: string): Promise<SavedOnboarding | null> {
@@ -367,6 +388,14 @@ export async function loadUserProfile(uid: string): Promise<SavedOnboarding | nu
     ...(ageConfirmed ? { age: true } : {}),
     ...(hasLegalConsent ? { communityStandards: true } : {}),
   };
+
+  console.log('[DateToday] loadUserProfile: Building profile object', {
+    uid,
+    displayName: d.displayName,
+    mainPhotoUrl: d.mainPhotoUrl,
+    photoURL: d.photoURL,
+    provider: d.provider,
+  });
 
   const profile: Profile = {
     userId: uid,

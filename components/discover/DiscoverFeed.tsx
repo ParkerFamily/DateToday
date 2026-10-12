@@ -9,6 +9,8 @@ import {
     UnderlineTabs,
     livePad,
 } from '@/components/ui/LiveChrome';
+import { SwipeTutorial } from '@/components/discover/SwipeTutorial';
+import { hasCompletedSwipeTutorial, markSwipeTutorialCompleted } from '@/lib/tutorial';
 import { OptionChip } from '@/components/ui/OptionChip';
 import { Screen } from '@/components/ui/Screen';
 import { VerificationTag } from '@/components/ui/VerificationTag';
@@ -249,6 +251,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   );
   const priorityRank = useMemo(() => new Map([...priorityFrom.keys()].map((u, i) => [u, i])), [priorityFrom]);
   const [priorityTarget, setPriorityTarget] = useState<DiscoveryCard | null>(null);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialChecked, setTutorialChecked] = useState(false);
   const liveSession = useSessionStore((s) => s.liveSession);
   const discoveryPaused = useSessionStore((s) => s.discoveryPaused);
   const setDiscoverAttention = useSessionStore((s) => s.setDiscoverAttention);
@@ -268,6 +272,19 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       clearNewInPing();
     }, [setDiscoverAttention, clearNewInPing]),
   );
+
+  // Check if tutorial should be shown on first card load
+  useEffect(() => {
+    if (!card || tutorialChecked) return;
+    
+    void (async () => {
+      const completed = await hasCompletedSwipeTutorial();
+      setTutorialChecked(true);
+      if (!completed) {
+        setShowTutorial(true);
+      }
+    })();
+  }, [card, tutorialChecked]);
 
   const feedQuery = useQuery({
     queryKey: [
@@ -537,6 +554,20 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     });
     setRewoundId(rewindTo);
   };
+
+  const handleTutorialComplete = useCallback(() => {
+    setShowTutorial(false);
+    void markSwipeTutorialCompleted();
+  }, []);
+
+  const handleTutorialSkip = useCallback(() => {
+    setShowTutorial(false);
+    void markSwipeTutorialCompleted();
+  }, []);
+
+  const handleShowTutorialAgain = useCallback(() => {
+    setShowTutorial(true);
+  }, []);
 
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -1126,6 +1157,15 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 : 'They haven’t gone live tonight, but you can still match'}
             </AppText>
           </View>
+          <Pressable
+            onPress={handleShowTutorialAgain}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Show swipe tutorial"
+            style={styles.helpButton}
+          >
+            <Ionicons name="help-circle-outline" size={rs(24)} color={colors.textSecondary} />
+          </Pressable>
         </View>
         <FilterBar />
         {outsideFilters ? (
@@ -1529,6 +1569,12 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           onSend={sendPriority}
         />
 
+        <SwipeTutorial
+          visible={showTutorial}
+          onComplete={handleTutorialComplete}
+          onSkip={handleTutorialSkip}
+        />
+
         {interestFlash ? (
           <View style={[styles.interestFlash, { bottom: actionBarH + rs(12) }]} pointerEvents="none">
             <AppText style={styles.interestFlashTitle}>{flowCopy.interestSentTitle}</AppText>
@@ -1566,6 +1612,9 @@ const styles = ScaledSheet.create({
     flex: 1,
     gap: 2,
     minWidth: 0,
+  },
+  helpButton: {
+    padding: 4,
   },
   pingHeaderEyebrow: {
     color: colors.live,

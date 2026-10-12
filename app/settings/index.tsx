@@ -141,6 +141,22 @@ export default function SettingsScreen() {
           </SettingsGroup>
         ) : null}
 
+        <SettingsGroup title="Rewards & Help">
+          <SettingsRow
+            label="Invite Friends & Earn"
+            detail="Share your code and unlock exclusive rewards"
+            icon="gift"
+            onPress={() => router.push('/settings/invite' as Href)}
+          />
+          <SettingsRow
+            label="Tutorials"
+            detail="Watch guides for swiping, going Live, messaging & more"
+            icon="school"
+            last
+            onPress={() => router.push('/settings/tutorials' as Href)}
+          />
+        </SettingsGroup>
+
         <SettingsGroup title="Account & profile">
           <SettingsRow
             label="Account information"
