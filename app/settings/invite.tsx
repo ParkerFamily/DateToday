@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, Pressable, Share, Alert, ActivityIndicato
 import * as Clipboard from 'expo-clipboard';
 import { AppText } from '@/components/ui/AppText';
 import { Screen } from '@/components/ui/Screen';
-import { SettingsHeader } from '@/components/settings/SettingsHeader';
+import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { colors, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { getReferralCode, generateReferralLink } from '@/lib/referrals/codes';
