@@ -250,7 +250,7 @@ async function likesDigest({ db, auth, now = Date.now() }) {
 }
 
 /** Emails a new match only to people push can't reach. */
-async function emailNewMatch(db, auth, { uid, otherName, matchId }) {
+async function emailNewMatch(db, auth, { uid, otherName, matchId, friend = false }) {
   const tokens = await db.collection('pushTokens').where('uid', '==', uid).limit(5).get();
   if (tokens.docs.some((d) => d.get('enabled') !== false && typeof d.get('token') === 'string')) return;
   const user = await auth.getUser(uid).catch(() => null);
@@ -260,7 +260,7 @@ async function emailNewMatch(db, auth, { uid, otherName, matchId }) {
     uid,
     category: 'activity',
     idempotencyKey: `match-${matchId}-${uid}`,
-    ...email.T.newMatch(otherName || 'someone', matchId),
+    ...email.T.newMatch(otherName || 'someone', matchId, { friend }),
   });
 }
 

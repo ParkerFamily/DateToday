@@ -103,6 +103,7 @@ async function pendingLikes(db, uid) {
       priority,
       priorityAt: priority ? msOf(data.priorityAt) : 0,
       note: priority && typeof data.note === 'string' ? data.note : null,
+      friendDate: data.mode === 'friend',
     });
   }
   if (!rows.length) return [];
@@ -149,6 +150,7 @@ function publicLike(row) {
     likedAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     priority: Boolean(row.priority),
     note: row.priority ? row.note || null : null,
+    friendDate: Boolean(row.friendDate),
   };
 }
 

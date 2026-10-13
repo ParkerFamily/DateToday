@@ -85,6 +85,7 @@ export function useNearbyPresence() {
   const hasPhoto = useSessionStore((s) => Boolean(s.profile?.mainPhotoUrl));
   const showInDiscovery = usePrivacyControls((s) => s.showInDiscovery);
   const pauseDiscovery = usePrivacyControls((s) => s.pauseDiscovery);
+  const friendDateDiscovery = usePrivacyControls((s) => s.friendDateDiscovery);
   const hydrated = usePrivacyControls((s) => s.hydrated);
 
   useEffect(() => {
@@ -95,5 +96,5 @@ export function useNearbyPresence() {
       if (next === 'active') void sync().catch(() => undefined);
     });
     return () => sub.remove();
-  }, [uid, hasPhoto, hydrated, showInDiscovery, pauseDiscovery]);
+  }, [uid, hasPhoto, hydrated, showInDiscovery, pauseDiscovery, friendDateDiscovery]);
 }

@@ -76,8 +76,15 @@ export function LikesStrip() {
                         <Ionicons name="person" size={rs(28)} color={colors.textSecondary} />
                       </View>
                     )}
-                    <View style={[styles.heartBadge, card.priority && styles.priorityBadge]}>
-                      <Ionicons name={card.priority ? 'flash' : 'heart'} size={rs(11)} color="#fff" />
+                    <View
+                      style={[styles.heartBadge, card.priority && styles.priorityBadge, card.friendDate && styles.friendBadge]}
+                      accessibilityLabel={card.friendDate ? 'Friend Date like' : undefined}
+                    >
+                      <Ionicons
+                        name={card.priority ? 'flash' : card.friendDate ? 'people' : 'heart'}
+                        size={rs(11)}
+                        color={card.friendDate ? colors.background : '#fff'}
+                      />
                     </View>
                   </View>
                   <AppText style={styles.name} numberOfLines={1}>
@@ -174,6 +181,7 @@ const styles = ScaledSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   priorityBadge: { backgroundColor: '#0B0612', borderColor: PRIORITY },
+  friendBadge: { backgroundColor: colors.friend },
   ringLocked: { borderColor: 'rgba(168,85,247,0.35)' },
   avatar: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.card },
   avatarEmpty: { alignItems: 'center', justifyContent: 'center' },

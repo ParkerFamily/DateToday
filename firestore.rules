@@ -188,10 +188,29 @@ service cloud.firestore {
           && d.trip.startsOn <= d.trip.endsOn
         );
       }
+      // Friend Date (mode 'friend') can only be active with a current pass from the friendDate function,
+      // which enforces the free weekly limit. Missing mode = Dating.
+      function validMode(d) {
+        return d.get('mode', 'dating') in ['dating', 'friend'] && (
+          d.get('mode', 'dating') != 'friend'
+          || d.get('status', '') != 'active'
+          || (exists(/databases/$(database)/documents/friendDatePasses/$(userId))
+            && get(/databases/$(database)/documents/friendDatePasses/$(userId)).data.until > request.time)
+        );
+      }
       allow read: if signedIn();
       allow create, update: if isOwner(userId) && verifiedMatchesAccount(userId)
-        && validTrip(request.resource.data);
+        && validTrip(request.resource.data) && validMode(request.resource.data);
       allow delete: if isOwner(userId);
+    }
+
+    // Friend Date usage (free weekly sessions) and the current session pass. Cloud Functions only.
+    match /friendDateUsage/{userId} {
+      allow read, write: if false;
+    }
+    match /friendDatePasses/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
     }
 
     // Non-live "nearby" presence (rounded lat/lng + public card fields) so the feed isn't empty.
@@ -251,7 +270,7 @@ service cloud.firestore {
     }
     match /appConfig/{docId} {
       // Priority Like limits and the free Likes allowance, so the app's copy matches the server.
-      allow read: if signedIn() && docId in ['priorityLikes', 'freeLikes'];
+      allow read: if signedIn() && docId in ['priorityLikes', 'freeLikes', 'friendDate'];
       allow write: if false;
     }
 

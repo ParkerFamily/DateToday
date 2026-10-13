@@ -1090,9 +1090,12 @@ export default function ChatScreen() {
     );
   }
 
+  const friendMatch = match?.mode === 'friend';
   const subtitle = match?.nextDate
-    ? `It’s a date · ${proposalSummary(match.nextDate)}`
-    : 'You matched · plan something';
+    ? `${friendMatch ? 'Plan set' : 'It’s a date'} · ${proposalSummary(match.nextDate)}`
+    : friendMatch
+      ? 'Platonic · make a plan'
+      : 'You matched · plan something';
 
   return (
     <Screen padded={false} edges={['left', 'right']}>
@@ -1113,20 +1116,38 @@ export default function ChatScreen() {
           </Pressable>
 
           <Pressable style={styles.headerWho} onPress={openProfile} accessibilityRole="button">
-            {them?.mainPhotoUrl ? (
-              <Image source={{ uri: them.mainPhotoUrl }} style={styles.headerAvatar} />
-            ) : (
-              <View style={[styles.headerAvatar, styles.headerAvatarEmpty]}>
-                <Ionicons name="person" size={rs(18)} color={colors.textSecondary} />
-              </View>
-            )}
+            <View>
+              {them?.mainPhotoUrl ? (
+                <Image source={{ uri: them.mainPhotoUrl }} style={styles.headerAvatar} />
+              ) : (
+                <View style={[styles.headerAvatar, styles.headerAvatarEmpty]}>
+                  <Ionicons name="person" size={rs(18)} color={colors.textSecondary} />
+                </View>
+              )}
+              {friendMatch ? (
+                <View style={styles.friendAvatarBadge}>
+                  <Ionicons name="people" size={rs(9)} color={colors.background} />
+                </View>
+              ) : null}
+            </View>
             <View style={styles.headerText}>
               <AppText style={styles.title} numberOfLines={1}>
                 {theirName}
               </AppText>
-              <AppText style={styles.subtitle} numberOfLines={1}>
-                {subtitle}
-              </AppText>
+              {friendMatch ? (
+                <View style={styles.subtitleRow}>
+                  <AppText style={styles.friendLabel} numberOfLines={1} accessibilityLabel="Friend Date, platonic">
+                    FRIEND DATE
+                  </AppText>
+                  <AppText style={[styles.subtitle, styles.subtitleRest]} numberOfLines={1}>
+                    {`\u00A0· ${subtitle}`}
+                  </AppText>
+                </View>
+              ) : (
+                <AppText style={styles.subtitle} numberOfLines={1}>
+                  {subtitle}
+                </AppText>
+              )}
             </View>
           </Pressable>
 
@@ -1273,9 +1294,25 @@ const styles = ScaledSheet.create({
   },
   headerAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.card },
   headerAvatarEmpty: { alignItems: 'center', justifyContent: 'center' },
+  friendAvatarBadge: {
+    position: 'absolute',
+    right: -3,
+    bottom: -3,
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.friend,
+    borderWidth: 2,
+    borderColor: colors.background,
+  },
   headerText: { flex: 1, minWidth: 0 },
   title: { color: colors.text, fontSize: 17, fontWeight: '800' },
   subtitle: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
+  subtitleRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 2 },
+  subtitleRest: { flex: 1, minWidth: 0, marginTop: 0 },
+  friendLabel: { flexShrink: 0, color: colors.friend, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
   planBtn: {
     paddingHorizontal: 12,
     height: 36,

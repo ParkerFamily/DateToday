@@ -37,7 +37,8 @@ import { getDb } from '@/lib/firebase/client';
 import { isBackendConfigured } from '@/lib/env';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { calculateAge } from '@/utils/time';
-import type { Profile } from '@/types';
+import type { LiveMode, Profile } from '@/types';
+import { FriendDateTag } from '@/components/friendDate/FriendDateTag';
 import { useContentLayout } from '@/lib/layout';
 import { CompatibilityCard } from '@/components/profile/CompatibilityCard';
 import { ScaledSheet } from '@/lib/scale';
@@ -52,7 +53,7 @@ function photosFromProfile(p: Profile | null | undefined): string[] {
 export default function PublicProfileScreen() {
   const { contentWidth } = useContentLayout();
   const router = useRouter();
-  const { userId } = useLocalSearchParams<{ userId: string }>();
+  const { userId, mode: modeParam } = useLocalSearchParams<{ userId: string; mode?: string }>();
   const sessionUid = useSessionStore((s) => s.userId);
   const sessionProfile = useSessionStore((s) => s.profile);
   const isSelf = Boolean(
@@ -150,6 +151,9 @@ export default function PublicProfileScreen() {
   const [composing, setComposing] = useState(false);
   const [passing, setPassing] = useState(false);
   const incomingLike = useMatchesStore((s) => s.likes?.revealed.find((l) => l.uid === String(userId)));
+  /** Opened from Friend Date, or they liked you from Friend Date: hearts here are platonic. */
+  const friendView = modeParam === 'friend' || Boolean(incomingLike?.friendDate);
+  const heartMode: LiveMode = friendView ? 'friend' : 'dating';
   const incomingPriority = incomingLike?.priority ? incomingLike : undefined;
 
   React.useEffect(() => {
@@ -175,15 +179,22 @@ export default function PublicProfileScreen() {
     if (!profile || !userId) return;
     try {
       void registerPushTokenAsync({ prompt: true });
-      const result = await sendInterest(String(userId), { priority: true, note });
+      const result = await sendInterest(String(userId), { priority: true, note, mode: heartMode });
       analytics.track('priority_like_sent', { surface: 'profile', withNote: Boolean(note), upgrade: interestSent });
+      if (friendView) analytics.track('friend_date_like_sent', { surface: 'profile', priority: true });
       setComposing(false);
       if (result.mutual && result.matchId) {
+        if (result.created && result.mode === 'friend') analytics.track('friend_date_match_created', { surface: 'profile' });
         router.replace(
           result.created
             ? {
                 pathname: '/mutual',
-                params: { matchId: result.matchId, name: profile.displayName, photo: profile.mainPhotoUrl ?? '' },
+                params: {
+                  matchId: result.matchId,
+                  name: profile.displayName,
+                  photo: profile.mainPhotoUrl ?? '',
+                  ...(result.mode === 'friend' ? { mode: 'friend' } : {}),
+                },
               }
             : { pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } },
         );
@@ -222,7 +233,8 @@ export default function PublicProfileScreen() {
     setSendingInterest(true);
     try {
       void registerPushTokenAsync({ prompt: true });
-      const result = await sendInterest(String(userId));
+      const result = await sendInterest(String(userId), { mode: heartMode });
+      if (friendView) analytics.track('friend_date_like_sent', { surface: 'profile' });
       const likes = useMatchesStore.getState().likes;
       if (likes && result.likesLeft != null) {
         useMatchesStore.getState().set({ likes: { ...likes, likesLeft: result.likesLeft } });
@@ -232,12 +244,14 @@ export default function PublicProfileScreen() {
         return;
       }
       if (result.mutual && result.matchId) {
+        if (result.mode === 'friend') analytics.track('friend_date_match_created', { surface: 'profile' });
         router.replace({
           pathname: '/mutual',
           params: {
             matchId: result.matchId,
             name: profile.displayName,
             photo: profile.mainPhotoUrl ?? '',
+            ...(result.mode === 'friend' ? { mode: 'friend' } : {}),
           },
         });
         return;
@@ -396,13 +410,14 @@ export default function PublicProfileScreen() {
               </View>
             </View>
           ) : null}
+          {friendView ? <FriendDateTag platonic /> : null}
           <AppText variant="hero">{nameLine}</AppText>
           <VerificationTag status={profile.verificationStatus} />
           <AppText variant="secondary">
             {[profile.hometown, profile.neighborhoodLabel].filter(Boolean).join(' · ') ||
               'Nearby'}
           </AppText>
-          {vibeLabel(profile.datingIntention) ? (
+          {!friendView && vibeLabel(profile.datingIntention) ? (
             <View style={styles.vibePill}>
               <AppText style={styles.vibePillText}>{vibeLabel(profile.datingIntention)}</AppText>
             </View>

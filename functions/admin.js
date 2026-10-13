@@ -6,6 +6,7 @@
  */
 const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 const freeLikes = require('./freeLikes');
+const friendDate = require('./friendDate');
 const priorityLikes = require('./priorityLikes');
 const sessions = require('./sessions');
 
@@ -508,13 +509,15 @@ function createAdminEndpoint({ pushToUser, purgeAccount, promoBroadcast }) {
     },
 
     async config(req, { db }) {
-      const [fl, pl] = await Promise.all([
+      const [fl, pl, fd] = await Promise.all([
         db.collection('appConfig').doc('freeLikes').get(),
         db.collection('appConfig').doc('priorityLikes').get(),
+        db.collection('appConfig').doc('friendDate').get(),
       ]);
       return {
         freeLikes: freeLikes.freeLikesConfig(fl.exists ? fl.data() : null),
         priorityLikes: priorityLikes.normalizeConfig(pl.exists ? pl.data() : null),
+        friendDate: friendDate.friendDateConfig(fd.exists ? fd.data() : null),
       };
     },
 
@@ -522,8 +525,10 @@ function createAdminEndpoint({ pushToUser, purgeAccount, promoBroadcast }) {
       const key = String(req.body.key || '');
       const value = req.body.value && typeof req.body.value === 'object' ? req.body.value : null;
       if (!value) throw httpError(400, 'Nothing to save.');
-      if (key !== 'freeLikes') throw httpError(400, 'Unknown setting.');
-      const next = freeLikes.freeLikesConfig(value);
+      const normalizers = { freeLikes: freeLikes.freeLikesConfig, friendDate: friendDate.friendDateConfig };
+      if (!Object.prototype.hasOwnProperty.call(normalizers, key)) throw httpError(400, 'Unknown setting.');
+      const normalize = normalizers[key];
+      const next = normalize(value);
       await db.collection('appConfig').doc(key).set({ ...next, updatedAt: FieldValue.serverTimestamp(), updatedBy: decoded.uid }, { merge: true });
       await log(db, decoded, 'set_config', null, { key, value: next });
       return { ok: true, [key]: next };

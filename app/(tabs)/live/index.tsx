@@ -1,4 +1,10 @@
 import { DiscoverFeed } from '@/components/discover/DiscoverFeed';
+import { LiveModeSwitch } from '@/components/friendDate/LiveModeSwitch';
+import { friendDateAllowanceLabel, friendDateSummary, startFriendDate } from '@/features/friendDate/api';
+import { errorCode } from '@/features/matches/api';
+import { useFriendDateMode } from '@/store/friendDate';
+import { calculateAge } from '@/utils/time';
+import { useQuery } from '@tanstack/react-query';
 import { LiveStatusBar } from '@/components/live/LiveStatusBar';
 import { DtIconHero } from '@/components/onboarding/DtIconHero';
 import { PlacePicker, SelectedPlaceCard } from '@/components/plan/PlacePicker';
@@ -171,11 +177,54 @@ export default function LiveHomeScreen() {
   const discoverFilters = useDiscoverFilters();
   const filterCount = activeFilterLabels(discoverFilters, { plus: plusFilters }).length;
   const { readyForLive, missing, missingKeys } = useProfileCompletion();
+  const pickedMode = useFriendDateMode((s) => s.mode);
+  const profile = useSessionStore((s) => s.profile);
+  const myAge = useMemo(() => {
+    try {
+      return profile?.dateOfBirth ? calculateAge(profile.dateOfBirth) : null;
+    } catch {
+      return null;
+    }
+  }, [profile?.dateOfBirth]);
 
   const live = useMemo(
     () => (liveSession ? isLiveSessionActive(liveSession, now) : false),
     [liveSession, now],
   );
+  const mode = live ? (liveSession?.mode ?? 'dating') : pickedMode;
+  const friend = mode === 'friend';
+  // Friend Date never assumes drinking: Drinks only for 21+. Nothing romantic in the vibe either.
+  const planOptions = useMemo(
+    () => (friend && !(myAge != null && myAge >= 21) ? PLAN_OPTIONS.filter((o) => o.value !== 'drinks') : PLAN_OPTIONS),
+    [friend, myAge],
+  );
+  const energyOptions = useMemo(
+    () => (friend ? ENERGY_OPTIONS.filter((o) => o.value !== 'romantic') : ENERGY_OPTIONS),
+    [friend],
+  );
+  const friendQuota = useQuery({
+    queryKey: ['friend-date-summary', userId],
+    queryFn: friendDateSummary,
+    enabled: friend && !plus && !live && isBackendConfigured() && Boolean(userId),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const friendAllowance = plus ? 'Unlimited with DateToday+' : friendDateAllowanceLabel(friendQuota.data);
+
+  useEffect(() => {
+    void useFriendDateMode.getState().hydrate(userId);
+  }, [userId]);
+
+  useEffect(() => {
+    if (live) return;
+    if (planOptions.length < PLAN_OPTIONS.length) {
+      setActivities((prev) => {
+        const kept = prev.filter((a) => planOptions.some((o) => o.value === a));
+        return kept.length === prev.length ? prev : kept.length ? kept : ['coffee'];
+      });
+    }
+    if (friend) setEnergy((prev) => (prev === 'romantic' ? null : prev));
+  }, [planOptions, friend, live]);
 
   const activeFoods = live ? (liveSession?.foodCuisines ?? foodCuisines) : foodCuisines;
   const foodBit = wantsDinner ? formatFoodSummary(activeFoods) : '';
@@ -257,6 +306,19 @@ export default function LiveHomeScreen() {
 
     setLoading(true);
 
+    /** Friend Date Live needs a pass (one of this week's free sessions, or DateToday+). */
+    const friendPassReady = async () => {
+      if (!friend || !isBackendConfigured()) return true;
+      try {
+        await startFriendDate();
+        return true;
+      } catch (error) {
+        if (errorCode(error) !== 'friend_date_limit') throw error;
+        openUpgrade(router, 'friend_date');
+        return false;
+      }
+    };
+
     try {
       const laterHour = tripUpcoming ? null : laterTonightHour;
       const { freeUntil: freeAt, label } = buildFreeUntil(untilPick.value, laterHour);
@@ -266,7 +328,9 @@ export default function LiveHomeScreen() {
 
       // Travel Mode goes Live at the trip city; the phone's location is never read or shared.
       if (trip && isBackendConfigured()) {
+        if (!(await friendPassReady())) return;
         const session = await startLiveSession({
+          mode,
           latitude: trip.latitude,
           longitude: trip.longitude,
           radiusMiles: radius,
@@ -332,7 +396,9 @@ export default function LiveHomeScreen() {
 
       // Publish session
       if (isBackendConfigured()) {
+        if (!(await friendPassReady())) return;
         const session = await startLiveSession({
+          mode,
           latitude,
           longitude,
           radiusMiles: radius,
@@ -360,6 +426,7 @@ export default function LiveHomeScreen() {
         const localSession = {
           id: `local-${Date.now()}`,
           userId: 'local',
+          mode,
           startedAt: new Date().toISOString(),
           expiresAt: expiresAt.toISOString(),
           endedAt: null,
@@ -530,6 +597,7 @@ export default function LiveHomeScreen() {
   const onStopRef = useRef(onStop);
   onStopRef.current = onStop;
   const liveMeta = [
+    liveSession?.mode === 'friend' ? 'Friend Date' : null,
     liveSession?.trip ? `✈️ ${liveSession.trip.city}` : null,
     formatActivities(liveSession?.activities ?? activities),
     foodBit || null,
@@ -702,13 +770,37 @@ export default function LiveHomeScreen() {
             </View>
 
             <View style={styles.heroCopy}>
-              <AppText style={styles.heroTitle}>
-                Who's out <AppText style={styles.heroTitleAccent}>tonight?</AppText>
-              </AppText>
-              <AppText style={styles.heroSub}>
-                Find real people, real plans,{' '}
-                <AppText style={styles.heroSubAccent}>right now.</AppText>
-              </AppText>
+              {friend ? (
+                <>
+                  <AppText style={styles.heroTitle}>
+                    Who's free to <AppText style={styles.heroTitleFriend}>hang?</AppText>
+                  </AppText>
+                  <AppText style={styles.heroSub}>
+                    Make a real plan with people free today.{' '}
+                    <AppText style={styles.heroSubFriend}>Platonic only.</AppText>
+                  </AppText>
+                </>
+              ) : (
+                <>
+                  <AppText style={styles.heroTitle}>
+                    Who's out <AppText style={styles.heroTitleAccent}>tonight?</AppText>
+                  </AppText>
+                  <AppText style={styles.heroSub}>
+                    Find real people, real plans,{' '}
+                    <AppText style={styles.heroSubAccent}>right now.</AppText>
+                  </AppText>
+                </>
+              )}
+            </View>
+
+            <View style={styles.modeBlock}>
+              <LiveModeSwitch />
+              {friend ? (
+                <AppText style={styles.modeHint}>
+                  Friend Date is for platonic plans only. You’ll only see people up for a Friend Date, every
+                  gender.{friendAllowance ? ` ${friendAllowance}.` : ''}
+                </AppText>
+              ) : null}
             </View>
 
             <View style={styles.section}>
@@ -718,7 +810,7 @@ export default function LiveHomeScreen() {
               </View>
 
               <View style={styles.planCards}>
-                {PLAN_OPTIONS.map((opt) => {
+                {planOptions.map((opt) => {
                   const on = activities.includes(opt.value);
                   return (
                     <Pressable
@@ -795,7 +887,7 @@ export default function LiveHomeScreen() {
                 <AppText style={styles.sectionHint}>What kind of night?</AppText>
               </View>
               <View style={styles.lateWrap}>
-                {ENERGY_OPTIONS.map((o) => {
+                {energyOptions.map((o) => {
                   const on = energy === o.value;
                   return (
                     <Pressable
@@ -998,7 +1090,7 @@ export default function LiveHomeScreen() {
             <View style={styles.ctaStack}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={trip ? `Go live in ${trip.city}` : 'Go live tonight'}
+                accessibilityLabel={`${trip ? `Go live in ${trip.city}` : 'Go live tonight'}${friend ? ', Friend Date' : ''}`}
                 accessibilityHint="Press and hold to go live"
                 accessibilityActions={[{ name: 'activate' }]}
                 onAccessibilityAction={() => void activateLive()}
@@ -1021,14 +1113,18 @@ export default function LiveHomeScreen() {
                         ? 'Keep holding…'
                         : trip
                           ? `HOLD TO GO LIVE IN ${trip.city.toUpperCase()} ✈️`
-                          : 'HOLD TO GO LIVE ⚡'}
+                          : friend
+                            ? 'HOLD TO GO LIVE'
+                            : 'HOLD TO GO LIVE ⚡'}
                   </AppText>
                 </LinearGradient>
               </Pressable>
               <AppText style={styles.goLiveHint}>
                 {trip
                   ? `People in ${trip.city} will see “${tripLabel(trip, now)}”, never “nearby”.`
-                  : 'Go Live to let nearby matches know you\'re ready to make plans tonight.'}
+                  : friend
+                    ? 'Friend Date: let people nearby know you’re free to hang today. Platonic plans only.'
+                    : 'Go Live to let nearby matches know you\'re ready to make plans tonight.'}
               </AppText>
             </View>
           </>
@@ -1141,7 +1237,7 @@ export default function LiveHomeScreen() {
                   Tonight
                 </AppText>
                 <OptionGrid
-                  options={PLAN_OPTIONS.map(({ value, label }) => ({ value, label }))}
+                  options={planOptions.map(({ value, label }) => ({ value, label }))}
                   values={activities}
                   onToggle={(value) => togglePlan(value)}
                 />
@@ -1165,7 +1261,7 @@ export default function LiveHomeScreen() {
                   Energy
                 </AppText>
                 <OptionGrid
-                  options={ENERGY_OPTIONS.map((o) => ({ value: o.value, label: `${o.emoji} ${o.label}` }))}
+                  options={energyOptions.map((o) => ({ value: o.value, label: `${o.emoji} ${o.label}` }))}
                   values={energy ? [energy] : []}
                   multi={false}
                   onToggle={(value) => pickEnergy(value as TonightEnergy)}
@@ -1253,6 +1349,24 @@ const styles = ScaledSheet.create({
     color: colors.brandBright,
     fontSize: 15,
     fontWeight: '700',
+  },
+  heroTitleFriend: {
+    color: colors.friend,
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+  },
+  heroSubFriend: {
+    color: colors.friend,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  modeBlock: { gap: 8 },
+  modeHint: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   section: { gap: 12 },
   sectionHead: {

@@ -104,7 +104,10 @@ function mutuallyVisible(a, b) {
   const pb = { latitude: Number(b.latitude), longitude: Number(b.longitude) };
   if (![pa.latitude, pa.longitude, pb.latitude, pb.longitude].every(Number.isFinite)) return false;
   const limit = Math.min(Number(a.radiusMiles) || 10, Number(b.radiusMiles) || 10);
-  return milesBetween(pa, pb) <= limit && wantsToSee(a, b) && wantsToSee(b, a);
+  // Dating and Friend Date never see each other; Friend Date is open to every gender.
+  const friend = a.mode === 'friend';
+  if (friend !== (b.mode === 'friend')) return false;
+  return milesBetween(pa, pb) <= limit && (friend || (wantsToSee(a, b) && wantsToSee(b, a)));
 }
 
 /**
@@ -355,11 +358,17 @@ async function notifyNewLiveNearby({ db, FieldValue, pushToUser, isHiddenFrom, u
       now,
     }).catch(() => false);
     if (!ok) continue;
-    await pushToUser(db, r.uid, {
-      title: 'Someone new just went Live nearby',
-      body: 'Tap to see who’s out tonight.',
-      data: { type: 'live_new_nearby', url: LIVE_URL },
-    });
+    await pushToUser(db, r.uid, session.mode === 'friend'
+      ? {
+          title: 'Someone nearby is up for a Friend Date',
+          body: 'Tap to see who’s free to hang.',
+          data: { type: 'live_new_nearby', url: LIVE_URL },
+        }
+      : {
+          title: 'Someone new just went Live nearby',
+          body: 'Tap to see who’s out tonight.',
+          data: { type: 'live_new_nearby', url: LIVE_URL },
+        });
     sent += 1;
   }
   return sent;

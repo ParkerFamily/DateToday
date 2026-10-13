@@ -340,13 +340,22 @@ const T = {
     ],
     footerNote: 'Wasn’t you? Reset your password from the DateToday login screen and contact DateToday support right away.',
   }),
-  newMatch: (name, matchId) => ({
-    subject: `It’s a match with ${name}!`,
-    preheader: 'Say hey and plan tonight.',
-    heading: 'It’s a match!',
-    paragraphs: [`You and ${name} are into each other. Say hey and make a plan for tonight.`],
-    cta: { label: 'Say hey', url: openAppUrl(matchId ? `/chat/${matchId}` : '/dates') },
-  }),
+  newMatch: (name, matchId, { friend = false } = {}) =>
+    friend
+      ? {
+          subject: `It’s a Friend Date with ${name}`,
+          preheader: 'Say hey and make a plan.',
+          heading: 'It’s a Friend Date match',
+          paragraphs: [`You and ${name} both want to hang. Say hey and make a plan.`],
+          cta: { label: 'Say hey', url: openAppUrl(matchId ? `/chat/${matchId}` : '/dates') },
+        }
+      : {
+          subject: `It’s a match with ${name}!`,
+          preheader: 'Say hey and plan tonight.',
+          heading: 'It’s a match!',
+          paragraphs: [`You and ${name} are into each other. Say hey and make a plan for tonight.`],
+          cta: { label: 'Say hey', url: openAppUrl(matchId ? `/chat/${matchId}` : '/dates') },
+        },
   dateConfirmed: ({ name, when, where, activity, matchId }) => ({
     subject: `It’s a date with ${name}`,
     preheader: [activity, when].filter(Boolean).join(' · ') || 'Your plan is confirmed.',

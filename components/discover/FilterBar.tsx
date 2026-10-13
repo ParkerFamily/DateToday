@@ -1,8 +1,10 @@
+import { LiveModeSwitch } from '@/components/friendDate/LiveModeSwitch';
 import { AppText } from '@/components/ui/AppText';
 import { colors, gradients, spacing } from '@/constants/theme';
 import { activeFilterLabels } from '@/features/discover/applyFilters';
 import { canUseAdvancedFilters } from '@/lib/entitlements';
 import { useDiscoverFilters } from '@/store/discoverFilters';
+import { useFeedMode } from '@/store/friendDate';
 import { useSessionStore } from '@/store/session';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -13,13 +15,16 @@ import { ScaledSheet, rs } from '@/lib/scale';
 import { androidGlow } from '@/lib/glow';
 
 const SUGGESTIONS = ['Age', 'Verified', 'Tonight’s plan', 'Intent ✦', 'Height ✦'];
+const FRIEND_SUGGESTIONS = ['Age', 'Verified', 'Tonight’s plan', 'Shared interests', 'Height ✦'];
 
-/** Always-visible filter entry above the Live feed: bright pill + what's applied. */
+/** Always-visible filter entry above the Live feed: Dating | Friend Date, bright pill + what's applied. */
 export const FilterBar = memo(function FilterBar() {
   const router = useRouter();
   const plus = useSessionStore((s) => canUseAdvancedFilters(s.entitlements));
   const filters = useDiscoverFilters();
-  const labels = activeFilterLabels(filters, { plus });
+  const friend = useFeedMode() === 'friend';
+  // Dating intent means nothing in Friend Date, so it's never applied there.
+  const labels = activeFilterLabels(friend ? { ...filters, intents: [] } : filters, { plus });
   const open = () => router.push('/filters');
 
   return (
@@ -29,6 +34,7 @@ export const FilterBar = memo(function FilterBar() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.row}
       >
+        <LiveModeSwitch compact />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={labels.length ? `Filters, ${labels.length} on` : 'Filters'}
@@ -51,7 +57,7 @@ export const FilterBar = memo(function FilterBar() {
           </LinearGradient>
         </Pressable>
 
-        {(labels.length ? labels : SUGGESTIONS).map((label) => (
+        {(labels.length ? labels : friend ? FRIEND_SUGGESTIONS : SUGGESTIONS).map((label) => (
           <Pressable
             key={label}
             onPress={open}

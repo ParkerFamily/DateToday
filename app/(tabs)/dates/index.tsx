@@ -68,6 +68,11 @@ function NewMatchItem({ match, uid, live, onPress }: { match: MatchDoc; uid: str
     <Pressable onPress={onPress} style={({ pressed }) => [styles.newItem, pressed && styles.pressed]}>
       <View style={styles.newRing}>
         <Avatar uri={other?.mainPhotoUrl} size={68} />
+        {match.mode === 'friend' ? (
+          <View style={styles.newFriend} accessibilityLabel="Friend Date">
+            <Ionicons name="people" size={rs(11)} color={colors.background} />
+          </View>
+        ) : null}
         {typing ? (
           <View style={styles.newTyping}>
             <TypingDots size={5} color="#fff" />
@@ -99,7 +104,9 @@ function DateRow({ match, uid, live, onPress }: { match: MatchDoc; uid: string; 
     <Pressable onPress={onPress} style={({ pressed }) => [styles.dateCard, pressed && styles.pressed]}>
       <Avatar uri={other?.mainPhotoUrl} size={52} />
       <View style={styles.rowBody}>
-        <AppText style={styles.dateEyebrow}>IT’S A DATE</AppText>
+        <AppText style={[styles.dateEyebrow, match.mode === 'friend' && styles.friendText]}>
+          {match.mode === 'friend' ? 'FRIEND DATE · PLAN SET' : 'IT’S A DATE'}
+        </AppText>
         <AppText style={styles.rowName}>{other?.displayName ?? 'Match'}</AppText>
         {typing ? (
           <TypingLine />
@@ -135,6 +142,12 @@ function ThreadRow({ match, uid, live, onPress }: { match: MatchDoc; uid: string
           <AppText style={styles.rowName} numberOfLines={1}>
             {other?.displayName ?? 'Match'}
           </AppText>
+          {match.mode === 'friend' ? (
+            <View style={styles.friendMini} accessibilityLabel="Friend Date">
+              <Ionicons name="people" size={rs(11)} color={colors.friend} />
+              <AppText style={styles.friendMiniText}>FRIEND DATE</AppText>
+            </View>
+          ) : null}
           <AppText style={styles.time}>{timeAgo(match.lastActivityAt)}</AppText>
         </View>
         <View style={styles.threadTop}>
@@ -363,6 +376,22 @@ const styles = ScaledSheet.create({
     borderColor: 'rgba(34,229,139,0.35)',
   },
   dateEyebrow: { color: colors.live, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  friendText: { color: colors.friend },
+  friendMini: { flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 },
+  friendMiniText: { color: colors.friend, fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  newFriend: {
+    position: 'absolute',
+    left: -2,
+    bottom: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.friend,
+    borderWidth: 2,
+    borderColor: colors.background,
+  },
   dateLine: { color: colors.textSecondary, fontSize: 13 },
   rowBody: { flex: 1, minWidth: 0, gap: 3 },
   rowName: { color: colors.text, fontSize: 17, fontWeight: '800', flexShrink: 1 },

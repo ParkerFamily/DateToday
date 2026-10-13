@@ -13,7 +13,12 @@ import {
 } from '@/components/admin/ConsoleUI';
 import { AppText } from '@/components/ui/AppText';
 import { colors, spacing } from '@/constants/theme';
-import { adminApi, type FreeLikesConfig, type PriorityLikesConfig } from '@/features/admin/api';
+import {
+  adminApi,
+  type FreeLikesConfig,
+  type FriendDateConfig,
+  type PriorityLikesConfig,
+} from '@/features/admin/api';
 import { friendlyError } from '@/lib/errors';
 import { ScaledSheet } from '@/lib/scale';
 
@@ -53,6 +58,8 @@ export default function AdminControls() {
   const [saved, setSaved] = useState<FreeLikesConfig | null>(null);
   const [draft, setDraft] = useState<FreeLikesConfig | null>(null);
   const [priority, setPriority] = useState<PriorityLikesConfig | null>(null);
+  const [friendSaved, setFriendSaved] = useState<FriendDateConfig | null>(null);
+  const [friendDraft, setFriendDraft] = useState<FriendDateConfig | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -64,6 +71,8 @@ export default function AdminControls() {
       setSaved(c.freeLikes);
       setDraft(c.freeLikes);
       setPriority(c.priorityLikes);
+      setFriendSaved(c.friendDate ?? null);
+      setFriendDraft(c.friendDate ?? null);
       setError('');
     } catch (e) {
       setError(friendlyError(e, 'Couldn’t load settings.'));
@@ -98,6 +107,22 @@ export default function AdminControls() {
 
   const patch = (p: Partial<FreeLikesConfig>) => setDraft((d) => (d ? { ...d, ...p } : d));
 
+  const friendDirty = Boolean(friendSaved && friendDraft && JSON.stringify(friendSaved) !== JSON.stringify(friendDraft));
+  const patchFriend = (p: Partial<FriendDateConfig>) => setFriendDraft((d) => (d ? { ...d, ...p } : d));
+  const saveFriend = async () => {
+    if (!friendDraft) return;
+    setBusy(true);
+    try {
+      await adminApi.setFriendDate(friendDraft);
+      await load();
+      notify('Saved', 'Live for everyone within a few minutes.');
+    } catch (e) {
+      notify('Didn’t work', friendlyError(e, 'Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <ConsoleScreen title="App controls" kicker="owner_console / config" refreshing={loading} onRefresh={() => void load()}>
       {error ? <ErrorLine text={error} /> : null}
@@ -124,6 +149,49 @@ export default function AdminControls() {
           <View style={styles.actions}>
             <ActionButton label="Save" icon="save" tone="live" busy={busy} disabled={!dirty || busy} onPress={() => void save()} />
             {dirty ? <ActionButton label="Reset" tone="muted" disabled={busy} onPress={() => setDraft(saved)} /> : null}
+          </View>
+        </Panel>
+      ) : null}
+      {friendDraft ? (
+        <Panel title="Friend Date">
+          <View style={styles.stepRow}>
+            <AppText style={styles.stepLabel}>Friend Date available</AppText>
+            <Switch
+              value={friendDraft.enabled}
+              onValueChange={(enabled) => patchFriend({ enabled })}
+              trackColor={{ true: colors.live, false: colors.border }}
+              thumbColor={colors.white}
+            />
+          </View>
+          <Stepper
+            label="Free sessions / week"
+            value={friendDraft.freeSessionsPerWeek}
+            min={0}
+            max={100}
+            onChange={(freeSessionsPerWeek) => patchFriend({ freeSessionsPerWeek })}
+          />
+          <Stepper
+            label="Session pass (hours)"
+            value={friendDraft.passHours}
+            min={1}
+            max={24}
+            onChange={(passHours) => patchFriend({ passHours })}
+          />
+          <AppText style={styles.note}>
+            {friendDraft.enabled
+              ? `Free members can go Live in Friend Date ${friendDraft.freeSessionsPerWeek}× per rolling 7 days; DateToday+ is unlimited. Likes share the free Like allowance.`
+              : 'Friend Date is off: nobody can start a Friend Date Live session.'}
+          </AppText>
+          <View style={styles.actions}>
+            <ActionButton
+              label="Save"
+              icon="save"
+              tone="live"
+              busy={busy}
+              disabled={!friendDirty || busy}
+              onPress={() => void saveFriend()}
+            />
+            {friendDirty ? <ActionButton label="Reset" tone="muted" disabled={busy} onPress={() => setFriendDraft(friendSaved)} /> : null}
           </View>
         </Panel>
       ) : null}

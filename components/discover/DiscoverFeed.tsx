@@ -42,6 +42,9 @@ import {
 import { sharedInterests } from '@/constants/interests';
 import { FilterBar } from '@/components/discover/FilterBar';
 import { MatchPill } from '@/components/discover/MatchPill';
+import { FriendDateTag } from '@/components/friendDate/FriendDateTag';
+import { LiveModeSwitch } from '@/components/friendDate/LiveModeSwitch';
+import { useFeedMode } from '@/store/friendDate';
 import { AFTER_HOURS_TAGS, isAfterHours } from '@/constants/afterHours';
 import { canUseAdvancedFilters, canUsePriorityPool, isPlusActive, maxRadiusMiles } from '@/lib/entitlements';
 import { analytics } from '@/lib/analytics';
@@ -60,7 +63,7 @@ import { useHiddenUserMap } from '@/store/blocks';
 import { useDiscoverFilters } from '@/store/discoverFilters';
 import { useMatchesStore } from '@/store/matches';
 import { useSessionStore } from '@/store/session';
-import type { DiscoveryCard, FoodCuisine, RadiusMiles, TonightActivity } from '@/types';
+import type { DiscoveryCard, FoodCuisine, LiveMode, RadiusMiles, TonightActivity } from '@/types';
 import { formatDistanceMiles, isLiveSessionActive } from '@/utils/time';
 import { freeUntilLabel } from '@/features/live/freeUntil';
 import {
@@ -231,9 +234,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     () => new Set(matchedKey ? matchedKey.split(',') : []),
     [matchedKey],
   );
+  const feedMode = useFeedMode();
+  const friendFeed = feedMode === 'friend';
   // Only likes the server already revealed to this member (all with DateToday+), so nothing locked leaks.
+  // A Friend Date like is only highlighted in Friend Date, and a Dating like only in Dating.
   const likedMeKey = useMatchesStore((s) =>
     (s.likes?.revealed ?? [])
+      .filter((l) => Boolean(l.friendDate) === friendFeed)
       .map((l) => l.uid)
       .sort()
       .join(','),
@@ -241,7 +248,11 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const likedMe = useMemo(() => new Set(likedMeKey ? likedMeKey.split(',') : []), [likedMeKey]);
   // Priority Likes, in the server's order (newest first), with their optional note.
   const priorityKey = useMatchesStore((s) =>
-    JSON.stringify((s.likes?.revealed ?? []).filter((l) => l.priority).map((l) => [l.uid, l.note ?? null])),
+    JSON.stringify(
+      (s.likes?.revealed ?? [])
+        .filter((l) => l.priority && Boolean(l.friendDate) === friendFeed)
+        .map((l) => [l.uid, l.note ?? null]),
+    ),
   );
   const priorityFrom = useMemo(
     () => new Map(JSON.parse(priorityKey) as [string, string | null][]),
@@ -261,6 +272,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const live = liveSession ? isLiveSessionActive(liveSession, new Date()) : false;
   const priorityPool = canUsePriorityPool(entitlements);
   const plusFoods = canUseAdvancedFilters(entitlements);
+  // Dating intent means nothing in Friend Date, so that filter is never applied there.
+  const feedFilters = useMemo(() => (friendFeed ? { ...filters, intents: [] } : filters), [friendFeed, filters]);
 
   useFocusEffect(
     useCallback(() => {
@@ -277,8 +290,9 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       liveSession?.radiusMiles,
       filters.maxDistanceMiles,
       liveSession?.trip?.city ?? null,
+      feedMode,
     ],
-    queryFn: () => fetchDiscoveryFeed(40, filters.maxDistanceMiles),
+    queryFn: () => fetchDiscoveryFeed(40, filters.maxDistanceMiles, feedMode),
     // People who aren't live browse from their nearby presence (Firestore only).
     enabled: live
       ? Boolean(isBackendConfigured() || (env.supabaseUrl && env.supabaseAnonKey))
@@ -293,7 +307,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     setRewoundId(null);
     setBrowseWider(false);
     setShowOutsideAge(false);
-  }, [liveSession?.id]);
+  }, [liveSession?.id, feedMode]);
 
   useEffect(() => {
     setShowOutsideAge(false);
@@ -347,8 +361,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const liveRadius = liveSession?.radiusMiles ?? filters.maxDistanceMiles;
   const widerRadius = maxRadiusMiles(entitlements);
   const widerQuery = useQuery({
-    queryKey: ['nearby-wider', liveSession?.id, widerRadius, liveSession?.trip?.city ?? null],
-    queryFn: () => fetchFirestoreNearbyBrowse(widerRadius),
+    queryKey: ['nearby-wider', liveSession?.id, widerRadius, liveSession?.trip?.city ?? null, feedMode],
+    queryFn: () => fetchFirestoreNearbyBrowse(widerRadius, 40, feedMode),
     enabled:
       live &&
       isBackendConfigured() &&
@@ -397,7 +411,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   // Once everyone who matches the filters has been seen, keep going with everyone else (and say so).
   const { cards, outsideFilters } = useMemo(() => {
-    const list = applyDiscoverFilters(agePool, filters, { plus: plusFoods, myInterests });
+    const list = applyDiscoverFilters(agePool, feedFilters, { plus: plusFoods, myInterests });
     const matching = new Set(list.map((c) => c.userId));
     const outside = list.length ? [] : agePool.filter((c) => !matching.has(c.userId));
     const shown = list.length ? list : outside;
@@ -435,7 +449,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     const back = rewoundId ? agePool.find((c) => c.userId === rewoundId) : undefined;
     const ordered = back ? [back, ...sorted.filter((c) => c.userId !== back.userId)] : sorted;
     return { cards: ordered, outsideFilters: outside.length > 0 };
-  }, [agePool, filters, cardScores, priorityPool, plusFoods, myInterests, rewoundId, likedMe, priorityRank]);
+  }, [agePool, filters, feedFilters, cardScores, priorityPool, plusFoods, myInterests, rewoundId, likedMe, priorityRank]);
 
   /** Most recent pass that's still in the feed (they may have gone offline or matched since). */
   const rewindTo = useMemo(() => {
@@ -488,16 +502,16 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   const commonInterests = card ? sharedInterests(myInterests, card.interests) : [];
   const mediaItems = card ? carouselItemsFor(card) : [];
   const statusTags = card ? cardStatusTags(card) : [];
-  const matched = card ? matchedFilterLabels(card, filters, { plus: plusFoods, myInterests }) : [];
+  const matched = card ? matchedFilterLabels(card, feedFilters, { plus: plusFoods, myInterests }) : [];
   const tier = card ? feedTier(card) : 0;
   const tonight = tier !== 2;
   const likesMe = card ? likedMe.has(card.userId) : false;
   const priorityLiker = card ? priorityFrom.has(card.userId) : false;
   const priorityNote = card ? priorityFrom.get(card.userId) ?? null : null;
   const activity = card && !tonight ? activityStatus(card) : null;
-  const intentLabel = card
-    ? INTENT_OPTIONS.find((o) => o.value === card.datingIntention)?.label ?? null
-    : null;
+  // A Friend Date card never shows romantic intent.
+  const intentLabel =
+    card && !card.friendDate ? INTENT_OPTIONS.find((o) => o.value === card.datingIntention)?.label ?? null : null;
   const lifestyle = card ? keyTraits(card, 4).filter((t) => t !== intentLabel) : [];
   const vibeChips = card
     ? [
@@ -566,12 +580,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     setInterestFlash(false);
   };
 
-  const openMatch = (target: DiscoveryCard, matchId: string) => {
+  const openMatch = (target: DiscoveryCard, matchId: string, mode: LiveMode = 'dating') => {
     const matchCompat = tonightCompatibility(myVibe, {
       activities: target.activities,
       foodCuisines: target.foodCuisines,
     });
     markHandled(target.userId);
+    if (mode === 'friend') analytics.track('friend_date_match_created', { surface: 'discover' });
     router.push({
       pathname: '/mutual',
       params: {
@@ -580,8 +595,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         food: matchCompat.sharedFood[0] ?? '',
         activities: (target.activities ?? []).join(','),
         matchId,
+        ...(mode === 'friend' ? { mode } : {}),
       },
     });
+  };
+
+  const heartMode = (target: DiscoveryCard): LiveMode => (target.friendDate ? 'friend' : 'dating');
+  const trackFriendLike = (target: DiscoveryCard, priority = false) => {
+    if (target.friendDate) analytics.track('friend_date_like_sent', { surface: 'discover', priority });
   };
 
   /**
@@ -597,11 +618,12 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
       // Out of free Likes: only liking back someone who already liked you still goes through.
       void (async () => {
         try {
-          const result = await sendInterest(target.userId);
+          const result = await sendInterest(target.userId, { mode: heartMode(target) });
+          trackFriendLike(target);
           markHandled(target.userId);
           if (result.mutual && result.matchId) {
             void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            if (result.created) openMatch(target, result.matchId);
+            if (result.created) openMatch(target, result.matchId, result.mode);
             else router.push({ pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } });
           } else {
             flashInterestSent();
@@ -630,10 +652,11 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     flashInterestSent();
     void (async () => {
       try {
-        let result: { mutual: boolean; matchId?: string | null; created: boolean };
+        let result: { mutual: boolean; matchId?: string | null; created: boolean; mode?: LiveMode };
         if (isBackendConfigured()) {
           void registerPushTokenAsync({ prompt: true });
-          const sent = await sendInterest(target.userId);
+          const sent = await sendInterest(target.userId, { mode: heartMode(target) });
+          trackFriendLike(target);
           if (sent.likesLeft != null) setLikesLeft(sent.likesLeft);
           result = sent;
         } else {
@@ -646,7 +669,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           return;
         }
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        openMatch(target, result.matchId);
+        openMatch(target, result.matchId, result.mode);
       } catch (error) {
         restoreCard(target.userId);
         if (errorCode(error) === 'like_limit') {
@@ -685,12 +708,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     }
     try {
       void registerPushTokenAsync({ prompt: true });
-      const result = await sendInterest(target.userId, { priority: true, note });
+      const result = await sendInterest(target.userId, { priority: true, note, mode: heartMode(target) });
       analytics.track('priority_like_sent', { surface: 'discover', withNote: Boolean(note) });
+      trackFriendLike(target, true);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setPriorityTarget(null);
       if (result.mutual && result.matchId) {
-        if (result.created) openMatch(target, result.matchId);
+        if (result.created) openMatch(target, result.matchId, result.mode);
         else router.push({ pathname: '/chat/[conversationId]', params: { conversationId: result.matchId } });
         return;
       }
@@ -844,6 +868,15 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           <View style={styles.offlineStage}>
             <DtIconHero size={128} mode="breathe" atmosphere="soft" />
             <AppText style={styles.teaserEyebrow}>TONIGHT · {city.toUpperCase()}</AppText>
+          </View>
+
+          <View style={styles.offlineMode}>
+            <LiveModeSwitch />
+            {friendFeed ? (
+              <AppText style={styles.friendHint}>
+                Friend Date is for platonic plans only. You’ll only see people up for a Friend Date.
+              </AppText>
+            ) : null}
           </View>
 
           <View style={styles.offlineBlock}>
@@ -1037,7 +1070,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                     onPress={() =>
                       router.push({
                         pathname: '/profile/[userId]',
-                        params: { userId: p.userId, name: p.displayName },
+                        params: { userId: p.userId, name: p.displayName, ...(p.friendDate ? { mode: 'friend' } : {}) },
                       })
                     }
                   >
@@ -1108,12 +1141,26 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         {liveHeader}
         <View style={[styles.pingHeader, { paddingTop: topPad + 8 }]}>
           <View style={styles.pingHeaderLeft}>
-            <AppText style={[styles.pingHeaderEyebrow, !tonight && styles.pingHeaderEyebrowNearby]}>
-              {tonight ? '⚡ OUT TONIGHT' : 'MORE NEARBY'}
+            <AppText
+              style={[
+                styles.pingHeaderEyebrow,
+                !tonight && styles.pingHeaderEyebrowNearby,
+                friendFeed && styles.pingHeaderEyebrowFriend,
+              ]}
+            >
+              {friendFeed
+                ? tonight
+                  ? 'FRIEND DATE · OUT TONIGHT'
+                  : 'FRIEND DATE · NEARBY'
+                : tonight
+                  ? '⚡ OUT TONIGHT'
+                  : 'MORE NEARBY'}
             </AppText>
             <AppText style={styles.pingHeaderTitle}>
               {!tonight
-                ? 'More people you might like'
+                ? friendFeed
+                  ? 'More people up for a Friend Date'
+                  : 'More people you might like'
                 : lowCount
                   ? `${tonightCount} live now${nearbyCount > 0 ? ' · more nearby' : ''}`
                   : `${tonightCount} people looking for plans now`}
@@ -1278,6 +1325,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                             </AppText>
                           </View>
                         ) : null}
+                        {card.friendDate ? <FriendDateTag platonic style={styles.friendTag} /> : null}
                         {compat?.cue ? (
                           <View style={styles.compatCue}>
                             <AppText style={styles.compatText}>{compat.cue}</AppText>
@@ -1586,6 +1634,7 @@ const styles = ScaledSheet.create({
     letterSpacing: 1.2,
   },
   pingHeaderEyebrowNearby: { color: colors.textSecondary },
+  pingHeaderEyebrowFriend: { color: colors.friend },
   pingHeaderTitle: {
     color: colors.text,
     fontSize: 20,
@@ -1652,6 +1701,7 @@ const styles = ScaledSheet.create({
     fontWeight: '800',
     letterSpacing: 1,
   },
+  friendTag: { marginBottom: 6 },
   compatCue: {
     alignSelf: 'flex-start',
     paddingHorizontal: 12,
@@ -2157,6 +2207,13 @@ const styles = ScaledSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: spacing.sm,
+  },
+  offlineMode: { gap: 8 },
+  friendHint: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   offlineBlock: {
     gap: 12,

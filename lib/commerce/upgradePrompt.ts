@@ -1,9 +1,10 @@
 import type { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { analytics } from '@/lib/analytics';
 
 type Router = ReturnType<typeof useRouter>;
 
-export type UpgradeReason = 'likes_out' | 'filters' | 'likes' | 'travel' | 'priority';
+export type UpgradeReason = 'likes_out' | 'filters' | 'likes' | 'travel' | 'priority' | 'friend_date';
 
 export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; body: string }> = {
   likes_out: {
@@ -26,6 +27,10 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
     title: 'Stand out with a Priority Like',
     body: 'Send a short note and show them you’re serious about meeting.',
   },
+  friend_date: {
+    title: 'Unlock more Friend Dates',
+    body: 'See more people, use advanced filters, and make more platonic plans with DateToday+.',
+  },
   default: {
     title: 'Like without limits ✦',
     body: 'Unlimited Likes, see everyone who liked you, and Advanced Filters — so you can actually go out tonight.',
@@ -35,5 +40,6 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
 /** Free limit reached: go straight to the paywall with copy explaining why. */
 export function openUpgrade(router: Router, reason: UpgradeReason) {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  if (reason === 'friend_date') analytics.track('friend_date_paywall_viewed');
   router.push({ pathname: '/paywall', params: { reason } });
 }

@@ -119,6 +119,7 @@ export type LiveRow = {
 
 export type FreeLikesConfig = { enabled: boolean; starter: number; verifiedBonus: number; videoBonus: number };
 export type PriorityLikesConfig = { enabled: boolean; noteMaxChars: number; dailyLimit: number };
+export type FriendDateConfig = { enabled: boolean; freeSessionsPerWeek: number; passHours: number };
 
 export type BroadcastResult = {
   dryRun: boolean;
@@ -194,8 +195,10 @@ export const adminApi = {
   report: (id: string) => adminPost<{ report: ReportRow; conversation: ReportLine[] }>('report', { id }),
   resolveReport: (id: string, status: ReportStatus, note?: string) => adminPost('resolveReport', { id, status, note }),
   live: () => adminPost<{ live: LiveRow[] }>('live').then((r) => r.live),
-  config: () => adminPost<{ freeLikes: FreeLikesConfig; priorityLikes: PriorityLikesConfig }>('config'),
+  config: () =>
+    adminPost<{ freeLikes: FreeLikesConfig; priorityLikes: PriorityLikesConfig; friendDate?: FriendDateConfig }>('config'),
   setFreeLikes: (value: FreeLikesConfig) => adminPost('setConfig', { key: 'freeLikes', value }),
+  setFriendDate: (value: FriendDateConfig) => adminPost('setConfig', { key: 'friendDate', value }),
   log: () => adminPost<{ log: LogEntry[] }>('log').then((r) => r.log),
 };
 

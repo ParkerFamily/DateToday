@@ -49,6 +49,7 @@ export default function PrivacyControlsScreen() {
   const pauseDiscovery = usePrivacyControls((s) => s.pauseDiscovery);
   const showIntentions = usePrivacyControls((s) => s.showIntentions);
   const readReceipts = usePrivacyControls((s) => s.readReceipts);
+  const friendDateDiscovery = usePrivacyControls((s) => s.friendDateDiscovery);
   const setControls = usePrivacyControls((s) => s.setControls);
 
   const update = (patch: Parameters<typeof setControls>[0]) => {
@@ -89,6 +90,12 @@ export default function PrivacyControlsScreen() {
             detail="Show dating intentions / vibes on your public profile."
             value={showIntentions}
             onValueChange={(showIntentions) => update({ showIntentions })}
+          />
+          <ToggleRow
+            label="Show me in Friend Date"
+            detail="When you're not Live, people browsing Friend Date (platonic plans only) can find you too. Going Live in Friend Date always shows you there."
+            value={friendDateDiscovery}
+            onValueChange={(friendDateDiscovery) => update({ friendDateDiscovery })}
             last
           />
         </SettingsGroup>

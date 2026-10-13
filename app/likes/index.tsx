@@ -14,6 +14,7 @@ import { usePendingLikes } from '@/store/matches';
 import { ScaledSheet, rs } from '@/lib/scale';
 import { PRIORITY, PRIORITY_TEXT } from '@/components/likes/PriorityLikeSheet';
 import type { RevealedLike } from '@/features/matches/api';
+import { FriendDateTag } from '@/components/friendDate/FriendDateTag';
 
 /**
  * People who tapped Interested on you. Heart them back from their profile to match.
@@ -155,12 +156,12 @@ function LikeRow({ card }: { card: RevealedLike }) {
       accessibilityLabel={
         card.priority
           ? `Priority Like from ${card.displayName}.${card.note ? ` Note: ${card.note}` : ''} Open profile`
-          : `${card.displayName} liked you. Open profile`
+          : `${card.displayName} liked you${card.friendDate ? ' for a Friend Date' : ''}. Open profile`
       }
       onPress={() =>
         router.push({
           pathname: '/profile/[userId]',
-          params: { userId: card.uid, name: card.displayName },
+          params: { userId: card.uid, name: card.displayName, ...(card.friendDate ? { mode: 'friend' } : {}) },
         })
       }
     >
@@ -178,6 +179,7 @@ function LikeRow({ card }: { card: RevealedLike }) {
       </View>
       <View style={styles.meta}>
         <AppText style={styles.name}>{card.displayName}</AppText>
+        {card.friendDate ? <FriendDateTag /> : null}
         {card.priority ? (
           <AppText style={styles.priorityLine} numberOfLines={2}>
             {card.note ? `“${card.note}”` : 'Wants to meet you'}

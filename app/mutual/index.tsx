@@ -18,6 +18,7 @@ import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { CloseButton, dismissToLive } from '@/components/ui/CloseButton';
+import { FriendDateTag } from '@/components/friendDate/FriendDateTag';
 import { flowCopy } from '@/constants/flow';
 import { ACTIVITY_EMOJI } from '@/constants/tonightVibe';
 import { colors, spacing } from '@/constants/theme';
@@ -84,7 +85,9 @@ export default function MutualMatchScreen() {
     photo?: string;
     food?: string;
     activities?: string;
+    mode?: string;
   }>();
+  const friend = params.mode === 'friend';
 
   const opacity = useSharedValue(0);
   const titleScale = useSharedValue(0.7);
@@ -156,7 +159,8 @@ export default function MutualMatchScreen() {
 
           <Animated.View style={titleAnim}>
             <AppText style={styles.bolt}>⚡</AppText>
-            <AppText style={styles.title}>{flowCopy.itsAMatch}</AppText>
+            <AppText style={styles.title}>{friend ? 'IT’S A FRIEND DATE' : flowCopy.itsAMatch}</AppText>
+            {friend ? <FriendDateTag platonic style={styles.friendTag} /> : null}
           </Animated.View>
 
           <Animated.View style={[styles.faces, facesAnim]}>
@@ -194,7 +198,7 @@ export default function MutualMatchScreen() {
           </Animated.View>
 
           <AppText style={styles.pair}>
-            You + {theirName} are both free tonight.
+            {friend ? `You + ${theirName} both want to hang.` : `You + ${theirName} are both free tonight.`}
           </AppText>
           {vibeLine ? <AppText style={styles.vibe}>{vibeLine}</AppText> : null}
           {foodHeadline ? (
@@ -288,6 +292,7 @@ const styles = ScaledSheet.create({
     letterSpacing: -0.8,
     textAlign: 'center',
   },
+  friendTag: { alignSelf: 'center', marginTop: 8 },
   faces: {
     flexDirection: 'row',
     alignItems: 'center',

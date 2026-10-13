@@ -199,9 +199,14 @@ export interface TravelTrip {
 /** What other people see about a traveler: city + dates only. */
 export type TripBadge = Pick<TravelTrip, 'city' | 'startsOn' | 'endsOn'>;
 
+/** Dating (default) or Friend Date: platonic plans only. Never mixed in one discovery stack. */
+export type LiveMode = 'dating' | 'friend';
+
 export interface LiveSession {
   id: string;
   userId: string;
+  /** Missing = Dating. */
+  mode?: LiveMode;
   /** When this Live session started (liveStartedAt). */
   startedAt: string;
   /** When Live ends (liveExpiresAt) — a short configurable session, NOT Free Until. */
@@ -309,6 +314,8 @@ export interface DiscoveryCard extends ProfileTraits {
   fastReplies?: number;
   /** Invited 10+ friends (server-set). */
   topInviter?: boolean;
+  /** Shown in the Friend Date stack: platonic plans only. */
+  friendDate?: boolean;
 }
 
 export interface Ping {

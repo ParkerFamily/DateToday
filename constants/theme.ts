@@ -7,6 +7,8 @@ export const colors = {
   brandBright: '#A855F7',
   brandGlow: 'rgba(168, 85, 247, 0.45)',
   live: '#22E58B',
+  /** Friend Date accent: a quiet secondary identity next to the purple brand. */
+  friend: '#5EEAD4',
   text: '#FAFAFA',
   textSecondary: '#92929D',
   danger: '#FF4757',

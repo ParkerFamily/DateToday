@@ -19,6 +19,7 @@ import {
 import { env } from '@/lib/env';
 import { getDb, getFirebaseAuth } from '@/lib/firebase/client';
 import { parseReactions, type MessageReaction } from '@/features/matches/reactions';
+import type { LiveMode } from '@/types';
 
 export type MatchUser = { displayName: string; mainPhotoUrl: string | null };
 
@@ -49,6 +50,8 @@ export type MatchDoc = {
   unread: Record<string, number>;
   /** Set when the match came from a Priority Like; the note is shown at the top of the chat. */
   priorityLike: { fromUid: string; note: string | null } | null;
+  /** Friend Date (platonic) when either heart came from Friend Date. Never changed afterwards. */
+  mode: LiveMode;
 };
 
 /** A GIPHY GIF as stored on a chat message: the id plus the 200px-wide rendition's size. */
@@ -93,6 +96,8 @@ export type InterestResult = {
   other: ({ uid: string } & MatchUser) | null;
   /** Free Likes left after this one; null when it didn't use a Like (DateToday+, liking back). */
   likesLeft: number | null;
+  /** The match's mode (or this heart's, when not mutual yet). */
+  mode: LiveMode;
 };
 
 function toDate(value: unknown): Date | null {
@@ -111,7 +116,7 @@ export function functionsUrl(name: string) {
  */
 export async function sendInterest(
   toUid: string,
-  opts: { priority?: boolean; note?: string | null } = {},
+  opts: { priority?: boolean; note?: string | null; mode?: LiveMode } = {},
 ): Promise<InterestResult> {
   const user = getFirebaseAuth().currentUser;
   if (!user) throw new Error('Sign in first.');
@@ -122,6 +127,7 @@ export async function sendInterest(
     body: JSON.stringify({
       toUid,
       tzOffsetMinutes: new Date().getTimezoneOffset(),
+      ...(opts.mode === 'friend' ? { mode: 'friend' } : {}),
       ...(opts.priority ? { priority: true, note: opts.note?.trim() || null } : {}),
     }),
   });
@@ -136,6 +142,7 @@ export async function sendInterest(
     matchId: json.matchId ?? null,
     other: json.other ?? null,
     likesLeft: typeof json.likesLeft === 'number' ? json.likesLeft : null,
+    mode: json.mode === 'friend' || (json.mode == null && opts.mode === 'friend') ? 'friend' : 'dating',
   };
 }
 
@@ -195,6 +202,8 @@ export type RevealedLike = {
   /** Sent as a Priority Like (always revealed, ranked first). */
   priority?: boolean;
   note?: string | null;
+  /** Sent from Friend Date: platonic plans only. */
+  friendDate?: boolean;
 };
 
 /**
@@ -299,6 +308,7 @@ function parseMatch(id: string, data: Record<string, unknown>): MatchDoc {
     nextDate: (data.nextDate as MatchDoc['nextDate']) ?? null,
     unread: (data.unread as Record<string, number>) ?? {},
     priorityLike: (data.priorityLike as MatchDoc['priorityLike']) ?? null,
+    mode: data.mode === 'friend' ? 'friend' : 'dating',
   };
 }
 

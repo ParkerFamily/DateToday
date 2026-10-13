@@ -3,6 +3,7 @@ import { assertSupabaseConfigured, env, isBackendConfigured } from '@/lib/env';
 import type {
   DatingPreferences,
   InterestOption,
+  LiveMode,
   LiveSession,
   Profile,
   RadiusMiles,
@@ -165,6 +166,7 @@ export interface StartLiveInput {
   liveDurationMs?: number;
   nightResetAt?: string | null;
   trip?: TravelTrip | null;
+  mode?: LiveMode;
 }
 
 export async function startLiveSession(input: StartLiveInput): Promise<LiveSession> {
@@ -219,11 +221,17 @@ export async function endLiveSession(sessionId?: string): Promise<void> {
   analytics.track('go_live_ended');
 }
 
-export async function fetchDiscoveryFeed(limit = 20, browseRadiusMiles = 10): Promise<DiscoveryCard[]> {
+export async function fetchDiscoveryFeed(
+  limit = 20,
+  browseRadiusMiles = 10,
+  mode: LiveMode = 'dating',
+): Promise<DiscoveryCard[]> {
   if (isBackendConfigured()) {
     const { fetchFirestoreDiscoveryFeed } = await import('@/features/live/firestoreLive');
-    return fetchFirestoreDiscoveryFeed(limit, browseRadiusMiles);
+    return fetchFirestoreDiscoveryFeed(limit, browseRadiusMiles, mode);
   }
+  // The legacy Supabase feed has no Friend Date stack; never show Dating profiles there.
+  if (mode === 'friend') return [];
   if (!env.supabaseUrl || !env.supabaseAnonKey) return [];
   assertSupabaseConfigured();
   const { data, error } = await supabase.rpc('get_discovery_feed', {

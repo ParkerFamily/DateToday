@@ -18,6 +18,7 @@ import { PLUS_FILTER_FEATURES } from '@/constants/tonightVibe';
 import { LEGAL_URLS } from '@/constants/legal';
 import { colors, radii, spacing } from '@/constants/theme';
 import { UPGRADE_COPY, type UpgradeReason } from '@/lib/commerce/upgradePrompt';
+import { analytics } from '@/lib/analytics';
 import { isPlusActive, plusStatusLabel } from '@/lib/entitlements';
 import {
   billingComingSoon,
@@ -52,6 +53,9 @@ export default function PaywallScreen() {
     !isPlus && reason && reason in UPGRADE_COPY
       ? UPGRADE_COPY[reason as UpgradeReason]
       : UPGRADE_COPY.default;
+  const trackUpgradeStart = () => {
+    if (reason === 'friend_date' && !isPlus) analytics.track('friend_date_upgrade_started');
+  };
 
   const [plans, setPlans] = useState<PlusPlanOffer[]>([]);
   const [selected, setSelected] = useState<PlusPlanId>('monthly');
@@ -322,7 +326,14 @@ export default function PaywallScreen() {
 
         {plusFromWeb ? null : webMode ? (
           <>
-            <Button label="Upgrade to DateToday+" loading={busy} onPress={() => void onWebUpgrade()} />
+            <Button
+              label="Upgrade to DateToday+"
+              loading={busy}
+              onPress={() => {
+                trackUpgradeStart();
+                void onWebUpgrade();
+              }}
+            />
             <AppText style={styles.legal}>
               {selectedPlan ? `${selectedPlan.priceLabel}/${selectedPlan.periodLabel}. ` : ''}
               Billed securely by Stripe. Renews automatically until you cancel — cancel anytime from
@@ -333,7 +344,14 @@ export default function PaywallScreen() {
           <Button label="Coming soon on Android" disabled onPress={() => undefined} />
         ) : (
           <>
-            <Button label={ctaLabel} loading={busy} onPress={() => void onContinue()} />
+            <Button
+              label={ctaLabel}
+              loading={busy}
+              onPress={() => {
+                trackUpgradeStart();
+                void onContinue();
+              }}
+            />
             <AppText style={styles.legal}>
               Payment is charged to your {Platform.OS === 'android' ? 'Google Play' : 'Apple ID'} account
               at confirmation. Subscription automatically renews unless canceled at least 24 hours before

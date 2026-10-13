@@ -24,6 +24,11 @@ export type PrivacyControls = {
    * Enforced by Firestore rules on matches/{id}/members (read as `privacyControls.readReceipts`).
    */
   readReceipts: boolean;
+  /**
+   * Opt-in: also show my non-Live nearby profile in Friend Date (platonic) discovery. Mirrored to
+   * nearbyProfiles.friendDate. Going Live in Friend Date doesn't need it.
+   */
+  friendDateDiscovery: boolean;
 };
 
 const DEFAULTS: PrivacyControls = {
@@ -32,6 +37,7 @@ const DEFAULTS: PrivacyControls = {
   pauseDiscovery: false,
   showIntentions: true,
   readReceipts: true,
+  friendDateDiscovery: false,
 };
 
 type State = PrivacyControls & {
@@ -72,6 +78,7 @@ export const usePrivacyControls = create<State>((set, get) => ({
       pauseDiscovery: next.pauseDiscovery,
       showIntentions: next.showIntentions,
       readReceipts: next.readReceipts,
+      friendDateDiscovery: next.friendDateDiscovery,
     };
     set({ ...controls });
     await persist(controls);

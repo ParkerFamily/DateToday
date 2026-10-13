@@ -27,6 +27,7 @@ import { calculateAge } from '@/utils/time';
 import type {
   DiscoveryCard,
   FoodCuisine,
+  LiveMode,
   LiveSession,
   ProfileVideoKind,
   RadiusMiles,
@@ -39,6 +40,9 @@ import type {
 import { analytics } from '@/lib/analytics';
 import { isStaleLive } from '@/features/live/freeUntil';
 import { cleanTrip, cleanTripBadge, tripPhase } from '@/features/travel/trip';
+import { usePrivacyControls } from '@/store/privacyControls';
+
+const modeOf = (d: Record<string, unknown> | undefined): LiveMode => (d?.mode === 'friend' ? 'friend' : 'dating');
 
 /** Timeout wrapper for Firebase operations to prevent infinite hanging. */
 function withTimeout<T>(promise: Promise<T>, timeoutMs = 15000, operation = 'Firebase operation'): Promise<T> {
@@ -175,6 +179,8 @@ export type PublishLiveInput = {
   nightResetAt?: string | null;
   /** Travel Mode: latitude/longitude are this city's center. */
   trip?: TravelTrip | null;
+  /** Friend Date needs a pass from startFriendDate() first (Firestore rules check it). */
+  mode?: LiveMode;
 };
 
 function videoPromptsFromUser(d: Record<string, unknown>): DiscoveryCard['videoPrompts'] {
@@ -264,6 +270,11 @@ export async function publishNearbyPresence(coords: { latitude: number; longitud
   if (!u.mainPhotoUrl || !u.displayName) return;
   const latitude = approxCoord(coords.latitude);
   const longitude = approxCoord(coords.longitude);
+  // The local toggle wins: the account doc may not have saved a change made a moment ago.
+  const privacy = usePrivacyControls.getState();
+  const friendDate = privacy.hydrated
+    ? privacy.friendDateDiscovery
+    : (u.privacyControls as { friendDateDiscovery?: boolean } | undefined)?.friendDateDiscovery === true;
   await withTimeout(
     setDoc(
       doc(getDb(), 'nearbyProfiles', uid),
@@ -273,6 +284,7 @@ export async function publishNearbyPresence(coords: { latitude: number; longitud
         longitude,
         geohash: geohashOf(latitude, longitude),
         lastActiveAt: serverTimestamp(),
+        friendDate,
         ...publicCardFields(u),
         updatedAt: serverTimestamp(),
       },
@@ -317,9 +329,11 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
   const energy = cleanEnergy(input.energy);
   const travel = cleanTravel(input.travel);
   const planIdea = cleanPlanIdea(input.planIdea);
+  const mode: LiveMode = input.mode === 'friend' ? 'friend' : 'dating';
 
   const payload = {
     userId: uid,
+    mode,
     status: 'active',
     startedAt: nowIso,
     confirmedAt: nowIso,
@@ -353,7 +367,8 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
   await withReconnect(() =>
     withTimeout(setDoc(doc(getDb(), 'liveSessions', uid), payload, { merge: true }), 12000, 'Go live'),
   );
-  analytics.track('go_live_completed');
+  analytics.track('go_live_completed', { mode });
+  if (mode === 'friend') analytics.track('friend_date_live_started', { travel: Boolean(trip) });
   // Keeps them discoverable once Live ends — only if they allow showing up when not Live.
   // Never from a trip city: nearby presence means where you actually are.
   const privacy = (u.privacyControls ?? {}) as { showInDiscovery?: boolean; pauseDiscovery?: boolean };
@@ -364,6 +379,7 @@ export async function publishLiveSession(input: PublishLiveInput): Promise<LiveS
   return {
     id: uid,
     userId: uid,
+    mode,
     startedAt: nowIso,
     expiresAt: input.expiresAt,
     endedAt: null,
@@ -424,6 +440,7 @@ export type LiveSessionPatch = Partial<
     | 'energy'
     | 'travel'
     | 'planIdea'
+    | 'mode'
   >
 >;
 
@@ -478,6 +495,7 @@ export async function fetchMyActiveLiveSession(uid: string): Promise<LiveSession
   return {
     id: uid,
     userId: uid,
+    mode: modeOf(d),
     startedAt: tsToIso(d.startedAt),
     expiresAt,
     endedAt: null,
@@ -510,6 +528,22 @@ function tsToIso(value: unknown): string {
     return (value as Timestamp).toDate().toISOString();
   }
   return new Date().toISOString();
+}
+
+/** People Live right now in the mode the viewer isn't browsing; they stay out of this stack entirely. */
+function otherModeLiveIds(docs: Snap[], mode: LiveMode, now: number): Set<string> {
+  const ids = new Set<string>();
+  for (const s of docs) {
+    const d = s.data() as Record<string, unknown>;
+    if (d.status !== 'active' || d.endedAt || modeOf(d) === mode) continue;
+    if (new Date(tsToIso(d.expiresAt)).getTime() > now) ids.add(s.id);
+  }
+  return ids;
+}
+
+/** Dating honors both people's "show me"; Friend Date is open to every gender. */
+function modeAllows(mode: LiveMode, mine: Record<string, unknown>, other: Record<string, unknown>): boolean {
+  return mode === 'friend' || (wantsToSee(mine, other) && wantsToSee(other, mine));
 }
 
 /** Does `viewer`'s "show me" gender preference include `other`? Unknown gender fails a specific preference. */
@@ -561,6 +595,7 @@ export function subscribeActiveLiveSessions(onChange: () => void) {
 export async function fetchFirestoreDiscoveryFeed(
   limit = 40,
   browseRadiusMiles = 10,
+  feedMode: LiveMode = 'dating',
 ): Promise<DiscoveryCard[]> {
   const auth = getFirebaseAuth();
   const me = auth.currentUser?.uid;
@@ -603,6 +638,7 @@ export async function fetchFirestoreDiscoveryFeed(
   );
   const now = Date.now();
   const cards: DiscoveryCard[] = [];
+  const otherMode = otherModeLiveIds(found, feedMode, now);
   // Closest first, so the card limit never drops someone nearer than a person kept.
   const liveDocs = found
     .map((s) => ({ s, dist: milesBetween(center, { latitude: Number(s.get('latitude')), longitude: Number(s.get('longitude')) }) }))
@@ -612,7 +648,7 @@ export async function fetchFirestoreDiscoveryFeed(
   for (const { s: docSnap } of liveDocs) {
     if (docSnap.id === me) continue;
     const d = docSnap.data() as Record<string, unknown>;
-    if (d.status !== 'active') continue;
+    if (d.status !== 'active' || modeOf(d) !== feedMode) continue;
     const expiresAt = tsToIso(d.expiresAt);
     if (new Date(expiresAt).getTime() <= now) continue;
     const startedAt = d.startedAt ? tsToIso(d.startedAt) : null;
@@ -633,7 +669,7 @@ export async function fetchFirestoreDiscoveryFeed(
     );
     const maxAllowed = Math.min(myRadius, theirRadius);
     if (dist > maxAllowed) continue;
-    if (!wantsToSee(mine, d) || !wantsToSee(d, mine)) continue;
+    if (!modeAllows(feedMode, mine, d)) continue;
 
     const laterHour =
       typeof d.laterTonightHour === 'number' && !(trip && tripPhase(trip) === 'upcoming')
@@ -662,19 +698,22 @@ export async function fetchFirestoreDiscoveryFeed(
       travel: cleanTravel(d.travel),
       planIdea: cleanPlanIdea(d.planIdea),
       trip,
+      ...(feedMode === 'friend' ? { friendDate: true } : {}),
     });
 
     if (cards.length >= limit) break;
   }
 
-  const liveIds = new Set(cards.map((c) => c.userId));
+  // Someone Live in the other mode never shows up here as a nearby profile either.
+  const skip = new Set([...cards.map((c) => c.userId), ...otherMode]);
   const nearby = await fetchNearbyCards(
     me,
     { ...mine, latitude: myLat, longitude: myLng },
     myRadius,
-    liveIds,
+    skip,
     limit,
     away,
+    feedMode,
   ).catch(() => []);
   cards.push(...nearby);
 
@@ -696,7 +735,11 @@ export async function fetchFirestoreDiscoveryFeed(
  * People who aren't live, out to `radiusMiles` (past the Live radius). Backs "Recently active
  * nearby" when no one is live — reading only, so the viewer's own Live session is untouched.
  */
-export async function fetchFirestoreNearbyBrowse(radiusMiles: number, limit = 40): Promise<DiscoveryCard[]> {
+export async function fetchFirestoreNearbyBrowse(
+  radiusMiles: number,
+  limit = 40,
+  mode: LiveMode = 'dating',
+): Promise<DiscoveryCard[]> {
   const me = getFirebaseAuth().currentUser?.uid;
   if (!me) return [];
   const [liveSnap, nearbySnap] = await Promise.all([
@@ -713,13 +756,17 @@ export async function fetchFirestoreNearbyBrowse(radiusMiles: number, limit = 40
   const longitude = myTrip?.longitude ?? here?.longitude ?? Number(mine.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
 
+  const liveNear = await docsNear('liveSessions', { latitude, longitude }, radiusMiles, async () =>
+    (await getDocs(query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'), limitTo(200)))).docs,
+  ).catch(() => [] as Snap[]);
   const cards = await fetchNearbyCards(
     me,
     { ...mine, latitude, longitude },
     radiusMiles,
-    new Set(),
+    otherModeLiveIds(liveNear, mode, Date.now()),
     limit,
     travelAway(myTrip, here),
+    mode,
   );
   const stats = await fetchUserStats(cards.map((c) => c.userId)).catch(() => new Map<string, UserStats>());
   for (const c of cards) Object.assign(c, stats.get(c.userId));
@@ -779,6 +826,7 @@ async function fetchNearbyCards(
   skip: Set<string>,
   limit: number,
   away: TravelAway = null,
+  mode: LiveMode = 'dating',
 ): Promise<DiscoveryCard[]> {
   const myLat = Number(mine.latitude);
   const myLng = Number(mine.longitude);
@@ -804,12 +852,14 @@ async function fetchNearbyCards(
   for (const docSnap of recent) {
     if (docSnap.id === me || skip.has(docSnap.id)) continue;
     const d = docSnap.data() as Record<string, unknown>;
+    // Not Live, so only people who opted into Friend Date discovery are in that stack.
+    if (mode === 'friend' && d.friendDate !== true) continue;
     const lat = Number(d.latitude);
     const lng = Number(d.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
     const dist = milesBetween({ latitude: myLat, longitude: myLng }, { latitude: lat, longitude: lng });
     if (dist > myRadius) continue;
-    if (!wantsToSee(mine, d) || !wantsToSee(d, mine)) continue;
+    if (!modeAllows(mode, mine, d)) continue;
     out.push({
       ...cardBase(docSnap.id, d, dist),
       ...awayFields(away, lat, lng),
@@ -823,6 +873,7 @@ async function fetchNearbyCards(
       availabilityMode: 'nearby',
       laterTonightHour: null,
       lastActiveAt: d.lastActiveAt ? tsToIso(d.lastActiveAt) : null,
+      ...(mode === 'friend' ? { friendDate: true } : {}),
     });
     if (out.length >= limit) break;
   }

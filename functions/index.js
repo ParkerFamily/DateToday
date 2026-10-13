@@ -31,6 +31,7 @@ const sessions = require('./sessions');
 const ownerConsole = require('./admin');
 const referrals = require('./referrals');
 const contactBlocks = require('./contactBlocks');
+const friendDate = require('./friendDate');
 
 const LIKE_LIMIT_MESSAGE =
   'You’ve used your free Likes. Get DateToday+ to keep liking. Liking back people who like you is always free.';
@@ -238,7 +239,7 @@ async function purgeAccount(uid, accountEmail, source = 'cloud_function') {
   await anonymizeReports(db, uid);
   await gone(stripeBilling.cancelForDeletedAccount(db, uid));
   await Promise.all(
-    ['notificationPrefs', 'promoLog', 'userStats', 'emailOtps', 'emailLog', 'users'].map((c) =>
+    ['notificationPrefs', 'promoLog', 'userStats', 'emailOtps', 'emailLog', 'friendDateUsage', 'friendDatePasses', 'users'].map((c) =>
       gone(db.collection(c).doc(uid).delete()),
     ),
   );
@@ -655,6 +656,12 @@ exports.contactBlocks = onRequest(
   { cors: true, invoker: 'public', timeoutSeconds: 120 },
   jsonEndpoint(contactBlocks.createContactBlocksEndpoint(), { signedIn: true }),
 );
+exports.friendDate = onRequest(
+  { cors: true, invoker: 'public' },
+  jsonEndpoint(friendDate.createFriendDateEndpoint({ hasPlus: (...args) => hasDateTodayPlus(...args) }), {
+    signedIn: true,
+  }),
+);
 
 /** The page an invite link opens (GET ?c=CODE). */
 exports.invite = onRequest({ invoker: 'public' }, (req, res) => {
@@ -1027,7 +1034,7 @@ async function pushToUser(db, uid, { title, body, data, badge }, options = {}) {
  * hiding either person from the other, both "show me" preferences, and the recipient being someone
  * the sender could actually have been shown. Throws { status, code } errors.
  */
-async function checkPriorityLike(db, fromUid, toUid, rawNote) {
+async function checkPriorityLike(db, fromUid, toUid, rawNote, mode = 'dating') {
   const config = await priorityLikes.loadConfig(db);
   const fail = (status, message, code) => Object.assign(new Error(message), { status, code });
   if (!config.enabled) throw fail(403, 'Priority Likes aren’t available right now.', 'priority_unavailable');
@@ -1048,11 +1055,13 @@ async function checkPriorityLike(db, fromUid, toUid, rawNote) {
   const me = fromUser.data() || {};
   const them = toUser.data() || {};
   const pick = (d, k) => d[k] ?? (d.profile && d.profile[k]) ?? (d.preferences && d.preferences[k]);
+  // Friend Date is open to every gender; Dating honors both people's "show me".
   const visible =
     eligible(them) &&
     (them.privacyControls || {}).pauseDiscovery !== true &&
-    priorityLikes.interestedIn(pick(me, 'interestedIn') ?? 'everyone', pick(them, 'gender')) &&
-    priorityLikes.interestedIn(pick(them, 'interestedIn') ?? 'everyone', pick(me, 'gender'));
+    (mode === 'friend' ||
+      (priorityLikes.interestedIn(pick(me, 'interestedIn') ?? 'everyone', pick(them, 'gender')) &&
+        priorityLikes.interestedIn(pick(them, 'interestedIn') ?? 'everyone', pick(me, 'gender'))));
   if (!visible) throw fail(403, 'This person isn’t available for a Priority Like.', 'not_available');
   return { note, config };
 }
@@ -1088,14 +1097,33 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
       return;
     }
     const priority = req.body?.priority === true;
-    const priorityCheck = priority ? await checkPriorityLike(db, fromUid, toUid, req.body?.note) : null;
+    const mode = req.body?.mode === 'friend' ? 'friend' : 'dating';
 
     const interestRef = db.collection('interests').doc(`${fromUid}_${toUid}`);
     const reverseRef = db.collection('interests').doc(`${toUid}_${fromUid}`);
     const matchId = pairId(fromUid, toUid);
     const matchRef = db.collection('matches').doc(matchId);
 
-    const [reverseNow, matchNow, interestNow] = await Promise.all([reverseRef.get(), matchRef.get(), interestRef.get()]);
+    const [reverseNow, matchNow, interestNow, theirLive, theirNearby] = await Promise.all([
+      reverseRef.get(),
+      matchRef.get(),
+      interestRef.get(),
+      db.collection('liveSessions').doc(toUid).get(),
+      db.collection('nearbyProfiles').doc(toUid).get(),
+    ]);
+    if (!matchNow.exists) {
+      const reach = friendDate.heartAllowed(mode, {
+        theirLive: theirLive.exists ? theirLive.data() : null,
+        theirNearby: theirNearby.exists ? theirNearby.data() : null,
+        theyLikedMe: reverseNow.exists,
+        now: Date.now(),
+      });
+      if (!reach.ok) {
+        res.status(409).json({ error: reach.message, code: reach.code });
+        return;
+      }
+    }
+    const priorityCheck = priority ? await checkPriorityLike(db, fromUid, toUid, req.body?.note, mode) : null;
     if (priority) {
       const prior = interestNow.exists ? interestNow.data() : null;
       if (matchNow.exists) {
@@ -1203,17 +1231,21 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
           fromUid,
           toUid,
           createdAt: FieldValue.serverTimestamp(),
+          ...(mode === 'friend' ? { mode } : {}),
           ...(priorityFields || {}),
         });
       } else if (priorityFields) {
         tx.update(interestRef, priorityFields);
       }
       const mutual = reverse.exists;
+      const theirs = reverse.exists ? reverse.data() : null;
+      const pairMode = match.exists
+        ? match.data().mode === 'friend' ? 'friend' : 'dating'
+        : friendDate.matchMode(mode, theirs, prior);
       let createdMatch = false;
       if (mutual && !match.exists) {
         const userIds = [fromUid, toUid].sort();
         // Keep the Priority Like note (from either side) as context at the top of the new chat.
-        const theirs = reverse.data();
         const priorityLike = priority
           ? { fromUid, note: priorityCheck.note }
           : theirs && theirs.type === 'priority'
@@ -1227,12 +1259,14 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
           lastMessage: null,
           nextDate: null,
           unread: { [userIds[0]]: 0, [userIds[1]]: 0 },
+          ...(pairMode === 'friend' ? { mode: 'friend' } : {}),
           ...(priorityLike ? { priorityLike } : {}),
         });
         createdMatch = true;
       }
-      return { mutual, createdMatch, firstHeart: !existing.exists, likesLeft };
+      return { mutual, createdMatch, firstHeart: !existing.exists, likesLeft, pairMode };
     });
+    const friendPair = outcome.pairMode === 'friend';
 
     // Tells each person's app to refetch "Likes you" (the list itself is served by getLikes).
     const bumpInbox = (uid) =>
@@ -1243,13 +1277,19 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
     else if (outcome.firstHeart || priority) await bumpInbox(toUid);
 
     if (outcome.createdMatch) {
-      await pushToUser(db, toUid, {
-        title: 'It’s a match!',
-        body: `You and ${me.displayName} are into each other. Say hey and plan tonight.`,
-        data: { type: 'match', matchId, url: `/chat/${matchId}` },
-      });
+      await pushToUser(db, toUid, friendPair
+        ? {
+            title: 'It’s a Friend Date match',
+            body: `You and ${me.displayName} both want to hang. Say hey and make a plan.`,
+            data: { type: 'match', matchId, url: `/chat/${matchId}` },
+          }
+        : {
+            title: 'It’s a match!',
+            body: `You and ${me.displayName} are into each other. Say hey and plan tonight.`,
+            data: { type: 'match', matchId, url: `/chat/${matchId}` },
+          });
       await emailFlows
-        .emailNewMatch(db, getAuth(), { uid: toUid, otherName: me.displayName, matchId })
+        .emailNewMatch(db, getAuth(), { uid: toUid, otherName: me.displayName, matchId, friend: friendPair })
         .catch((e) => console.warn('match email failed', String(e)));
     } else if (!outcome.mutual && priority) {
       // Name and note stay off the lock screen; the app shows both.
@@ -1261,11 +1301,17 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
         data: { type: 'priority_like', url: `/profile/${fromUid}` },
       });
     } else if (!outcome.mutual && outcome.firstHeart) {
-      await pushToUser(db, toUid, {
-        title: 'You’ve got a potential date',
-        body: 'Someone near you tapped Interested. Heart them back to match.',
-        data: { type: 'interest', url: '/likes' },
-      });
+      await pushToUser(db, toUid, mode === 'friend'
+        ? {
+            title: 'Someone wants to hang',
+            body: 'Someone near you wants to make a Friend Date plan. Like them back to match.',
+            data: { type: 'interest', url: '/likes' },
+          }
+        : {
+            title: 'You’ve got a potential date',
+            body: 'Someone near you tapped Interested. Heart them back to match.',
+            data: { type: 'interest', url: '/likes' },
+          });
     }
 
     res.json({
@@ -1275,6 +1321,7 @@ exports.sendInterest = onRequest({ cors: true }, async (req, res) => {
       other: outcome.mutual ? { uid: toUid, ...them } : null,
       priority,
       likesLeft: outcome.likesLeft,
+      mode: outcome.pairMode,
     });
   } catch (error) {
     if (!error.status || error.status >= 500) console.error(error);
