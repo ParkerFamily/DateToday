@@ -4,12 +4,23 @@ import { analytics } from '@/lib/analytics';
 
 type Router = ReturnType<typeof useRouter>;
 
-export type UpgradeReason = 'likes_out' | 'filters' | 'likes' | 'travel' | 'priority' | 'friend_date';
+export type UpgradeReason =
+  | 'likes_out'
+  | 'likes_low'
+  | 'filters'
+  | 'likes'
+  | 'travel'
+  | 'priority'
+  | 'friend_date';
 
 export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; body: string }> = {
   likes_out: {
     title: 'You’ve used your free Likes ✦',
     body: 'Keep liking with DateToday+. Liking back people who like you is always free.',
+  },
+  likes_low: {
+    title: 'Never run out of Likes ✦',
+    body: 'Unlimited Likes with DateToday+, so you don’t run dry mid-night. Liking back is always free.',
   },
   filters: {
     title: 'Find exactly your type ✦',

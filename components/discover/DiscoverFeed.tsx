@@ -41,6 +41,7 @@ import {
 } from '@/features/discover/statusTags';
 import { sharedInterests } from '@/constants/interests';
 import { FilterBar } from '@/components/discover/FilterBar';
+import { LikesLeftPill } from '@/components/discover/LikesLeftPill';
 import { MatchPill } from '@/components/discover/MatchPill';
 import { FriendDateTag } from '@/components/friendDate/FriendDateTag';
 import { LiveModeSwitch } from '@/components/friendDate/LiveModeSwitch';
@@ -564,6 +565,8 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
   };
 
   const likesLeft = useMatchesStore((s) => s.likes?.likesLeft ?? null);
+  const likesPlus = useMatchesStore((s) => Boolean(s.likes?.plus));
+  const likesUnlimited = likesPlus || isPlusActive(entitlements);
   const setLikesLeft = (n: number) => {
     const s = useMatchesStore.getState();
     if (s.likes) s.set({ likes: { ...s.likes, likesLeft: Math.max(0, n) } });
@@ -1165,13 +1168,16 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                   ? `${tonightCount} live now${nearbyCount > 0 ? ' · more nearby' : ''}`
                   : `${tonightCount} people looking for plans now`}
             </AppText>
-            <AppText style={styles.pingHeaderMeta} numberOfLines={1}>
-              {tonight
-                ? nearbyCount > 0 && !lowCount
-                  ? `${pingSummary} · ${nearbyCount} more nearby`
-                  : pingSummary
-                : 'They haven’t gone live tonight, but you can still match'}
-            </AppText>
+            <View style={styles.pingHeaderMetaRow}>
+              <AppText style={[styles.pingHeaderMeta, styles.pingHeaderMetaText]} numberOfLines={1}>
+                {tonight
+                  ? nearbyCount > 0 && !lowCount
+                    ? `${pingSummary} · ${nearbyCount} more nearby`
+                    : pingSummary
+                  : 'They haven’t gone live tonight, but you can still match'}
+              </AppText>
+              <LikesLeftPill left={likesLeft} plus={likesUnlimited} />
+            </View>
           </View>
           <Pressable
             onPress={() => router.push('/settings/tour?step=swipe' as Href)}
@@ -1626,6 +1632,17 @@ const styles = ScaledSheet.create({
   },
   helpButton: {
     paddingTop: 2,
+  },
+  pingHeaderMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  pingHeaderMetaText: {
+    flex: 1,
+    minWidth: 0,
+    marginTop: 0,
   },
   pingHeaderEyebrow: {
     color: colors.live,
