@@ -53,7 +53,11 @@ export async function getMyLocationQuietly(): Promise<LatLng | null> {
   }
 }
 
-async function callSearch(body: Record<string, unknown>, timeoutMs = 32000): Promise<Place[]> {
+/** POST to the searchPlaces function; `slowMessage` is shown when it times out. */
+export async function placesRequest<T>(
+  body: Record<string, unknown>,
+  { timeoutMs = 32000, slowMessage = 'Places are taking too long. Type it in instead.' } = {},
+): Promise<T> {
   const user = getFirebaseAuth().currentUser;
   if (!user) throw new Error('Sign in first.');
   const token = await user.getIdToken();
@@ -66,15 +70,20 @@ async function callSearch(body: Record<string, unknown>, timeoutMs = 32000): Pro
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const json = (await res.json().catch(() => ({}))) as { places?: Place[]; error?: string };
+    const json = (await res.json().catch(() => ({}))) as T & { error?: string };
     if (!res.ok) throw new Error(json.error || 'Couldn’t load places right now.');
-    return json.places ?? [];
+    return json;
   } catch (error) {
-    if ((error as Error)?.name === 'AbortError') throw new Error('Places are taking too long. Type it in instead.');
+    if ((error as Error)?.name === 'AbortError') throw new Error(slowMessage);
     throw error;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function callSearch(body: Record<string, unknown>, timeoutMs = 32000): Promise<Place[]> {
+  const json = await placesRequest<{ places?: Place[] }>(body, { timeoutMs });
+  return json.places ?? [];
 }
 
 const nearbyCache = new Map<string, Promise<Place[]>>();

@@ -64,7 +64,7 @@ function displayName(raw: string) {
   return first.charAt(0).toUpperCase() + first.slice(1);
 }
 
-type EditStart = { category: PlanCategory | null; startsAt: string | null; place: Place | null };
+type EditStart = { category: PlanCategory | null; startsAt: string | null; place: Place | null; label: string | null };
 
 /** The accepted date being changed, from the chat's JSON param. */
 function parseEdit(raw: string | undefined): EditStart | null {
@@ -77,6 +77,7 @@ function parseEdit(raw: string | undefined): EditStart | null {
     const name = str(p.venueName);
     return {
       category,
+      label: str(p.label)?.slice(0, 60) ?? null,
       startsAt: startsAtIso && Number.isFinite(Date.parse(startsAtIso)) ? startsAtIso : null,
       place: name
         ? {
@@ -128,9 +129,13 @@ export default function PlanDateScreen() {
     /** Changing an accepted date: its message id, and its details as JSON to start from. */
     editOf?: string;
     edit?: string;
+    /** A spot or event picked in Explore, same JSON shape as `edit`. */
+    prefill?: string;
   }>();
   const editOf = typeof params.editOf === 'string' && params.editOf ? params.editOf : null;
   const original = useMemo(() => (editOf ? parseEdit(params.edit) : null), [editOf, params.edit]);
+  const prefill = useMemo(() => (editOf ? null : parseEdit(params.prefill)), [editOf, params.prefill]);
+  const seed = original ?? prefill;
   const theirName = displayName(params.name ?? 'them');
   const myPhoto = useSessionStore((s) => s.profile?.mainPhotoUrl ?? null);
   const myUid = useSessionStore((s) => s.userId);
@@ -150,9 +155,13 @@ export default function PlanDateScreen() {
   }, []);
 
   const tonightOpen = availableSlots(now, now).length > 0;
-  const start = original?.startsAt ? new Date(original.startsAt) : null;
+  const start = original?.startsAt
+    ? new Date(original.startsAt)
+    : prefill?.startsAt && Date.parse(prefill.startsAt) > now.getTime()
+      ? new Date(prefill.startsAt)
+      : null;
   const [category, setCategory] = useState<PlanCategory>(
-    original?.category ?? (sharedFood ? 'dinner' : 'drinks'),
+    seed?.category ?? (sharedFood ? 'dinner' : 'drinks'),
   );
   const [dayChoice, setDayChoice] = useState<DayChoice>(() =>
     start ? dayChoiceFor(start, now) : tonightOpen ? 'tonight' : 'tomorrow',
@@ -166,12 +175,21 @@ export default function PlanDateScreen() {
     [dayChoice, pickedDay, todayKey],
   );
   const suggestions = useMemo(() => suggestedTimes(category, day, now), [category, day, now]);
-  const allSlots = useMemo(() => availableSlots(day, now), [day, now]);
+  const eventStart = original ? null : start;
+  const startDay = eventStart?.toDateString();
+  const startMinutes = eventStart ? eventStart.getHours() * 60 + eventStart.getMinutes() : null;
+  const allSlots = useMemo(() => {
+    const slots = availableSlots(day, now);
+    // An event's own start time (e.g. 7:15 PM) stays pickable even off the half-hour grid.
+    if (startMinutes == null || day.toDateString() !== startDay || slots.includes(startMinutes)) return slots;
+    if (sameDay(day, now) && startMinutes <= now.getHours() * 60 + now.getMinutes()) return slots;
+    return [...slots, startMinutes].sort((a, b) => a - b);
+  }, [day, now, startDay, startMinutes]);
   const [time, setTime] = useState<number>(() =>
     start ? start.getHours() * 60 + start.getMinutes() : (suggestions[1] ?? suggestions[0] ?? 20 * 60 + 30),
   );
   const [moreTimes, setMoreTimes] = useState(() => Boolean(start));
-  const [place, setPlace] = useState<Place | null>(() => original?.place ?? null);
+  const [place, setPlace] = useState<Place | null>(() => seed?.place ?? null);
   const [picking, setPicking] = useState(false);
   const [sending, setSending] = useState(false);
 
@@ -186,6 +204,8 @@ export default function PlanDateScreen() {
   }, [allSlots, suggestions, time]);
 
   const kind = KINDS.find((k) => k.value === category) ?? KINDS[0];
+  const customLabel = prefill?.label && prefill.category === category ? prefill.label : null;
+  const summaryTitle = customLabel ? customLabel.replace(/^[^\w\s]+\s+/, '') : kind.label;
   const scrollRef = useRef<ScrollView>(null);
   const whereY = useRef(0);
   const shake = useSharedValue(0);
@@ -230,7 +250,7 @@ export default function PlanDateScreen() {
         matchId,
         {
           activity: category,
-          activityLabel: `${kind.emoji} ${kind.label}`,
+          activityLabel: customLabel ?? `${kind.emoji} ${kind.label}`,
           whenLabel: whenLabel(day, time, now),
           startsAt: when,
           venueName: place.name,
@@ -470,7 +490,9 @@ export default function PlanDateScreen() {
                   <AppText style={styles.summaryEmojiText}>{kind.emoji}</AppText>
                 </View>
                 <View style={styles.summaryText}>
-                  <AppText style={styles.summaryTitle}>{kind.label}</AppText>
+                  <AppText style={styles.summaryTitle} numberOfLines={1}>
+                    {summaryTitle}
+                  </AppText>
                   <AppText style={styles.summaryWhen}>{whenSentence(day, time, now)}</AppText>
                   <AppText style={[styles.summaryPlace, !place && styles.summaryPlaceEmpty]} numberOfLines={1}>
                     {place

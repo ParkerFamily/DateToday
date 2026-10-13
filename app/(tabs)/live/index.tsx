@@ -45,6 +45,7 @@ import { rs, ScaledSheet } from '@/lib/scale';
 import { androidGlow } from '@/lib/glow';
 import { endLiveSession, startLiveSession } from '@/services/api';
 import { useDiscoverFilters } from '@/store/discoverFilters';
+import { useExploreDraft } from '@/store/exploreDraft';
 import { useSessionStore } from '@/store/session';
 import { useTravelMode } from '@/store/travelMode';
 import { tripDatesLabel, tripLabel, tripPhase, usableTrip } from '@/features/travel/trip';
@@ -155,6 +156,9 @@ export default function LiveHomeScreen() {
   const [placeStyle, setPlaceStyle] = useState<PlaceStyle | null>(null);
   const [spot, setSpot] = useState<string | null>(null);
   const planIdea = placePlanIdea(placeStyle, spot);
+  const exploreDraft = useExploreDraft((s) => s.draft);
+  /** The spot preselected from Explore ("Find someone for this"), shown on the Explore card. */
+  const [fromExplore, setFromExplore] = useState<string | null>(null);
   const placeCategory =
     (activities.find((a) => PLACE_CATEGORIES.includes(a as PlanCategory)) as PlanCategory | undefined) ?? 'drinks';
   const [leaving, setLeaving] = useState(false);
@@ -225,6 +229,17 @@ export default function LiveHomeScreen() {
     }
     if (friend) setEnergy((prev) => (prev === 'romantic' ? null : prev));
   }, [planOptions, friend, live]);
+
+  useEffect(() => {
+    if (!exploreDraft || live) return;
+    const pick = useExploreDraft.getState().takeDraft();
+    if (!pick) return;
+    setActivities([pick.activity]);
+    if (pick.cuisine) setFoodCuisines([pick.cuisine]);
+    setPlaceStyle('spot');
+    setSpot(pick.spot);
+    setFromExplore(pick.spot);
+  }, [exploreDraft, live]);
 
   const activeFoods = live ? (liveSession?.foodCuisines ?? foodCuisines) : foodCuisines;
   const foodBit = wantsDinner ? formatFoodSummary(activeFoods) : '';
@@ -803,6 +818,32 @@ export default function LiveHomeScreen() {
               ) : null}
             </View>
 
+            <Pressable
+              onPress={() => router.push('/explore')}
+              accessibilityRole="button"
+              accessibilityLabel="Explore Tonight: find something worth going out for"
+              style={({ pressed }) => [styles.exploreCard, friend && styles.exploreCardFriend, pressed && styles.explorePressed]}
+            >
+              <LinearGradient
+                colors={friend ? ['rgba(20,184,166,0.22)', 'rgba(20,184,166,0.04)'] : ['rgba(168,85,247,0.3)', 'rgba(124,58,237,0.06)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={[styles.exploreIcon, friend && styles.exploreIconFriend]}>
+                <Ionicons name="compass" size={rs(22)} color={friend ? colors.friend : colors.brandBright} />
+              </View>
+              <View style={styles.exploreText}>
+                <AppText style={styles.exploreTitle}>Explore Tonight</AppText>
+                <AppText style={styles.exploreSub} numberOfLines={2}>
+                  {fromExplore && placeStyle === 'spot' && spot === fromExplore
+                    ? `Plan set: ${fromExplore}. Go Live to find someone for it.`
+                    : 'Food, drinks, movies & events nearby.'}
+                </AppText>
+              </View>
+              <Ionicons name="chevron-forward" size={rs(18)} color={colors.textSecondary} />
+            </Pressable>
+
             <View style={styles.section}>
               <View style={styles.sectionHead}>
                 <AppText style={styles.sectionLabel}>⚡ TONIGHT PLANS</AppText>
@@ -1362,6 +1403,30 @@ const styles = ScaledSheet.create({
     fontWeight: '700',
   },
   modeBlock: { gap: 8 },
+  exploreCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(168,85,247,0.45)',
+    overflow: 'hidden',
+  },
+  exploreCardFriend: { borderColor: 'rgba(94,234,212,0.4)' },
+  explorePressed: { opacity: 0.85 },
+  exploreIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(168,85,247,0.18)',
+  },
+  exploreIconFriend: { backgroundColor: 'rgba(94,234,212,0.14)' },
+  exploreText: { flex: 1, minWidth: 0, gap: 2 },
+  exploreTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  exploreSub: { color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
   modeHint: {
     color: colors.textSecondary,
     fontSize: 13,

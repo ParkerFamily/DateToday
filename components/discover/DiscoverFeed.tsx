@@ -1180,6 +1180,15 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
             </View>
           </View>
           <Pressable
+            onPress={() => router.push('/explore')}
+            hitSlop={10}
+            style={styles.helpButton}
+            accessibilityRole="button"
+            accessibilityLabel="Explore Tonight: find something worth going out for"
+          >
+            <Ionicons name="compass-outline" size={rs(23)} color={friendFeed ? colors.friend : colors.brandBright} />
+          </Pressable>
+          <Pressable
             onPress={() => router.push('/settings/tour?step=swipe' as Href)}
             hitSlop={10}
             style={styles.helpButton}

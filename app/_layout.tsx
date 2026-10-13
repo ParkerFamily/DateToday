@@ -533,6 +533,7 @@ export default function RootLayout() {
               <Stack.Screen name="filters/index" options={{ presentation: 'modal' }} />
               <Stack.Screen name="likes/index" options={{ presentation: 'modal' }} />
               <Stack.Screen name="travel/index" options={{ presentation: 'modal' }} />
+              <Stack.Screen name="explore/index" />
               <Stack.Screen name="paywall/index" />
               <Stack.Screen name="paywall/boost" />
               <Stack.Screen name="paywall/unlocked" options={{ gestureEnabled: false }} />

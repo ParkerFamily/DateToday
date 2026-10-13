@@ -11,7 +11,8 @@ export type UpgradeReason =
   | 'likes'
   | 'travel'
   | 'priority'
-  | 'friend_date';
+  | 'friend_date'
+  | 'after_hours';
 
 export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; body: string }> = {
   likes_out: {
@@ -41,6 +42,10 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
   friend_date: {
     title: 'Unlock more Friend Dates',
     body: 'See more people, use advanced filters, and make more platonic plans with DateToday+.',
+  },
+  after_hours: {
+    title: 'After Hours ✦',
+    body: 'Spots open late tonight, late shows nearby and the After Hours filters, with DateToday+.',
   },
   default: {
     title: 'Like without limits ✦',

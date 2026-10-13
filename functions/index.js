@@ -2592,7 +2592,7 @@ function osmPlace(e) {
 }
 
 /** All public mirrors at once; first good answer wins (they go down or crawl independently). */
-async function overpass(query, timeoutMs = 10000) {
+async function overpass(query, timeoutMs = 10000, toPlace = osmPlace) {
   return Promise.any(
     OVERPASS_URLS.map((url) =>
       placeFetch(
@@ -2603,7 +2603,7 @@ async function overpass(query, timeoutMs = 10000) {
           body: `data=${encodeURIComponent(query)}`,
         },
         timeoutMs,
-      ).then((json) => (json.elements || []).map(osmPlace).filter(Boolean)),
+      ).then((json) => (json.elements || []).map(toPlace).filter(Boolean)),
     ),
   ).catch((error) => {
     throw new Error((error.errors || []).map((e) => e.message).join('; ') || 'Overpass unavailable');
@@ -2859,6 +2859,140 @@ async function searchCities(rawQuery) {
   return cities;
 }
 
+const explore = require('./explore');
+const EXPLORE_PLACES_TTL_MS = 24 * 3600 * 1000;
+const EXPLORE_EVENTS_TTL_MS = 30 * 60 * 1000;
+const EXPLORE_EVENTS_EMPTY_TTL_MS = 10 * 60 * 1000;
+const exploreInFlight = new Map();
+
+function exploreOnce(key, run) {
+  if (!exploreInFlight.has(key)) {
+    exploreInFlight.set(key, run().finally(() => exploreInFlight.delete(key)));
+  }
+  return exploreInFlight.get(key);
+}
+
+function exploreCacheRef(prefix, rawKey) {
+  return getFirestore()
+    .collection('placeCache')
+    .doc(`${prefix}_${require('crypto').createHash('sha1').update(rawKey).digest('hex')}`);
+}
+
+/** Explore Tonight places: Google Places (photos, ratings, hours) when keyed, else OpenStreetMap. */
+async function explorePlaces(body, lat, lng) {
+  const category = explore.EXPLORE_CATEGORIES.includes(body.category) ? body.category : 'foodie';
+  const style = category === 'foodie' && explore.FOODIE_STYLES.includes(body.style) ? body.style : 'anything';
+  const miles = explore.exploreRadius(body.radiusMiles);
+  const googleKey = process.env.GOOGLE_PLACES_API_KEY || '';
+  const rawKey = `x|${category}|${style}|${miles}|${lat.toFixed(2)}_${lng.toFixed(2)}`;
+  const cacheRef = exploreCacheRef(googleKey ? 'xgoogle' : 'xosm', rawKey);
+  const cached = await cacheRef.get().catch(() => null);
+  const data = cached && cached.exists ? cached.data() : null;
+  const stale = (data && data.places) || [];
+  let places = data && Date.now() - (data.at || 0) < (data.ttl || EXPLORE_PLACES_TTL_MS) ? stale : null;
+  if (!places) {
+    places = await exploreOnce(rawKey, async () => {
+      let found = null;
+      let ttl = EXPLORE_PLACES_TTL_MS;
+      if (googleKey) {
+        try {
+          found = await explore.googleExploreNearby({
+            key: googleKey,
+            lat,
+            lng,
+            radiusM: Math.min(50000, Math.round(miles * 1609.34)),
+            types: explore.googleTypesFor(category, style),
+            fetchJson: placeFetch,
+          });
+        } catch (error) {
+          console.warn('Explore: Google Places failed, using OSM', error.message);
+        }
+      }
+      if (!found) {
+        const radiusM = Math.min(Math.round(miles * 1609.34), 16000);
+        // Photon runs alongside so a slow or overloaded Overpass doesn't leave people with nothing.
+        const photon = explore
+          .photonExploreNearby({ category, style, lat, lng, radiusM, fetchJson: placeFetch })
+          .catch(() => []);
+        let overpassDown = false;
+        const osm = await overpass(
+          explore.osmExploreQuery(category, style, lat, lng, radiusM),
+          9000,
+          explore.osmExplorePlace,
+        ).catch((error) => {
+          console.warn('Explore: Overpass failed, using Photon', error.message);
+          overpassDown = true;
+          return [];
+        });
+        found = osm.length >= 8 ? osm : [...osm, ...(await photon)];
+        // Photon alone is a thinner list; keep it briefly so Overpass gets another go soon.
+        if (overpassDown) ttl = 2 * 3600 * 1000;
+        // Overpass down and Photon empty reads as an outage (retry), not "nothing nearby".
+        if (!found.length && overpassDown) throw new Error('OpenStreetMap unavailable');
+      }
+      const seen = new Set();
+      found = found.filter((p) => {
+        const k = `${p.name.toLowerCase()}|${p.address || ''}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      if (found.length) await cacheRef.set({ places: found.slice(0, 400), at: Date.now(), ttl }).catch(() => undefined);
+      return found;
+    }).catch((error) => {
+      console.warn('Explore places failed', error.message);
+      return null;
+    });
+    // Providers flaked: an older list for this spot beats an error.
+    if (!places || (!places.length && stale.length)) places = stale.length ? stale : places;
+    if (!places) throw Object.assign(new Error('Couldn’t load places right now.'), { status: 502 });
+  }
+  const me = { lat, lng };
+  const now = Date.now();
+  const list = places
+    .map((p) => explore.publicPlace(p, me, now, placeMiles))
+    .filter((p) => p.distanceMiles == null || p.distanceMiles <= miles * 1.1);
+  const provider = (places[0] && places[0].source) || (googleKey ? 'google' : 'osm');
+  // Google already ranks by popularity; OSM has no signal beyond distance.
+  if (provider !== 'google') list.sort((a, b) => (a.distanceMiles ?? 99) - (b.distanceMiles ?? 99));
+  return { places: list.slice(0, 40), provider };
+}
+
+/** Explore Tonight events near a point from Ticketmaster, cached briefly per area and time window. */
+async function exploreEvents(body, lat, lng) {
+  const key = process.env.TICKETMASTER_API_KEY || '';
+  if (!key) return { events: [], provider: null, unavailable: true };
+  const miles = explore.exploreRadius(body.radiusMiles);
+  const { startMs, endMs } = explore.eventWindow(body, Date.now());
+  const rawKey = `tm|${lat.toFixed(2)}_${lng.toFixed(2)}|${miles}|${startMs}|${endMs}`;
+  const cacheRef = exploreCacheRef('tm', rawKey);
+  const cached = await cacheRef.get().catch(() => null);
+  const data = cached && cached.exists ? cached.data() : null;
+  const stale = (data && data.events) || null;
+  const ttl = stale && stale.length ? EXPLORE_EVENTS_TTL_MS : EXPLORE_EVENTS_EMPTY_TTL_MS;
+  let events = data && Date.now() - (data.at || 0) < ttl ? stale : null;
+  if (!events) {
+    events = await exploreOnce(rawKey, async () => {
+      const found = await explore.ticketmasterEvents({ key, lat, lng, radiusMiles: miles, startMs, endMs, fetchJson: placeFetch });
+      await cacheRef.set({ events: found.slice(0, 60), at: Date.now() }).catch(() => undefined);
+      return found;
+    }).catch((error) => {
+      console.warn('Explore events failed', error.message);
+      return stale;
+    });
+    if (!events) throw Object.assign(new Error('Couldn’t load events right now.'), { status: 502 });
+  }
+  const me = { lat, lng };
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  const list = events
+    .filter((e) => !e.startsAt || Date.parse(e.startsAt) >= cutoff)
+    .map((e) => ({
+      ...e,
+      distanceMiles: e.lat != null && e.lng != null ? Math.round(placeMiles(me, e) * 10) / 10 : null,
+    }));
+  return { events: list.slice(0, 40), provider: 'ticketmaster' };
+}
+
 exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req, res) => {
   try {
     if (req.method !== 'POST') {
@@ -2879,6 +3013,17 @@ exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req,
     const query = typeof body.query === 'string' ? body.query.trim().slice(0, 80) : '';
     if (mode !== 'search' && (lat == null || lng == null)) {
       res.status(400).json({ error: 'Location needed.' });
+      return;
+    }
+    if (body.mode === 'explore' || body.mode === 'events') {
+      try {
+        res.json(body.mode === 'events' ? await exploreEvents(body, lat, lng) : await explorePlaces(body, lat, lng));
+      } catch (error) {
+        console.error('explore', body.mode, error.message || error);
+        res.status(502).json({
+          error: body.mode === 'events' ? 'Couldn’t load events right now.' : 'Couldn’t load places right now.',
+        });
+      }
       return;
     }
     if (mode === 'search' && query.length < 2) {
