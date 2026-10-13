@@ -12,7 +12,7 @@ export default function InterestsScreen() {
   const router = useRouter();
   const interests = useOnboardingDraft((s) => s.interests);
   const setInterests = useOnboardingDraft((s) => s.setInterests);
-  const next = () => router.push('/(onboarding)/distance');
+  const next = () => router.push('/(onboarding)/ethnicity');
 
   return (
     <OnboardingChrome

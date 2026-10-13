@@ -37,6 +37,7 @@ import {
   KIDS_OPTIONS,
   normalizeInterests,
 } from '@/constants/interests';
+import { ETHNICITY_OPTIONS, ethnicityLabels } from '@/constants/ethnicity';
 import { ScaledSheet } from '@/lib/scale';
 import { TRAIT_KEYS, TRAITS, type TraitKey } from '@/constants/datingTraits';
 
@@ -60,6 +61,7 @@ type SheetId =
   | 'smoking'
   | 'exercise'
   | 'kids'
+  | 'ethnicity'
   | TraitKey
   | null;
 
@@ -218,6 +220,8 @@ export default function EditProfileScreen() {
   const [smoking, setSmoking] = useState(profile?.smoking || '');
   const [exercise, setExercise] = useState(profile?.exercise || '');
   const [kids, setKids] = useState(profile?.kids || '');
+  const [ethnicities, setEthnicities] = useState<string[]>(profile?.ethnicities ?? []);
+  const [showEthnicity, setShowEthnicity] = useState(profile?.showEthnicity ?? false);
   const [traits, setTraits] = useState<Record<TraitKey, string>>(
     () => Object.fromEntries(TRAIT_KEYS.map((k) => [k, profile?.[k] || ''])) as Record<TraitKey, string>,
   );
@@ -390,6 +394,8 @@ export default function EditProfileScreen() {
         foodPreference: foodPreference,
         exercise: exercise || null,
         kids: kids || null,
+        ethnicities: ethnicities.length ? ethnicities : null,
+        showEthnicity,
         ...traitValues,
         updatedAt: nowIso,
         profileCompletion: {
@@ -436,6 +442,8 @@ export default function EditProfileScreen() {
           foodPreference: next.foodPreference,
           exercise: next.exercise,
           kids: next.kids,
+          ethnicities: next.ethnicities,
+          showEthnicity,
           ...traitValues,
           datingIntention: vibe,
           vibes: vibe ? [vibe] : [],
@@ -457,6 +465,7 @@ export default function EditProfileScreen() {
           foodPreference: next.foodPreference,
           exercise: next.exercise,
           kids: next.kids,
+          ethnicities: next.ethnicities,
           ...traitValues,
           datingIntention: vibe,
           updatedAt: serverTimestamp(),
@@ -476,6 +485,7 @@ export default function EditProfileScreen() {
           interests: next.interests ?? [],
           kids: next.kids,
           exercise: next.exercise,
+          ethnicities: next.ethnicities ?? [],
           occupation: next.occupation ?? null,
           school: next.school ?? null,
           ...traitValues,
@@ -535,6 +545,8 @@ export default function EditProfileScreen() {
         return 'Workout';
       case 'kids':
         return 'Kids';
+      case 'ethnicity':
+        return 'Race & Ethnicity';
       default:
         return sheet && sheet in TRAITS ? TRAITS[sheet as TraitKey].label : '';
     }
@@ -769,6 +781,14 @@ export default function EditProfileScreen() {
         </Section>
 
         <Section title="Background">
+          <EditorRow
+            label="Race & Ethnicity"
+            value={ethnicities.length ? ethnicityLabels(ethnicities) : null}
+            placeholder="Optional — Add your identities"
+            hint={ethnicities.length && showEthnicity ? 'Visible on profile' : ethnicities.length ? 'Hidden on profile' : undefined}
+            multilinePreview
+            onPress={() => setSheet('ethnicity')}
+          />
           {(['education', 'industry', 'religion', 'politics'] as const).map((k, i, all) => (
             <EditorRow
               key={k}
@@ -1006,6 +1026,46 @@ export default function EditProfileScreen() {
                   }}
                 />
               ))}
+            </View>
+          ) : null}
+
+          {sheet === 'ethnicity' ? (
+            <View style={styles.ethnicitySheet}>
+              <AppText style={styles.sheetSub}>You can select multiple identities</AppText>
+              <ScrollView style={styles.interestScroll} showsVerticalScrollIndicator={false}>
+                <View style={styles.chipWrap}>
+                  {ETHNICITY_OPTIONS.map((opt) => (
+                    <OptionChip
+                      key={opt.value}
+                      label={opt.label}
+                      selected={ethnicities.includes(opt.value)}
+                      onPress={() => {
+                        setEthnicities(
+                          ethnicities.includes(opt.value)
+                            ? ethnicities.filter((e) => e !== opt.value)
+                            : [...ethnicities, opt.value]
+                        );
+                      }}
+                    />
+                  ))}
+                </View>
+              </ScrollView>
+              {ethnicities.length > 0 ? (
+                <Pressable
+                  onPress={() => setShowEthnicity(!showEthnicity)}
+                  style={styles.ethnicityVisibility}
+                >
+                  <View style={[styles.checkbox, showEthnicity && styles.checkboxOn]}>
+                    {showEthnicity ? <AppText style={styles.checkMark}>✓</AppText> : null}
+                  </View>
+                  <AppText style={styles.ethnicityVisibilityText}>
+                    Show my race or ethnicity on my profile
+                  </AppText>
+                </Pressable>
+              ) : null}
+              <Pressable style={styles.sheetPrimary} onPress={() => setSheet(null)}>
+                <AppText style={styles.sheetPrimaryLabel}>Done</AppText>
+              </Pressable>
             </View>
           ) : null}
 
@@ -1393,6 +1453,35 @@ const styles = ScaledSheet.create({
   },
   interestScroll: {
     maxHeight: 420,
+  },
+  ethnicitySheet: {
+    gap: spacing.sm,
+  },
+  ethnicityVisibility: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  ethnicityVisibilityText: {
+    flex: 1,
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxOn: {
+    borderColor: colors.brandBright,
+    backgroundColor: colors.brandBright,
   },
   heightRow: {
     paddingVertical: 12,

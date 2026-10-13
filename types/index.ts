@@ -139,6 +139,10 @@ export interface Profile extends ProfileTraits {
   foodPreference?: string | null;
   exercise?: string | null;
   kids?: string | null;
+  /** User's self-identified race/ethnicity (multi-select) — private by default */
+  ethnicities?: string[] | null;
+  /** Whether to show ethnicity on public profile — default false */
+  showEthnicity?: boolean;
   /** Highest compatibility quiz level finished (0 = not taken). */
   quizLevel?: number;
   verificationStatus: VerificationStatus;
@@ -163,6 +167,10 @@ export interface DatingPreferences {
   maxAge: number;
   maxDistanceMiles: number;
   intentions: DatingIntention[];
+  /** Preferred ethnicities for discovery — empty = open to everyone */
+  preferredEthnicities?: string[];
+  /** Plus-only: strict ethnicity filtering (only show matches) */
+  strictEthnicityFilter?: boolean;
 }
 
 export type ProfileVideoKind =
@@ -257,6 +265,8 @@ export interface DiscoveryCard extends ProfileTraits {
   displayName: string;
   age: number;
   neighborhoodLabel: string | null;
+  /** User's ethnicities when they've opted to show them */
+  ethnicities?: string[] | null;
   /** From where the viewer is browsing (their trip city's center in Travel Mode). Drives radius and ranking. */
   distanceMiles: number;
   /**
@@ -388,4 +398,5 @@ export type EntitlementKey =
   | 'extended_radius'
   | 'priority_discovery'
   | 'saved_filters'
-  | 'read_receipts';
+  | 'read_receipts'
+  | 'strict_ethnicity_filter';

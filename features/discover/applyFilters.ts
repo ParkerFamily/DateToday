@@ -127,6 +127,11 @@ export function ageRangeLabel(f: Pick<DiscoverFilterValues, 'ageMin' | 'ageMax'>
 /**
  * Loose by default: people who haven't filled in a field still show.
  * "Match all" (Plus) makes every rule strict, including missing info.
+ *
+ * Ethnicity filtering:
+ * - Free users: prioritize preferred ethnicities (ranking), never exclude
+ * - Plus users with strict filter: only show selected ethnicities
+ * - Never guess or infer ethnicity from missing data
  */
 export function applyDiscoverFilters(
   cards: DiscoveryCard[],
@@ -143,10 +148,21 @@ export function applyDiscoverFilters(
   const keep = (value: unknown, test: () => boolean) =>
     value == null || value === '' ? !strict : test();
 
+  // Ethnicity filtering: Plus-only strict mode
+  const strictEthnicityOn = plus && f.strictEthnicityFilter && f.ethnicityPreference.length > 0;
+
   return cards.filter((c) => {
     if (f.verifiedOnly && c.verificationStatus !== 'verified') return false;
 
     if (f.recentlyActive && !isRecentlyActive(c, now)) return false;
+
+    // Strict ethnicity filtering (Plus-only)
+    if (strictEthnicityOn) {
+      // If they haven't disclosed their ethnicity, don't show them in strict mode
+      if (!c.ethnicities?.length) return false;
+      // Must have at least one matching ethnicity
+      if (!c.ethnicities.some((e) => f.ethnicityPreference.includes(e))) return false;
+    }
 
     if (f.vibeFilter.length) {
       const ok = strict

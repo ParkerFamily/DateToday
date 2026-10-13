@@ -7,7 +7,7 @@ import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { OptionChip } from '@/components/ui/OptionChip';
-import { SettingsHeader } from '@/components/settings/SettingsUI';
+import { SettingsHeader, SettingsRow } from '@/components/settings/SettingsUI';
 import { datingVibes, interestOptions } from '@/constants/copy';
 import { colors, radii, spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
@@ -198,6 +198,24 @@ export default function DatingPreferencesScreen() {
           ))}
         </View>
 
+        <View style={styles.section}>
+          <AppText variant="label" style={styles.sectionLabel}>
+            More preferences
+          </AppText>
+          <View style={styles.sectionCard}>
+            <SettingsRow
+              label="Ethnicity preferences"
+              detail={
+                preferences?.preferredEthnicities?.length
+                  ? `${preferences.preferredEthnicities.length} selected`
+                  : 'Open to everyone'
+              }
+              onPress={() => router.push('/settings/ethnicity-preferences')}
+              last
+            />
+          </View>
+        </View>
+
         <Button label="Save" onPress={() => void save()} loading={saving} style={styles.save} />
       </ScrollView>
     </Screen>
@@ -298,5 +316,19 @@ const styles = ScaledSheet.create({
   },
   save: {
     marginTop: spacing.lg,
+  },
+  section: {
+    gap: 8,
+    marginTop: spacing.md,
+  },
+  sectionLabel: {
+    marginLeft: 4,
+  },
+  sectionCard: {
+    borderRadius: radii.card,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
   },
 });
