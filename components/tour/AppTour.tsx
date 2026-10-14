@@ -20,7 +20,7 @@ import { PRIORITY, PRIORITY_TEXT } from '@/components/likes/PriorityLikeSheet';
 import { colors, gradients, spacing } from '@/constants/theme';
 import { ScaledSheet, rs } from '@/lib/scale';
 
-export type TourStep = 'welcome' | 'live' | 'swipe' | 'buttons' | 'matches' | 'plan' | 'profile' | 'invite';
+export type TourStep = 'welcome' | 'live' | 'friend' | 'swipe' | 'buttons' | 'matches' | 'plan' | 'profile' | 'invite';
 
 const STEPS: { key: TourStep; title: string; body: string }[] = [
   {
@@ -30,8 +30,13 @@ const STEPS: { key: TourStep; title: string; body: string }[] = [
   },
   {
     key: 'live',
-    title: 'Go live when you’re free',
-    body: 'On the Live tab, pick what you’re in the mood for, then hold the button to go live. People nearby see you’re free tonight.',
+    title: 'Go live when you're free',
+    body: 'On the Live tab, pick what you're in the mood for, then hold the button to go live. People nearby see you're free tonight.',
+  },
+  {
+    key: 'friend',
+    title: 'Friend Date for platonic plans',
+    body: 'Switch to Friend Date mode to find people for strictly platonic hangouts. Perfect for making new friends or finding activity buddies.',
   },
   {
     key: 'swipe',
@@ -46,12 +51,12 @@ const STEPS: { key: TourStep; title: string; body: string }[] = [
   {
     key: 'matches',
     title: 'Matches and chats',
-    body: 'When you both like each other, they show up in Matches. “Likes you” at the top shows who’s into you.',
+    body: 'When you both like each other, they show up in Matches. "Likes you" at the top shows who's into you.',
   },
   {
     key: 'plan',
     title: 'Plan a date',
-    body: 'In a chat, tap Plan ⚡ to suggest a place and time. Once they accept it’s a date. You can still request an edit or cancel.',
+    body: 'In a chat, tap Plan ⚡ to suggest a place and time. Once they accept it's a date. You can still request an edit or cancel.',
   },
   {
     key: 'profile',
@@ -216,6 +221,33 @@ function Mockup({ step, pulse, swipeX }: { step: TourStep; pulse: SharedValue<nu
               <AppText style={m.goLiveText}>HOLD TO GO LIVE ⚡</AppText>
             </LinearGradient>
           </Glow>
+          <TabBar active="live" pulse={pulse} />
+        </View>
+      );
+    case 'friend':
+      return (
+        <View style={m.screen}>
+          <AppText style={m.screenTitle}>Who's out tonight?</AppText>
+          <Glow pulse={pulse} radius={16}>
+            <View style={m.modeSwitch}>
+              <View style={m.modeTab}>
+                <AppText style={m.modeText}>Dating</AppText>
+              </View>
+              <View style={[m.modeTab, m.modeTabOn]}>
+                <Ionicons name="people" size={14} color={colors.friend} />
+                <AppText style={[m.modeText, m.modeTextOn]}>Friend Date</AppText>
+              </View>
+            </View>
+          </Glow>
+          <View style={m.friendTag}>
+            <Ionicons name="people" size={12} color={colors.friend} />
+            <AppText style={m.friendTagText}>FRIEND DATE · PLATONIC</AppText>
+          </View>
+          <View style={m.friendNote}>
+            <AppText style={m.friendNoteText}>For platonic plans only</AppText>
+            <AppText style={m.friendNoteText}>You'll only see people also in Friend Date mode</AppText>
+          </View>
+          <View style={m.grow} />
           <TabBar active="live" pulse={pulse} />
         </View>
       );
@@ -525,6 +557,63 @@ const m = StyleSheet.create({
   chipText: { color: colors.text, fontSize: 12, fontWeight: '700' },
   goLive: { height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center' },
   goLiveText: { color: colors.white, fontSize: 14, fontWeight: '900', letterSpacing: 0.5 },
+  modeSwitch: {
+    flexDirection: 'row',
+    gap: 6,
+    padding: 4,
+    borderRadius: 14,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  modeTabOn: {
+    backgroundColor: 'rgba(20,184,166,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(94,234,212,0.42)',
+  },
+  modeText: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
+  modeTextOn: { color: colors.friend },
+  friendTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(20,184,166,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(94,234,212,0.42)',
+    marginTop: 10,
+  },
+  friendTagText: {
+    color: colors.friend,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  friendNote: {
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+    paddingHorizontal: 14,
+  },
+  friendNoteText: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 15,
+  },
   tabBar: {
     flexDirection: 'row',
     marginHorizontal: -14,

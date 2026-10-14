@@ -52,6 +52,15 @@ export interface OnboardingDraft {
   signupToken: string | null;
   /** Account this draft belongs to; another account signing in on this phone starts fresh. */
   ownerUid: string | null;
+  /** Race/ethnicity identities — multi-select, optional */
+  ethnicities: string[];
+  /** Whether to show ethnicity on profile — default false */
+  showEthnicity: boolean;
+  /** Preferred ethnicities for dating — empty = open to everyone */
+  preferredEthnicities: string[];
+  setEthnicities: (ethnicities: string[]) => void;
+  setShowEthnicity: (show: boolean) => void;
+  setPreferredEthnicities: (ethnicities: string[]) => void;
   claimFor: (uid: string) => void;
   setSignupToken: (token: string | null) => void;
   setLegalName: (name: string) => void;
@@ -122,6 +131,9 @@ const initial = {
   emailVerified: false,
   signupToken: null as string | null,
   ownerUid: null as string | null,
+  ethnicities: [] as string[],
+  showEthnicity: false,
+  preferredEthnicities: [] as string[],
 };
 
 function accountReady(state: typeof initial): boolean {
@@ -222,6 +234,9 @@ export const useOnboardingDraft = create<OnboardingDraft>()(
       acceptLegalConsent: () => set({ legalConsentAccepted: true }),
       setPhoneVerified: (phoneE164) => set({ phoneE164, phoneVerified: true }),
       setEmailVerified: (verified = true) => set({ emailVerified: verified }),
+      setEthnicities: (ethnicities) => set({ ethnicities }),
+      setShowEthnicity: (showEthnicity) => set({ showEthnicity }),
+      setPreferredEthnicities: (preferredEthnicities) => set({ preferredEthnicities }),
       profilePercent: () => percentFrom(get()),
       reset: () =>
         set({
@@ -240,6 +255,9 @@ export const useOnboardingDraft = create<OnboardingDraft>()(
           phoneVerified: false,
           emailVerified: false,
           signupToken: null,
+          ethnicities: [],
+          showEthnicity: false,
+          preferredEthnicities: [],
         }),
     }),
     {

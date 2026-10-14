@@ -398,10 +398,19 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         foodCuisines: c.foodCuisines 
       }).score;
       const interestScore = sharedInterests(myInterests, c.interests).length * 4;
-      scores.set(c.userId, compatScore + interestScore);
+      
+      // Ethnicity preference boost for free users (prioritize, don't exclude)
+      let ethnicityBoost = 0;
+      if (filters.ethnicityPreference.length > 0 && c.ethnicities?.length) {
+        const matches = c.ethnicities.filter((e) => filters.ethnicityPreference.includes(e));
+        // +8 points per matching ethnicity (similar weight to interests)
+        ethnicityBoost = matches.length * 8;
+      }
+      
+      scores.set(c.userId, compatScore + interestScore + ethnicityBoost);
     }
     return scores;
-  }, [pool, myVibe, myInterests]);
+  }, [pool, myVibe, myInterests, filters.ethnicityPreference]);
 
   // Age range is asked, never assumed: people outside it only show after "Show them".
   const agePool = useMemo(

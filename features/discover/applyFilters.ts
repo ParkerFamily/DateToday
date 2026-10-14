@@ -16,6 +16,7 @@ import {
 import { ENERGY_OPTIONS, hasSpotInMind, TRAIT_KEYS, TRAITS, TRAVEL_OPTIONS } from '@/constants/datingTraits';
 import { isBroadInterest, normalizeInterests, sharedInterests } from '@/constants/interests';
 import { foodLabel } from '@/constants/tonightVibe';
+import { ethnicityLabel } from '@/constants/ethnicity';
 import { isUpcomingTraveler, shownDistanceMiles } from '@/features/travel/trip';
 import type { DiscoverFilterValues } from '@/store/discoverFilters';
 import type { DiscoveryCard } from '@/types';
@@ -127,6 +128,11 @@ export function ageRangeLabel(f: Pick<DiscoverFilterValues, 'ageMin' | 'ageMax'>
 /**
  * Loose by default: people who haven't filled in a field still show.
  * "Match all" (Plus) makes every rule strict, including missing info.
+ *
+ * Ethnicity filtering:
+ * - Free users: prioritize preferred ethnicities (ranking), never exclude
+ * - Plus users with strict filter: only show selected ethnicities
+ * - Never guess or infer ethnicity from missing data
  */
 export function applyDiscoverFilters(
   cards: DiscoveryCard[],
@@ -143,10 +149,21 @@ export function applyDiscoverFilters(
   const keep = (value: unknown, test: () => boolean) =>
     value == null || value === '' ? !strict : test();
 
+  // Ethnicity filtering: Plus-only strict mode
+  const strictEthnicityOn = plus && f.strictEthnicityFilter && f.ethnicityPreference.length > 0;
+
   return cards.filter((c) => {
     if (f.verifiedOnly && c.verificationStatus !== 'verified') return false;
 
     if (f.recentlyActive && !isRecentlyActive(c, now)) return false;
+
+    // Strict ethnicity filtering (Plus-only)
+    if (strictEthnicityOn) {
+      // If they haven't disclosed their ethnicity, don't show them in strict mode
+      if (!c.ethnicities?.length) return false;
+      // Must have at least one matching ethnicity
+      if (!c.ethnicities.some((e) => f.ethnicityPreference.includes(e))) return false;
+    }
 
     if (f.vibeFilter.length) {
       const ok = strict
@@ -228,6 +245,13 @@ export function activeFilterLabels(f: DiscoverFilterValues, { plus, now = new Da
   if (f.recentlyActive) out.push('Recently active');
   if (f.ageMin != null || f.ageMax != null) {
     out.push(`Age ${ageRangeLabel(f)}`);
+  }
+  if (f.ethnicityPreference.length) {
+    if (plus && f.strictEthnicityFilter) {
+      out.push(`Only: ${f.ethnicityPreference.map(ethnicityLabel).join(', ')}`);
+    } else {
+      out.push(`Prefer: ${f.ethnicityPreference.map(ethnicityLabel).join(', ')}`);
+    }
   }
   if (f.vibeFilter.length) {
     out.push(f.vibeFilter.map(activityLabel).join(' / '));
@@ -318,6 +342,14 @@ export function matchedFilterLabels(
   const has = <T>(wanted: readonly T[], value: T | null | undefined): value is T =>
     value != null && wanted.includes(value);
   const nearbyOnly = isNearbyOnly(c) || isUpcomingTraveler(c, now);
+
+  // Show ethnicity match if they disclosed it and it's in preferences
+  if (f.ethnicityPreference.length && c.ethnicities?.length) {
+    const matches = c.ethnicities.filter((e) => f.ethnicityPreference.includes(e));
+    if (matches.length) {
+      out.push(...matches.map(ethnicityLabel));
+    }
+  }
 
   if (plus && f.readyNow && !nearbyOnly && c.availabilityMode !== 'later') {
     const confirmed = new Date(c.confirmedAt ?? c.startedAt ?? NaN).getTime();

@@ -11,6 +11,7 @@ const PLUS_ENTITLEMENTS: EntitlementKey[] = [
   'priority_discovery',
   'saved_filters',
   'read_receipts',
+  'strict_ethnicity_filter',
 ];
 
 export type PlusPlanId = 'weekly' | 'monthly';
@@ -174,9 +175,13 @@ export function preferredRadius(state: EntitlementState, miles: number | null | 
   return (fit.length ? fit[fit.length - 1] : allowed[0]) as RadiusMiles;
 }
 
-/** Verified-only is trust/safety — always free. */
 export function canUseVerifiedOnly(_state: EntitlementState): boolean {
   return true;
+}
+
+/** Strict ethnicity filtering is DateToday+. */
+export function canUseStrictEthnicityFilter(state: EntitlementState): boolean {
+  return hasEntitlement(state, 'strict_ethnicity_filter');
 }
 
 /** Human status line for Settings / paywall. */

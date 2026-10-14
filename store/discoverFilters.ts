@@ -75,6 +75,10 @@ export interface DiscoverFilterValues extends TraitFilters {
   readyNow: boolean;
   /** Plus: ultra-tight radius (1 / 2 / 5 mi). */
   closeByMiles: number | null;
+  /** Free: prioritize these ethnicities in discovery */
+  ethnicityPreference: string[];
+  /** Plus: strict ethnicity filter (only show selected ethnicities) */
+  strictEthnicityFilter: boolean;
 }
 
 export interface DiscoverFilterState extends DiscoverFilterValues {
@@ -85,6 +89,7 @@ export interface DiscoverFilterState extends DiscoverFilterValues {
   toggleFoodFilter: (cuisine: FoodCuisine, allowMany: boolean) => void;
   setVerifiedOnly: (value: boolean) => void;
   setMatchAllFilters: (value: boolean) => void;
+  setStrictEthnicityFilter: (value: boolean) => void;
   toggleIn: (
     key:
       | 'intents'
@@ -96,6 +101,7 @@ export interface DiscoverFilterState extends DiscoverFilterValues {
       | 'vibeFilter'
       | 'energy'
       | 'travel'
+      | 'ethnicityPreference'
       | TraitKey,
     value: string,
   ) => void;
@@ -143,6 +149,8 @@ export const DEFAULT_FILTERS: DiscoverFilterValues = {
   communication: [],
   chronotype: [],
   socialEnergy: [],
+  ethnicityPreference: [],
+  strictEthnicityFilter: false,
 };
 
 const VALUE_KEYS = Object.keys(DEFAULT_FILTERS) as (keyof DiscoverFilterValues)[];
@@ -178,6 +186,7 @@ export const useDiscoverFilters = create<DiscoverFilterState>((set, get) => ({
   },
   setVerifiedOnly: (verifiedOnly) => set({ verifiedOnly }),
   setMatchAllFilters: (matchAllFilters) => set({ matchAllFilters }),
+  setStrictEthnicityFilter: (strictEthnicityFilter) => set({ strictEthnicityFilter }),
   toggleIn: (key, value) => set({ [key]: toggle(get()[key] as string[], value) }),
   reset: () => set({ ...DEFAULT_FILTERS }),
 }));
