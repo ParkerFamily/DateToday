@@ -2993,13 +2993,108 @@ async function exploreEvents(body, lat, lng) {
   return { events: list.slice(0, 40), provider: 'ticketmaster' };
 }
 
+/** Nearby spots or name search around a point, cached per ~1 km grid cell. */
+async function cachedPlaceList(mode, lat, lng, category, cuisine, query) {
+  const googleKey = process.env.GOOGLE_PLACES_API_KEY || '';
+  const provider = googleKey ? 'google' : 'osm';
+  const grid = lat != null && lng != null ? `${lat.toFixed(2)}_${lng.toFixed(2)}` : 'x';
+  const rawKey = mode === 'nearby' ? `n|${category}|${cuisine || ''}|${grid}` : `s|${query.toLowerCase()}|${grid}`;
+  const cacheId = `${provider}_${require('crypto').createHash('sha1').update(rawKey).digest('hex')}`;
+  const cacheRef = getFirestore().collection('placeCache').doc(cacheId);
+  const cached = await cacheRef.get();
+  const maxAge = mode === 'nearby' ? 24 * 3600 * 1000 : 6 * 3600 * 1000;
+  const stale = cached.exists ? cached.data().places || [] : [];
+  if (cached.exists && Date.now() - (cached.data().at || 0) < maxAge) return { places: cached.data().places, provider };
+
+  let places = null;
+  if (googleKey) {
+    try {
+      places =
+        mode === 'nearby'
+          ? await googleNearby(googleKey, lat, lng, category, cuisine)
+          : await googleSearch(googleKey, query, lat, lng);
+    } catch (error) {
+      console.warn('Google Places failed, using OSM', error.message);
+    }
+  }
+  if (!places) {
+    places = mode === 'nearby' ? await osmNearby(lat, lng, category, cuisine) : await osmSearch(query, lat, lng);
+  }
+  // Providers flaked: an older list for this spot beats "nothing nearby".
+  if (!places.length && stale.length) places = stale;
+  const seen = new Set();
+  places = places.filter((p) => {
+    const k = `${p.name.toLowerCase()}|${p.address || ''}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (places.length) await cacheRef.set({ places: places.slice(0, 60), at: Date.now() }).catch(() => undefined);
+  return { places, provider };
+}
+
+const HALFWAY_PRESENCE_MAX_AGE_MS = 7 * 86400000;
+
+/** Where a match is for planning: their Travel Mode city while traveling, else their Live or last nearby spot. */
+async function planningSpot(db, uid) {
+  const [live, near] = await Promise.all([
+    db.collection('liveSessions').doc(uid).get(),
+    db.collection('nearbyProfiles').doc(uid).get(),
+  ]);
+  const l = live.exists ? live.data() : null;
+  const expires = l && l.expiresAt && typeof l.expiresAt.toMillis === 'function' ? l.expiresAt.toMillis() : 0;
+  if (l && l.status === 'active' && !l.endedAt && expires > Date.now()) {
+    const trip = l.trip || null;
+    if (trip && Number.isFinite(trip.latitude) && Number.isFinite(trip.longitude)) {
+      return { lat: trip.latitude, lng: trip.longitude };
+    }
+    if (Number.isFinite(l.latitude) && Number.isFinite(l.longitude)) return { lat: l.latitude, lng: l.longitude };
+  }
+  const n = near.exists ? near.data() : null;
+  const seen = n && n.lastActiveAt && typeof n.lastActiveAt.toMillis === 'function' ? n.lastActiveAt.toMillis() : 0;
+  if (n && Date.now() - seen < HALFWAY_PRESENCE_MAX_AGE_MS && Number.isFinite(n.latitude) && Number.isFinite(n.longitude)) {
+    return { lat: n.latitude, lng: n.longitude };
+  }
+  return null;
+}
+
+/**
+ * Spots about halfway between two matched people. Their location never leaves the server: the midpoint
+ * is snapped to a ~1 mile grid and only places plus the caller's own distance come back.
+ */
+async function halfwayPlaces(uid, body, me, category, cuisine) {
+  const matchId = typeof body.matchId === 'string' ? body.matchId.slice(0, 200) : '';
+  if (!matchId) return { places: [], halfway: 'unavailable' };
+  const db = getFirestore();
+  const match = await db.collection('matches').doc(matchId).get();
+  const userIds = match.exists && Array.isArray(match.data().userIds) ? match.data().userIds : [];
+  if (!userIds.includes(uid)) {
+    throw Object.assign(new Error('Not your match'), { status: 403 });
+  }
+  const other = userIds.find((id) => id !== uid);
+  const them = other ? await planningSpot(db, other) : null;
+  if (!them) return { places: [], halfway: 'unavailable' };
+  const apart = placeMiles(me, them);
+  if (apart > explore.HALFWAY_MAX_APART_MILES) return { places: [], halfway: 'too_far' };
+  const mid = explore.halfwayPoint(me, them);
+  const places =
+    body.kind === 'theaters'
+      ? (await explorePlaces({ category: 'movies', radiusMiles: 10 }, mid.lat, mid.lng)).places
+      : (await cachedPlaceList('nearby', mid.lat, mid.lng, category, cuisine, '')).places;
+  const list = explore
+    .rankHalfway(places, me, them, placeMiles)
+    .slice(0, 15)
+    .map(({ theirMiles, ...p }) => p);
+  return { places: list, halfway: apart < 1 ? 'close' : 'ok' };
+}
+
 exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req, res) => {
   try {
     if (req.method !== 'POST') {
       res.status(405).send('Method not allowed');
       return;
     }
-    await requireUser(req);
+    const user = await requireUser(req);
     const body = req.body || {};
     if (body.mode === 'city') {
       res.json({ cities: await searchCities(typeof body.query === 'string' ? body.query : '') });
@@ -3026,6 +3121,10 @@ exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req,
       }
       return;
     }
+    if (body.mode === 'halfway') {
+      res.json(await halfwayPlaces(user.uid, body, { lat, lng }, category, cuisine));
+      return;
+    }
     if (mode === 'search' && query.length < 2) {
       res.json({ places: [] });
       return;
@@ -3041,45 +3140,7 @@ exports.searchPlaces = onRequest({ cors: true, timeoutSeconds: 60 }, async (req,
       return;
     }
 
-    const googleKey = process.env.GOOGLE_PLACES_API_KEY || '';
-    const provider = googleKey ? 'google' : 'osm';
-    const grid = lat != null && lng != null ? `${lat.toFixed(2)}_${lng.toFixed(2)}` : 'x';
-    const rawKey = mode === 'nearby' ? `n|${category}|${cuisine || ''}|${grid}` : `s|${query.toLowerCase()}|${grid}`;
-    const cacheId = `${provider}_${require('crypto').createHash('sha1').update(rawKey).digest('hex')}`;
-    const db = getFirestore();
-    const cacheRef = db.collection('placeCache').doc(cacheId);
-    const cached = await cacheRef.get();
-    const maxAge = mode === 'nearby' ? 24 * 3600 * 1000 : 6 * 3600 * 1000;
-    let places = null;
-    const stale = cached.exists ? cached.data().places || [] : [];
-    if (cached.exists && Date.now() - (cached.data().at || 0) < maxAge) places = cached.data().places;
-
-    if (!places) {
-      if (googleKey) {
-        try {
-          places =
-            mode === 'nearby'
-              ? await googleNearby(googleKey, lat, lng, category, cuisine)
-              : await googleSearch(googleKey, query, lat, lng);
-        } catch (error) {
-          console.warn('Google Places failed, using OSM', error.message);
-        }
-      }
-      if (!places) {
-        places = mode === 'nearby' ? await osmNearby(lat, lng, category, cuisine) : await osmSearch(query, lat, lng);
-      }
-      // Providers flaked: an older list for this spot beats "nothing nearby".
-      if (!places.length && stale.length) places = stale;
-      const seen = new Set();
-      places = places.filter((p) => {
-        const k = `${p.name.toLowerCase()}|${p.address || ''}`;
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-      if (places.length) await cacheRef.set({ places: places.slice(0, 60), at: Date.now() }).catch(() => undefined);
-    }
-
+    const { places, provider } = await cachedPlaceList(mode, lat, lng, category, cuisine, query);
     const me = lat != null && lng != null ? { lat, lng } : null;
     const withDistance = places
       .map((p) => ({

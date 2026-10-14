@@ -122,9 +122,8 @@ export function hotPlaces(me: LatLng, category: PlanCategory, cuisine?: string |
   );
 }
 
-/** Warm the nearby and hot lists without prompting for location. */
-export async function prefetchNearby(category: PlanCategory, cuisine?: string | null) {
-  const me = await getMyLocationQuietly();
+/** Warm the nearby and hot lists for where "near me" means (see `getHereQuietly`). */
+export async function prefetchNearby(me: LatLng | null, category: PlanCategory, cuisine?: string | null) {
   if (!me) return;
   await Promise.all([
     nearbyPlaces(me, category, cuisine).catch(() => undefined),
@@ -178,3 +177,36 @@ export async function searchCities(query: string): Promise<CityResult[]> {
 export function searchPlaces(query: string, me: LatLng | null) {
   return callSearch({ mode: 'search', query, lat: me?.lat ?? null, lng: me?.lng ?? null });
 }
+
+export type HalfwayStatus = 'ok' | 'close' | 'unavailable' | 'too_far';
+
+/**
+ * Spots about halfway between you and a match, fairest trip first. The server works out where they
+ * are; only places and your own distance come back.
+ */
+export async function halfwayPlaces(args: {
+  me: LatLng;
+  matchId: string;
+  category: PlanCategory;
+  cuisine?: string | null;
+  kind?: 'theaters';
+}) {
+  const { me, matchId, category, cuisine, kind } = args;
+  const key = `${matchId}|${kind ?? category}|${cuisine ?? ''}|${me.lat.toFixed(2)},${me.lng.toFixed(2)}`;
+  const hit = halfwayCache.get(key);
+  if (hit) return hit;
+  const task = placesRequest<{ places?: Place[]; halfway?: HalfwayStatus }>(
+    { mode: 'halfway', matchId, lat: me.lat, lng: me.lng, category, cuisine: cuisine ?? null, kind: kind ?? null },
+    { timeoutMs: 32000, slowMessage: 'Halfway spots are taking a while. Try again in a moment.' },
+  ).then((json) => ({ places: json.places ?? [], status: json.halfway ?? ('ok' as HalfwayStatus) }));
+  halfwayCache.set(key, task);
+  task.then(
+    (r) => {
+      if (!r.places.length) halfwayCache.delete(key);
+    },
+    () => halfwayCache.delete(key),
+  );
+  return task;
+}
+
+const halfwayCache = new Map<string, Promise<{ places: Place[]; status: HalfwayStatus }>>();

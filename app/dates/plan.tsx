@@ -7,6 +7,7 @@ import { PlacePicker, SelectedPlaceCard, placeLine } from '@/components/plan/Pla
 import { colors, radii, spacing } from '@/constants/theme';
 import { foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
 import { explorePlaces } from '@/features/explore/api';
+import { getHereQuietly } from '@/features/location/effective';
 import type { ExploreEvent } from '@/features/explore/catalog';
 import { isRoomId, planStartFor, type PlanPick } from '@/features/explore/rooms';
 import { otherUserId, proposeDate } from '@/features/matches/api';
@@ -207,7 +208,10 @@ export default function PlanDateScreen() {
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => void prefetchNearby(category, sharedFood), 400);
+    const timer = setTimeout(
+      () => void getHereQuietly().then((here) => prefetchNearby(here, category, sharedFood)),
+      400,
+    );
     return () => clearTimeout(timer);
   }, [category, sharedFood]);
 
@@ -231,12 +235,14 @@ export default function PlanDateScreen() {
   const summaryTitle = customLabel ? customLabel.replace(/^[^\w\s]+\s+/, '') : kind.label;
   const theaters = useMemo(
     () => ({
-      title: 'Theaters near you',
+      title: (city: string | null) => (city ? `Theaters in ${city}` : 'Theaters near you'),
       load: async (me: LatLng): Promise<Place[]> =>
         (await explorePlaces({ center: me, category: 'movies', radiusMiles: 10 })).places,
+      kind: 'theaters' as const,
     }),
     [],
   );
+  const halfway = useMemo(() => (matchId ? { matchId, name: theirName } : null), [matchId, theirName]);
 
   const choosePick = (next: PlanPick) => {
     if (next === pick) return;
@@ -477,6 +483,7 @@ export default function PlanDateScreen() {
                     category={category}
                     cuisine={sharedFood}
                     nearby={planPick === 'movie' ? theaters : undefined}
+                    halfway={halfway}
                     onPick={(p) => {
                       setPlace(p);
                       setPicking(false);

@@ -25,8 +25,8 @@ import {
 } from '@/features/explore/rooms';
 import { fetchLiveRoomPeople, type RoomPerson } from '@/features/live/firestoreLive';
 import { syncLiveSessionPatch } from '@/features/live/restoreLiveSession';
-import { getMyLocation, getMyLocationQuietly, type LatLng } from '@/features/places/search';
-import { usableTrip } from '@/features/travel/trip';
+import { getHere, getHereQuietly, useTravelTrip } from '@/features/location/effective';
+import type { LatLng } from '@/features/places/search';
 import { analytics } from '@/lib/analytics';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
 import { isPlusActive, preferredRadius } from '@/lib/entitlements';
@@ -36,7 +36,6 @@ import { useHiddenUserMap } from '@/store/blocks';
 import { useExploreRoom } from '@/store/exploreRoom';
 import { useFeedMode } from '@/store/friendDate';
 import { useSessionStore } from '@/store/session';
-import { useTravelMode } from '@/store/travelMode';
 import { calculateAge, isLiveSessionActive } from '@/utils/time';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -113,20 +112,13 @@ export default function ExploreScreen() {
   const [cuisine, setCuisine] = useState<FoodCuisine>('anything');
   const [late, setLate] = useState<LatePlan>('surprise');
 
-  // Travel Mode: the trip you're Live with, else a usable saved trip (DateToday+), else where you are.
-  const savedTrip = useTravelMode((s) => s.trip);
-  const userId = useSessionStore((s) => s.userId);
-  useEffect(() => {
-    void useTravelMode.getState().hydrate(userId);
-  }, [userId]);
-  const trip = live ? (liveSession?.trip ?? null) : plus ? usableTrip(savedTrip, now) : null;
+  const trip = useTravelTrip();
   const tripKey = trip ? `${trip.city}|${trip.latitude}|${trip.longitude}` : 'here';
   const radius = live && liveSession ? liveSession.radiusMiles : preferredRadius(entitlements, preferredMiles);
 
   const centerQuery = useQuery({
     queryKey: ['explore-center', tripKey],
-    queryFn: async (): Promise<LatLng> =>
-      trip ? { lat: trip.latitude, lng: trip.longitude } : ((await getMyLocationQuietly()) ?? (await getMyLocation())),
+    queryFn: async (): Promise<LatLng> => (await getHereQuietly()) ?? (await getHere()),
     staleTime: 5 * 60 * 1000,
     retry: false,
   });

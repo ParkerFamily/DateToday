@@ -8,7 +8,8 @@ import { AppText } from '@/components/ui/AppText';
 import { colors, radii } from '@/constants/theme';
 import { exploreEvents } from '@/features/explore/api';
 import { eventTag, eventWhenLabel, plannableEvents, type EventWindow, type ExploreEvent } from '@/features/explore/catalog';
-import { formatMiles, getMyLocation, getMyLocationQuietly, type LatLng } from '@/features/places/search';
+import { getHere, getHereQuietly, useTravelTrip } from '@/features/location/effective';
+import { formatMiles, type LatLng } from '@/features/places/search';
 import { ScaledSheet, rs } from '@/lib/scale';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -16,9 +17,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /** Real Ticketmaster listings near you; tickets and prices stay on Ticketmaster. */
 export function EventPicker({ onPick }: { onPick: (event: ExploreEvent) => void }) {
   const [span, setSpan] = useState<EventWindow>('tonight');
+  const city = useTravelTrip()?.city ?? null;
   const centerQuery = useQuery({
-    queryKey: ['plan-event-center'],
-    queryFn: async (): Promise<LatLng> => (await getMyLocationQuietly()) ?? (await getMyLocation()),
+    queryKey: ['plan-event-center', city],
+    queryFn: async (): Promise<LatLng> => (await getHereQuietly()) ?? (await getHere()),
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
@@ -37,11 +39,12 @@ export function EventPicker({ onPick }: { onPick: (event: ExploreEvent) => void 
     setSpan(next);
   };
 
+  const where = city ? `in ${city}` : 'nearby';
   let status: string | null = null;
   if (centerQuery.isError) status = centerQuery.error instanceof Error ? centerQuery.error.message : 'Turn on location to see events near you.';
   else if (eventsQuery.isError) status = 'Couldn’t load events right now. Try again in a moment.';
   else if (eventsQuery.isSuccess && !events.length)
-    status = span === 'tonight' ? 'No events tonight nearby. Check what’s coming up.' : 'Nothing coming up nearby yet.';
+    status = span === 'tonight' ? `No events tonight ${where}. Check what’s coming up.` : `Nothing coming up ${where} yet.`;
 
   return (
     <View style={styles.wrap}>
@@ -62,7 +65,7 @@ export function EventPicker({ onPick }: { onPick: (event: ExploreEvent) => void 
       {centerQuery.isPending || (center && eventsQuery.isPending) ? (
         <View style={styles.status}>
           <ActivityIndicator color={colors.brandBright} size="small" />
-          <AppText style={styles.meta}>Finding events near you…</AppText>
+          <AppText style={styles.meta}>Finding events {city ? `in ${city}` : 'near you'}…</AppText>
         </View>
       ) : status ? (
         <View style={styles.status}>
@@ -110,7 +113,11 @@ export function EventPicker({ onPick }: { onPick: (event: ExploreEvent) => void 
           </View>
         </Pressable>
       ))}
-      {events.length ? <AppText style={styles.credit}>Events from Ticketmaster</AppText> : null}
+      {events.length ? (
+        <AppText style={styles.credit}>
+          {city ? `Events in ${city} from Ticketmaster` : 'Events from Ticketmaster'}
+        </AppText>
+      ) : null}
     </View>
   );
 }

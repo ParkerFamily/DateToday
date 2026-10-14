@@ -462,6 +462,44 @@ function exploreRadius(miles) {
   return EXPLORE_RADII.includes(miles) ? miles : 5;
 }
 
+/** Past this, "halfway" is a road trip; Near me or Search makes more sense. */
+const HALFWAY_MAX_APART_MILES = 60;
+const HALFWAY_GRID_DEG = 0.02;
+
+/**
+ * Great-circle midpoint, snapped to a ~1.4 mile grid. The snap keeps the search area shared in the
+ * cache and stops anyone working back from the results to where their match is.
+ */
+function halfwayPoint(a, b) {
+  const rad = (d) => (d * Math.PI) / 180;
+  const deg = (r) => (r * 180) / Math.PI;
+  const lat1 = rad(a.lat);
+  const lat2 = rad(b.lat);
+  const dLng = rad(b.lng - a.lng);
+  const bx = Math.cos(lat2) * Math.cos(dLng);
+  const by = Math.cos(lat2) * Math.sin(dLng);
+  const lat = Math.atan2(Math.sin(lat1) + Math.sin(lat2), Math.sqrt((Math.cos(lat1) + bx) ** 2 + by ** 2));
+  const lng = rad(a.lng) + Math.atan2(by, Math.cos(lat1) + bx);
+  const snap = (v) => Math.round(Math.round(v / HALFWAY_GRID_DEG) * HALFWAY_GRID_DEG * 100) / 100;
+  return { lat: snap(deg(lat)), lng: snap(((deg(lng) + 540) % 360) - 180) };
+}
+
+/**
+ * Fairest spots first: the longer of the two trips, plus a little for lopsidedness.
+ * `distanceMiles` is the caller's own distance; `theirMiles` is for ranking only and must be dropped.
+ */
+function rankHalfway(places, me, them, milesFn) {
+  return places
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
+    .map((p) => {
+      const mine = milesFn(me, p);
+      const theirs = milesFn(them, p);
+      return { p, mine, theirs, score: Math.max(mine, theirs) + 0.25 * Math.abs(mine - theirs) };
+    })
+    .sort((x, y) => x.score - y.score)
+    .map(({ p, mine, theirs }) => ({ ...p, distanceMiles: Math.round(mine * 10) / 10, theirMiles: theirs }));
+}
+
 module.exports = {
   EXPLORE_CATEGORIES,
   FOODIE_STYLES,
@@ -484,4 +522,7 @@ module.exports = {
   ticketmasterEvents,
   eventWindow,
   exploreRadius,
+  HALFWAY_MAX_APART_MILES,
+  halfwayPoint,
+  rankHalfway,
 };

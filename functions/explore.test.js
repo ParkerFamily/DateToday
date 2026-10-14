@@ -186,3 +186,34 @@ test('exploreRadius only allows the offered distances', () => {
   assert.equal(explore.exploreRadius(7), 5);
   assert.equal(explore.exploreRadius('3'), 5);
 });
+
+const miles = (a, b) => {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const h =
+    Math.sin(toRad(b.lat - a.lat) / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(toRad(b.lng - a.lng) / 2) ** 2;
+  return 2 * 3958.8 * Math.asin(Math.sqrt(h));
+};
+
+test('halfwayPoint lands between both people, snapped to the grid', () => {
+  const westEnd = { lat: 33.735, lng: -84.42 };
+  const midtown = { lat: 33.785, lng: -84.384 };
+  const mid = explore.halfwayPoint(westEnd, midtown);
+  assert.deepEqual(mid, { lat: 33.76, lng: -84.4 });
+  assert.ok(Math.abs(miles(mid, westEnd) - miles(mid, midtown)) < 1.5);
+  // Across the date line still wraps into range.
+  const wrap = explore.halfwayPoint({ lat: 0, lng: 179.5 }, { lat: 0, lng: -179.5 });
+  assert.ok(Math.abs(Math.abs(wrap.lng) - 180) < 0.02);
+});
+
+test('rankHalfway puts the fairest trip first and only exposes my distance', () => {
+  const me = { lat: 33.735, lng: -84.42 };
+  const them = { lat: 33.785, lng: -84.384 };
+  const nearMe = { name: 'Near me', lat: 33.736, lng: -84.419 };
+  const middle = { name: 'Middle', lat: 33.76, lng: -84.402 };
+  const nowhere = { name: 'No coords', lat: null, lng: null };
+  const ranked = explore.rankHalfway([nearMe, nowhere, middle], me, them, miles);
+  assert.deepEqual(ranked.map((p) => p.name), ['Middle', 'Near me']);
+  assert.equal(ranked[0].distanceMiles, Math.round(miles(me, middle) * 10) / 10);
+  assert.ok(explore.HALFWAY_MAX_APART_MILES >= 30);
+});
