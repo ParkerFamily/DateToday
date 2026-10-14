@@ -588,6 +588,61 @@ export function subscribeActiveLiveSessions(onChange: () => void) {
   );
 }
 
+export type RoomPerson = {
+  userId: string;
+  photo: string | null;
+  activities: TonightActivity[];
+  afterHours: AfterHoursTag[];
+};
+
+/**
+ * Everyone Live right now around `center` in this mode, for Explore Tonight's room counts.
+ * Same visibility as the feed: both radii, both "show me" preferences, no stale or future sessions.
+ */
+export async function fetchLiveRoomPeople(
+  center: { latitude: number; longitude: number },
+  radiusMiles: number,
+  mode: LiveMode,
+): Promise<RoomPerson[]> {
+  const me = getFirebaseAuth().currentUser?.uid;
+  if (!me) return [];
+  const mine = await withMyPreferences(me, {});
+  const found = await withTimeout(
+    docsNear('liveSessions', center, radiusMiles, async () =>
+      (await getDocs(query(collection(getDb(), 'liveSessions'), where('status', '==', 'active'), limitTo(200)))).docs,
+    ),
+    12000,
+    'Find people nearby',
+  );
+  const now = new Date();
+  const out: RoomPerson[] = [];
+  for (const s of found) {
+    if (s.id === me) continue;
+    const d = s.data() as Record<string, unknown>;
+    if (d.status !== 'active' || d.endedAt || modeOf(d) !== mode) continue;
+    if (new Date(tsToIso(d.expiresAt)).getTime() <= now.getTime()) continue;
+    const startedAt = d.startedAt ? tsToIso(d.startedAt) : null;
+    if (isStaleLive({ startedAt, confirmedAt: (d.confirmedAt as string | null) ?? null })) continue;
+    const trip = cleanTripBadge(d.trip);
+    if (d.trip && (!trip || tripPhase(trip, now) !== 'here')) continue;
+    const laterHour = typeof d.laterTonightHour === 'number' ? d.laterTonightHour : null;
+    if (laterHour != null && laterHour > now.getHours()) continue;
+    const lat = Number(d.latitude);
+    const lng = Number(d.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const dist = milesBetween(center, { latitude: lat, longitude: lng });
+    if (dist > Math.min(radiusMiles, Number(d.radiusMiles ?? 10))) continue;
+    if (!modeAllows(mode, mine, d)) continue;
+    out.push({
+      userId: s.id,
+      photo: typeof d.mainPhotoUrl === 'string' && d.mainPhotoUrl ? d.mainPhotoUrl : null,
+      activities: Array.isArray(d.activities) ? (d.activities as TonightActivity[]) : [],
+      afterHours: cleanAfterHoursTags(d.afterHours),
+    });
+  }
+  return out;
+}
+
 /**
  * Active beacons near the viewer, then non-live nearby people. Client filters by mutual radius +
  * haversine. Viewers who aren't live browse from their nearby presence with `browseRadiusMiles`.

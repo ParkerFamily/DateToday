@@ -1,90 +1,74 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, FlatList, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
-import { ExploreCard } from '@/components/explore/ExploreCard';
-import { MakePlanSheet } from '@/components/explore/MakePlanSheet';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
 import { LiveModeSwitch } from '@/components/friendDate/LiveModeSwitch';
 import { AppText } from '@/components/ui/AppText';
 import { Screen } from '@/components/ui/Screen';
 import { AFTER_HOURS_START_HOUR } from '@/constants/afterHours';
-import { colors, spacing } from '@/constants/theme';
-import { findSomeoneFor, isLiveNow, openDirections, planWithMatch, type PlanPrefill } from '@/features/explore/actions';
-import { explorePlaces, exploreEvents } from '@/features/explore/api';
+import { colors, gradients, spacing } from '@/constants/theme';
+import { FOOD_CUISINES, type FoodCuisine } from '@/constants/tonightVibe';
 import {
-  DEFAULT_EVENT_RADIUS,
-  DEFAULT_PLACE_RADIUS,
-  EVENT_FILTERS,
-  FOODIE_STYLES,
-  PLACE_RADII,
-  categoryInfo,
-  eventKind,
-  eventTag,
-  eventWhenLabel,
-  hoursLine,
-  planShape,
-  priceLabel,
-  visibleCategories,
-  type EventFilter,
-  type EventWindow,
-  type ExploreCategory,
-  type ExploreEvent,
-  type ExplorePlace,
-  type FoodieStyle,
-  type PlaceCategory,
-} from '@/features/explore/catalog';
-import { formatMiles, getMyLocation, ratingLine, type LatLng } from '@/features/places/search';
+  inRoom,
+  joinRoom,
+  LATE_PLANS,
+  roomLive,
+  roomOpen,
+  visibleRooms,
+  type LatePlan,
+  type Room,
+  type RoomId,
+} from '@/features/explore/rooms';
+import { fetchLiveRoomPeople, type RoomPerson } from '@/features/live/firestoreLive';
+import { syncLiveSessionPatch } from '@/features/live/restoreLiveSession';
+import { getMyLocation, getMyLocationQuietly, type LatLng } from '@/features/places/search';
 import { usableTrip } from '@/features/travel/trip';
 import { analytics } from '@/lib/analytics';
 import { openUpgrade } from '@/lib/commerce/upgradePrompt';
-import { isPlusActive } from '@/lib/entitlements';
+import { isPlusActive, preferredRadius } from '@/lib/entitlements';
+import { isBackendConfigured } from '@/lib/env';
 import { rs, ScaledSheet } from '@/lib/scale';
-import { useFeedMode, useFriendDateMode } from '@/store/friendDate';
+import { useHiddenUserMap } from '@/store/blocks';
+import { useExploreRoom } from '@/store/exploreRoom';
+import { useFeedMode } from '@/store/friendDate';
 import { useSessionStore } from '@/store/session';
 import { useTravelMode } from '@/store/travelMode';
-import type { MatchDoc } from '@/features/matches/api';
-import type { FoodCuisine } from '@/constants/tonightVibe';
-import type { LiveMode, TonightActivity } from '@/types';
 import { calculateAge, isLiveSessionActive } from '@/utils/time';
 
-type Row =
-  | { type: 'place'; key: string; place: ExplorePlace }
-  | { type: 'event'; key: string; event: ExploreEvent }
-  | { type: 'section'; key: string; title: string }
-  | { type: 'note'; key: string; text: string };
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
-type PlanTarget = {
-  emoji: string;
-  title: string;
-  subtitle: string | null;
-  prefill: PlanPrefill;
-  find: { activity: TonightActivity; cuisine: FoodCuisine | null; spot: string };
-  category: ExploreCategory;
-};
-
-const round3 = (n: number) => Math.round(n * 1000) / 1000;
-
-function join(parts: (string | null | undefined | false)[]) {
-  return parts.filter(Boolean).join(' · ') || null;
+function Faces({ people, extra }: { people: RoomPerson[]; extra: number }) {
+  return (
+    <View style={styles.faces}>
+      {people.map((p, i) =>
+        p.photo ? (
+          <Image
+            key={p.userId}
+            source={{ uri: p.photo }}
+            style={[styles.face, i > 0 && styles.faceOverlap]}
+            cachePolicy="memory-disk"
+            transition={150}
+          />
+        ) : (
+          <View key={p.userId} style={[styles.face, styles.faceEmpty, i > 0 && styles.faceOverlap]}>
+            <Ionicons name="person" size={rs(13)} color={colors.textSecondary} />
+          </View>
+        ),
+      )}
+      {extra > 0 ? (
+        <View style={[styles.face, styles.faceMore, styles.faceOverlap]}>
+          <AppText style={styles.faceMoreText}>+{extra}</AppText>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
-function Chip({
-  label,
-  on,
-  onPress,
-  friend,
-  icon,
-}: {
-  label: string;
-  on: boolean;
-  onPress: () => void;
-  friend?: boolean;
-  icon?: keyof typeof Ionicons.glyphMap;
-}) {
+function Chip({ label, on, friend, onPress }: { label: string; on: boolean; friend: boolean; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
@@ -92,7 +76,6 @@ function Chip({
       accessibilityState={{ selected: on }}
       style={({ pressed }) => [styles.chip, on && (friend ? styles.chipFriendOn : styles.chipOn), pressed && styles.pressed]}
     >
-      {icon ? <Ionicons name={icon} size={rs(13)} color={on ? colors.text : colors.textSecondary} /> : null}
       <AppText style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
         {label}
       </AppText>
@@ -100,66 +83,21 @@ function Chip({
   );
 }
 
-function StateCard({
-  icon,
-  title,
-  body,
-  action,
-  onAction,
-  secondary,
-  onSecondary,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  body: string;
-  action?: string;
-  onAction?: () => void;
-  secondary?: string;
-  onSecondary?: () => void;
-}) {
-  return (
-    <View style={styles.state}>
-      <View style={styles.stateIcon}>
-        <Ionicons name={icon} size={rs(24)} color={colors.brandBright} />
-      </View>
-      <AppText style={styles.stateTitle}>{title}</AppText>
-      <AppText style={styles.stateBody}>{body}</AppText>
-      {action && onAction ? (
-        <Pressable onPress={onAction} accessibilityRole="button" style={({ pressed }) => [styles.stateButton, pressed && styles.pressed]}>
-          <AppText style={styles.stateButtonText}>{action}</AppText>
-        </Pressable>
-      ) : null}
-      {secondary && onSecondary ? (
-        <Pressable onPress={onSecondary} accessibilityRole="button" hitSlop={8}>
-          <AppText style={styles.stateLink}>{secondary}</AppText>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function LoadingCards() {
-  return (
-    <View style={styles.loading}>
-      <ActivityIndicator color={colors.brandBright} />
-      {[0, 1].map((i) => (
-        <View key={i} style={styles.skeleton}>
-          <View style={styles.skeletonPhoto} />
-          <View style={styles.skeletonLine} />
-          <View style={[styles.skeletonLine, styles.skeletonShort]} />
-        </View>
-      ))}
-    </View>
-  );
-}
-
 export default function ExploreScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ category?: string }>();
   const mode = useFeedMode();
   const friend = mode === 'friend';
   const entitlements = useSessionStore((s) => s.entitlements);
   const plus = isPlusActive(entitlements);
+  const preferredMiles = useSessionStore((s) => s.preferences?.maxDistanceMiles);
+  const liveSession = useSessionStore((s) => s.liveSession);
+  const setLiveSession = useSessionStore((s) => s.setLiveSession);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const live = liveSession ? isLiveSessionActive(liveSession, now) : false;
   const dob = useSessionStore((s) => s.profile?.dateOfBirth ?? null);
   const age = useMemo(() => {
     try {
@@ -168,258 +106,98 @@ export default function ExploreScreen() {
       return null;
     }
   }, [dob]);
-  const categories = useMemo(() => visibleCategories(mode, age), [mode, age]);
+  const rooms = useMemo(() => visibleRooms(mode, age), [mode, age]);
+  const drinksOk = rooms.some((r) => r.id === 'drinks');
+  const latePlans = useMemo(() => LATE_PLANS.filter((p) => drinksOk || p.value !== 'drinks'), [drinksOk]);
 
-  const [category, setCategory] = useState<ExploreCategory>(() => {
-    const wanted = categories.find((c) => c.value === params.category);
-    return wanted?.value ?? 'foodie';
-  });
-  useEffect(() => {
-    if (!categories.some((c) => c.value === category)) setCategory('foodie');
-  }, [categories, category]);
-
-  const [style, setStyle] = useState<FoodieStyle>('anything');
-  const [placeRadius, setPlaceRadius] = useState<number>(DEFAULT_PLACE_RADIUS);
-  const [eventRadius, setEventRadius] = useState<number>(DEFAULT_EVENT_RADIUS);
-  const [openOnly, setOpenOnly] = useState(false);
-  const [topRated, setTopRated] = useState(false);
-  const [maxPrice, setMaxPrice] = useState<number | null>(null);
-  const [eventWindow, setEventWindow] = useState<EventWindow>('tonight');
-  const [eventFilter, setEventFilter] = useState<EventFilter>('all');
-  const [planTarget, setPlanTarget] = useState<PlanTarget | null>(null);
+  const [cuisine, setCuisine] = useState<FoodCuisine>('anything');
+  const [late, setLate] = useState<LatePlan>('surprise');
 
   // Travel Mode: the trip you're Live with, else a usable saved trip (DateToday+), else where you are.
-  const liveTrip = useSessionStore((s) =>
-    s.liveSession && isLiveSessionActive(s.liveSession, new Date()) ? (s.liveSession.trip ?? null) : null,
-  );
   const savedTrip = useTravelMode((s) => s.trip);
   const userId = useSessionStore((s) => s.userId);
   useEffect(() => {
     void useTravelMode.getState().hydrate(userId);
   }, [userId]);
-  const trip = liveTrip ?? (plus ? usableTrip(savedTrip) : null);
+  const trip = live ? (liveSession?.trip ?? null) : plus ? usableTrip(savedTrip, now) : null;
   const tripKey = trip ? `${trip.city}|${trip.latitude}|${trip.longitude}` : 'here';
+  const radius = live && liveSession ? liveSession.radiusMiles : preferredRadius(entitlements, preferredMiles);
 
   const centerQuery = useQuery({
     queryKey: ['explore-center', tripKey],
     queryFn: async (): Promise<LatLng> =>
-      trip ? { lat: trip.latitude, lng: trip.longitude } : await getMyLocation(),
+      trip ? { lat: trip.latitude, lng: trip.longitude } : ((await getMyLocationQuietly()) ?? (await getMyLocation())),
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
-  const center = centerQuery.data ? { lat: round3(centerQuery.data.lat), lng: round3(centerQuery.data.lng) } : null;
+  const center = centerQuery.data ? { lat: round2(centerQuery.data.lat), lng: round2(centerQuery.data.lng) } : null;
 
-  const isPlaces = category !== 'events';
-  const lateLocked = category === 'late' && !plus;
-  const placesQuery = useQuery({
-    queryKey: ['explore-places', category, category === 'foodie' ? style : null, placeRadius, center?.lat, center?.lng],
-    queryFn: () =>
-      explorePlaces({
-        center: center!,
-        category: category as PlaceCategory,
-        style: category === 'foodie' ? style : null,
-        radiusMiles: placeRadius,
-      }),
-    enabled: Boolean(center) && isPlaces && !lateLocked,
-    staleTime: 10 * 60 * 1000,
+  const peopleQuery = useQuery({
+    queryKey: ['explore-rooms', mode, center?.lat, center?.lng, radius],
+    queryFn: () => fetchLiveRoomPeople({ latitude: center!.lat, longitude: center!.lng }, radius, mode),
+    enabled: Boolean(center) && isBackendConfigured(),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
     retry: 1,
   });
-  const wantsEvents = category === 'events' || (category === 'late' && plus);
-  const activeWindow: EventWindow = category === 'late' ? 'tonight' : eventWindow;
-  const eventsQuery = useQuery({
-    queryKey: ['explore-events', activeWindow, eventRadius, center?.lat, center?.lng],
-    queryFn: () => exploreEvents({ center: center!, radiusMiles: eventRadius, window: activeWindow }),
-    enabled: Boolean(center) && wantsEvents,
-    staleTime: 10 * 60 * 1000,
-    retry: 1,
-  });
+  const hidden = useHiddenUserMap();
+  const people = useMemo(
+    () => (peopleQuery.data ?? []).filter((p) => !hidden[p.userId]),
+    [peopleQuery.data, hidden],
+  );
+  const counted = peopleQuery.isSuccess;
 
   const opened = useRef(false);
   useEffect(() => {
     if (opened.current) return;
     opened.current = true;
-    analytics.track('explore_opened', { mode, travel: Boolean(trip), live: isLiveNow() });
-  }, [mode, trip]);
+    analytics.track('explore_opened', { mode, travel: Boolean(trip), live });
+  }, [mode, trip, live]);
 
-  const pickCategory = (value: ExploreCategory) => {
-    if (value === category) return;
+  const mine = useMemo(
+    () => ({
+      activities: liveSession?.activities ?? [],
+      foodCuisines: liveSession?.foodCuisines ?? [],
+      afterHours: liveSession?.afterHours ?? [],
+    }),
+    [liveSession],
+  );
+  const myRooms = live ? rooms.filter((r) => inRoom(mine, r.id)) : [];
+
+  const options = (room: RoomId) => ({ cuisine: room === 'foodie' ? cuisine : null, late: room === 'late' ? late : null });
+
+  const goLiveIn = (room: Room) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    analytics.track('explore_go_live_tapped', { room: room.id, mode });
+    useExploreRoom.getState().requestGoLive({ ...roomLive(room.id, options(room.id)), room: room.id });
+    router.navigate('/(tabs)/live');
+  };
+
+  const browse = (room: Room) => {
     void Haptics.selectionAsync();
-    setCategory(value);
-    analytics.track('explore_category_selected', { category: value, mode });
-  };
-
-  const places = placesQuery.data?.places ?? [];
-  const provider = placesQuery.data?.provider ?? null;
-  const hasHours = places.some((p) => p.openNow != null);
-  const hasRatings = places.some((p) => p.rating != null);
-  const hasPrices = places.some((p) => p.priceLevel != null);
-  const shownPlaces = useMemo(() => {
-    let list = places;
-    if (category === 'late' && hasHours) list = list.filter((p) => p.lateTonight !== false);
-    if (openOnly && hasHours) list = list.filter((p) => p.openNow === true);
-    if (topRated && hasRatings) list = list.filter((p) => (p.rating ?? 0) >= 4);
-    if (maxPrice != null && hasPrices) list = list.filter((p) => p.priceLevel != null && p.priceLevel <= maxPrice);
-    return list;
-  }, [places, category, hasHours, openOnly, topRated, hasRatings, maxPrice, hasPrices]);
-
-  const events = eventsQuery.data ?? [];
-  const shownEvents = useMemo(() => {
-    if (category === 'late') {
-      return events.filter((e) => e.localTime && Number(e.localTime.slice(0, 2)) >= AFTER_HOURS_START_HOUR);
-    }
-    return eventFilter === 'all' ? events : events.filter((e) => eventKind(e) === eventFilter);
-  }, [events, eventFilter, category]);
-
-  const filtersOn = openOnly || topRated || maxPrice != null;
-  const clearFilters = () => {
-    setOpenOnly(false);
-    setTopRated(false);
-    setMaxPrice(null);
-  };
-
-  const rows: Row[] = useMemo(() => {
-    if (category === 'events') return shownEvents.map((e) => ({ type: 'event', key: e.id, event: e }));
-    const out: Row[] = [];
-    if (category === 'movies' && shownPlaces.length) {
-      out.push({ type: 'note', key: 'movies-note', text: 'Theaters near you. Showtimes aren’t listed here, so check with the theater before you go.' });
-    }
-    if (category === 'late' && shownPlaces.length && !hasHours) {
-      out.push({ type: 'note', key: 'late-note', text: 'Late-night spots nearby. Hours vary, so check before you head out.' });
-    }
-    out.push(...shownPlaces.map((p) => ({ type: 'place' as const, key: p.id, place: p })));
-    if (category === 'late' && shownEvents.length) {
-      out.push({ type: 'section', key: 'late-shows', title: 'Late shows tonight' });
-      out.push(...shownEvents.map((e) => ({ type: 'event' as const, key: e.id, event: e })));
-    }
-    return out;
-  }, [category, shownEvents, shownPlaces, hasHours]);
-
-  const info = categoryInfo(category);
-
-  const openPlace = (p: ExplorePlace) => {
-    analytics.track('explore_place_opened', { category, source: p.source });
-    const url =
-      p.mapsUri ??
-      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([p.name, p.address, p.area].filter(Boolean).join(' '))}`;
-    void WebBrowser.openBrowserAsync(url).catch(() => Linking.openURL(url));
-  };
-
-  const openEvent = (e: ExploreEvent) => {
-    analytics.track('explore_event_opened', { source: e.source, kind: eventKind(e) });
-    void WebBrowser.openBrowserAsync(e.url).catch(() => Linking.openURL(e.url));
-  };
-
-  const placeTarget = (p: ExplorePlace): PlanTarget => {
-    const shape = planShape(category, { style, kind: p.kind });
-    return {
-      emoji: info.emoji,
-      title: p.name,
-      subtitle: join([p.kind, p.area, formatMiles(p.distanceMiles)]),
-      category,
-      prefill: {
-        activity: shape.plan,
-        label: shape.label,
-        startsAt: null,
-        venueName: p.name,
-        venueAddress: p.address,
-        neighborhood: p.area,
-        venueLat: p.lat,
-        venueLng: p.lng,
-      },
-      find: { activity: shape.activity, cuisine: shape.cuisine, spot: p.name },
-    };
-  };
-
-  const eventTarget = (e: ExploreEvent): PlanTarget => {
-    const shape = planShape('events');
-    return {
-      emoji: '🎟',
-      title: e.name,
-      subtitle: join([eventWhenLabel(e), e.venueName]),
-      category: 'events',
-      prefill: {
-        activity: shape.plan,
-        label: `🎟 ${e.name}`.slice(0, 60),
-        startsAt: e.startsAt,
-        venueName: e.venueName ?? e.name,
-        venueAddress: e.address,
-        neighborhood: e.area,
-        venueLat: e.lat,
-        venueLng: e.lng,
-      },
-      find: { activity: shape.activity, cuisine: null, spot: e.name },
-    };
-  };
-
-  const makePlan = (target: PlanTarget) => {
-    void Haptics.selectionAsync();
-    analytics.track('explore_make_plan_tapped', { category: target.category, mode });
-    setPlanTarget(target);
-  };
-
-  /** Close the plan sheet first: iOS drops alerts and pushes started while a modal is still dismissing. */
-  const afterSheet = (run: () => void) => {
-    if (!planTarget) {
-      run();
+    if (room.id === 'late' && !plus) {
+      openUpgrade(router, 'after_hours');
       return;
     }
-    setPlanTarget(null);
-    setTimeout(run, Platform.OS === 'ios' ? 450 : 60);
+    analytics.track('explore_room_browsed', { room: room.id, mode });
+    useExploreRoom.getState().setRoom(room.id);
+    router.navigate('/(tabs)/live');
   };
 
-  const findSomeone = (target: PlanTarget, forMode: LiveMode = mode) => {
-    void Haptics.selectionAsync();
-    const live = isLiveNow();
-    analytics.track('explore_find_someone_tapped', { category: target.category, mode: forMode, live });
-    afterSheet(() => {
-      if (forMode !== mode) {
-        if (live) {
-          Alert.alert(
-            mode === 'friend' ? 'You’re Live for a Friend Date' : 'You’re Live for dating',
-            'Switch modes on the Live screen to find someone for this kind of plan.',
-          );
-          return;
-        }
-        useFriendDateMode.getState().setMode(forMode);
-      }
-      if (!live) {
-        findSomeoneFor(router, target.find);
-        return;
-      }
-      Alert.alert(
-        'Add it to your Live plan?',
-        `People nearby will see “${target.find.spot}” as your plan tonight. Nothing is sent to anyone.`,
-        [
-          { text: 'Just browse', onPress: () => findSomeoneFor(router, target.find) },
-          { text: 'Add it', onPress: () => findSomeoneFor(router, target.find, { addToLivePlan: true }) },
-        ],
-      );
-    });
-  };
-
-  const pickMatch = (match: MatchDoc) => {
-    if (!planTarget) return;
-    const target = planTarget;
-    afterSheet(() => planWithMatch(router, match, target.prefill));
-  };
-
-  const askRadius = (current: number, set: (n: number) => void) => {
-    Alert.alert(
-      'Distance',
-      'How far are you willing to go?',
-      [
-        ...PLACE_RADII.map((n) => ({ text: `${n === current ? '✓ ' : ''}Within ${n} mi`, onPress: () => set(n) })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ],
-    );
-  };
-
-  const askPrice = () => {
-    Alert.alert('Price', 'Only where prices are listed.', [
-      { text: 'Any price', onPress: () => setMaxPrice(null) },
-      ...[1, 2, 3].map((n) => ({ text: `Up to ${priceLabel(n)}`, onPress: () => setMaxPrice(n) })),
-      { text: 'Cancel', style: 'cancel' as const },
-    ]);
+  const join = (room: Room) => {
+    if (!liveSession) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    analytics.track('explore_room_joined', { room: room.id, mode });
+    const next = joinRoom(mine, room.id, options(room.id));
+    setLiveSession({ ...liveSession, ...next });
+    void syncLiveSessionPatch(next);
+    if (room.id === 'late' && !plus) {
+      useExploreRoom.getState().setRoom(null);
+      router.navigate('/(tabs)/live');
+      return;
+    }
+    useExploreRoom.getState().setRoom(room.id);
+    router.navigate('/(tabs)/live');
   };
 
   const back = () => {
@@ -427,319 +205,182 @@ export default function ExploreScreen() {
     else router.replace('/(tabs)/live');
   };
 
-  const radius = isPlaces ? placeRadius : eventRadius;
-  const setRadius = isPlaces ? setPlaceRadius : setEventRadius;
-  const nextRadius = PLACE_RADII.find((n) => n > radius) ?? null;
-
+  const totalLive = people.length;
+  const where = trip ? trip.city : null;
   const locationLine = trip
-    ? `✈️ Exploring ${trip.city} · Travel Mode`
-    : centerQuery.data
-      ? `📍 Near you · within ${radius} mi`
-      : '📍 Finding where you are…';
+    ? `✈️ Tonight in ${trip.city} · Travel Mode`
+    : centerQuery.isError
+      ? '📍 Turn on location to see who’s Live near you'
+      : `📍 Near you · within ${radius} mi`;
+  const lateStarts = `${AFTER_HOURS_START_HOUR % 12 || 12} PM`;
 
-  const header = (
-    <View>
-      <LinearGradient
-        colors={friend ? ['rgba(20,184,166,0.22)', 'rgba(9,9,11,0)'] : ['rgba(124,58,237,0.32)', 'rgba(9,9,11,0)']}
-        style={styles.headerGlow}
-        pointerEvents="none"
-      />
-      <View style={styles.topRow}>
-        <Pressable onPress={back} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back" style={styles.backButton}>
-          <Ionicons name="chevron-back" size={rs(24)} color={colors.text} />
-        </Pressable>
-        <LiveModeSwitch compact />
-      </View>
-      <View style={styles.titleBlock}>
-        <AppText style={styles.title}>Explore Tonight</AppText>
-        <AppText style={styles.subtitle}>Find something worth going out for.</AppText>
-        <Pressable
-          onPress={() => (trip ? router.push('/travel') : askRadius(radius, setRadius))}
-          accessibilityRole="button"
-          hitSlop={6}
-        >
-          <AppText style={[styles.location, trip && styles.locationTrip]} numberOfLines={1}>
-            {locationLine}
-          </AppText>
-        </Pressable>
-      </View>
+  const renderRoom = (room: Room) => {
+    const inside = people.filter((p) => inRoom(p, room.id));
+    const count = inside.length;
+    const open = roomOpen(room.id, now);
+    const lockedFaces = room.id === 'late' && !plus;
+    const imIn = myRooms.some((r) => r.id === room.id);
+    const countText = !counted
+      ? peopleQuery.isPending && center
+        ? 'Checking who’s Live…'
+        : 'Live rooms near you'
+      : count === 0
+        ? 'No one yet. Be the first.'
+        : `${count} Live ${where ? `in ${where}` : 'nearby'}`;
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
-        {categories.map((c) => {
-          const on = c.value === category;
-          return (
-            <Pressable
-              key={c.value}
-              onPress={() => pickCategory(c.value)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}
-              accessibilityLabel={c.label}
-              style={({ pressed }) => [styles.tile, on && (friend ? styles.tileFriendOn : styles.tileOn), pressed && styles.pressed]}
-            >
-              <AppText style={styles.tileEmoji}>{c.emoji}</AppText>
-              <AppText style={[styles.tileLabel, on && styles.tileLabelOn]} numberOfLines={1}>
-                {c.label}
-              </AppText>
-              {c.plusOnly && !plus ? (
-                <View style={styles.plusTag}>
-                  <AppText style={styles.plusTagText}>✦</AppText>
+    let primary: { label: string; onPress: () => void } | null = null;
+    let secondary: { label: string; onPress: () => void } | null = null;
+    if (!open) {
+      primary = null;
+    } else if (!live) {
+      primary = { label: `Go Live in ${room.label}`, onPress: () => goLiveIn(room) };
+    } else if (imIn) {
+      primary = { label: lockedFaces ? 'See who’s here ✦' : `See who’s in ${room.label}`, onPress: () => browse(room) };
+    } else {
+      primary = { label: `Join ${room.label}`, onPress: () => join(room) };
+      secondary = { label: lockedFaces ? 'Just look ✦' : 'Just look', onPress: () => browse(room) };
+    }
+
+    return (
+      <View key={room.id} style={[styles.room, !open && styles.roomClosed]}>
+        <LinearGradient colors={room.tint} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.roomArt} pointerEvents="none" />
+        <View style={styles.roomTop}>
+          <AppText style={styles.roomEmoji}>{room.emoji}</AppText>
+          <View style={styles.roomText}>
+            <View style={styles.roomTitleRow}>
+              <AppText style={styles.roomTitle}>{room.label}</AppText>
+              {imIn ? (
+                <View style={[styles.youPill, friend && styles.youPillFriend]}>
+                  <AppText style={styles.youPillText}>You’re in</AppText>
                 </View>
               ) : null}
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+              {room.id === 'late' && !plus ? <AppText style={styles.plusMark}>✦</AppText> : null}
+            </View>
+            <AppText style={styles.roomBlurb}>{room.blurb}</AppText>
+          </View>
+        </View>
 
-      {!lateLocked ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-          <Chip
-            label={`Within ${radius} mi`}
-            icon="location-outline"
-            on={false}
-            onPress={() => askRadius(radius, setRadius)}
-          />
-          {category === 'foodie'
-            ? FOODIE_STYLES.map((s) => (
-                <Chip key={s.value} label={s.label} on={style === s.value} friend={friend} onPress={() => setStyle(s.value)} />
-              ))
-            : null}
-          {category === 'events' ? (
-            <>
-              <Chip label="Tonight" on={eventWindow === 'tonight'} friend={friend} onPress={() => setEventWindow('tonight')} />
-              <Chip label="Coming up" on={eventWindow === 'soon'} friend={friend} onPress={() => setEventWindow('soon')} />
-              {EVENT_FILTERS.map((f) => (
-                <Chip key={f.value} label={f.label} on={eventFilter === f.value} friend={friend} onPress={() => setEventFilter(f.value)} />
-              ))}
-            </>
-          ) : null}
-          {isPlaces && hasHours ? (
-            <Chip label="Open now" icon="time-outline" on={openOnly} friend={friend} onPress={() => setOpenOnly((v) => !v)} />
-          ) : null}
-          {isPlaces && hasRatings ? (
-            <Chip label="4★ & up" on={topRated} friend={friend} onPress={() => setTopRated((v) => !v)} />
-          ) : null}
-          {isPlaces && hasPrices ? (
-            <Chip
-              label={maxPrice != null ? `Up to ${priceLabel(maxPrice)}` : 'Price'}
-              on={maxPrice != null}
-              friend={friend}
-              onPress={askPrice}
-            />
-          ) : null}
-        </ScrollView>
-      ) : null}
-    </View>
-  );
-
-  let body: ReactNode = null;
-  if (centerQuery.isError) {
-    body = (
-      <StateCard
-        icon="location-outline"
-        title="Turn on location to explore"
-        body="We use it only to find spots near you. It’s never shown to anyone."
-        action="Try again"
-        onAction={() => void centerQuery.refetch()}
-        secondary={Platform.OS === 'web' ? undefined : 'Open Settings'}
-        onSecondary={() => void Linking.openSettings()}
-      />
-    );
-  } else if (lateLocked) {
-    body = (
-      <StateCard
-        icon="moon"
-        title="After Hours is part of DateToday+"
-        body="Spots open late tonight and late shows nearby, for when the night’s still going."
-        action="Unlock After Hours"
-        onAction={() => openUpgrade(router, 'after_hours')}
-      />
-    );
-  } else if (!center || (isPlaces ? placesQuery.isPending : eventsQuery.isPending)) {
-    body = <LoadingCards />;
-  } else if (isPlaces && placesQuery.isError) {
-    body = (
-      <StateCard
-        icon="cloud-offline-outline"
-        title="Couldn’t load places right now"
-        body="Try again in a moment."
-        action="Try again"
-        onAction={() => void placesQuery.refetch()}
-      />
-    );
-  } else if (!isPlaces && eventsQuery.isError) {
-    body = (
-      <StateCard
-        icon="cloud-offline-outline"
-        title="Couldn’t load events right now"
-        body="Try again in a moment."
-        action="Try again"
-        onAction={() => void eventsQuery.refetch()}
-      />
-    );
-  } else if (!rows.length) {
-    if (isPlaces && places.length && filtersOn) {
-      body = (
-        <StateCard
-          icon="options-outline"
-          title="Nothing matches those filters"
-          body="Loosen them up to see more spots."
-          action="Clear filters"
-          onAction={clearFilters}
-        />
-      );
-    } else if (category === 'events' && events.length && eventFilter !== 'all') {
-      body = (
-        <StateCard
-          icon="ticket-outline"
-          title="Nothing like that nearby"
-          body="Try another kind of event."
-          action="Show all events"
-          onAction={() => setEventFilter('all')}
-        />
-      );
-    } else if (category === 'events' && eventWindow === 'tonight') {
-      body = (
-        <StateCard
-          icon="ticket-outline"
-          title="No events tonight nearby"
-          body="See what’s coming up in the next two weeks."
-          action="Show upcoming"
-          onAction={() => setEventWindow('soon')}
-        />
-      );
-    } else {
-      body = (
-        <StateCard
-          icon="compass-outline"
-          title="Nothing nearby yet"
-          body="Try expanding your distance."
-          action={nextRadius ? `Search within ${nextRadius} mi` : undefined}
-          onAction={nextRadius ? () => setRadius(nextRadius) : undefined}
-        />
-      );
-    }
-  }
-
-  const footer =
-    rows.length && !body ? (
-      <View style={styles.footer}>
-        {isPlaces && provider ? (
-          <AppText style={styles.attribution}>
-            {provider === 'google' ? 'Places data © Google' : 'Map data © OpenStreetMap contributors'}
+        <View style={styles.liveRow}>
+          {count > 0 ? <View style={[styles.liveDot, friend && styles.liveDotFriend]} /> : null}
+          <AppText style={[styles.liveText, count > 0 && styles.liveTextOn]} numberOfLines={1}>
+            {open ? countText : `Opens at ${lateStarts}`}
           </AppText>
-        ) : null}
-        {(category === 'events' || (category === 'late' && shownEvents.length > 0)) ? (
-          <AppText style={styles.attribution}>Events and tickets from Ticketmaster</AppText>
-        ) : null}
-      </View>
-    ) : null;
+          {count > 0 && open && !lockedFaces ? <Faces people={inside.slice(0, 4)} extra={Math.max(0, count - 4)} /> : null}
+          {count > 0 && open && lockedFaces ? <Ionicons name="lock-closed" size={rs(14)} color={colors.textSecondary} /> : null}
+        </View>
 
-  const renderRow = ({ item }: { item: Row }) => {
-    if (item.type === 'section') {
-      return <AppText style={styles.section}>{item.title}</AppText>;
-    }
-    if (item.type === 'note') {
-      return (
-        <View style={styles.note}>
-          <Ionicons name="information-circle-outline" size={rs(15)} color={colors.textSecondary} />
-          <AppText style={styles.noteText}>{item.text}</AppText>
-        </View>
-      );
-    }
-    if (item.type === 'event') {
-      const e = item.event;
-      const target = eventTarget(e);
-      return (
-        <View style={styles.cardWrap}>
-          <ExploreCard
-            image={e.image}
-            tint={categoryInfo('events').tint}
-            emoji="🎟"
-            badge={eventTag(e)}
-            title={e.name}
-            meta={join([e.venueName, e.area, formatMiles(e.distanceMiles)])}
-            detail={eventWhenLabel(e)}
-            address={e.address}
-            primaryLabel="Make this the plan"
-            onPrimary={() => makePlan(target)}
-            onFind={() => findSomeone(target)}
-            onDirections={e.lat != null && e.lng != null ? () => openDirections({ name: e.venueName ?? e.name, lat: e.lat, lng: e.lng }) : null}
-            onOpen={() => openEvent(e)}
-            openLabel="Tickets on Ticketmaster"
-            friend={friend}
-          />
-        </View>
-      );
-    }
-    const p = item.place;
-    const target = placeTarget(p);
-    return (
-      <View style={styles.cardWrap}>
-        <ExploreCard
-          image={p.photo}
-          tint={info.tint}
-          emoji={info.emoji}
-          badge={category === 'movies' ? 'Movie theater' : p.kind}
-          title={p.name}
-          meta={join([p.area, formatMiles(p.distanceMiles)])}
-          detail={join([ratingLine(p), priceLabel(p.priceLevel)])}
-          status={hoursLine(p)}
-          address={p.address}
-          credit={p.photo && p.photoCredit ? `Photo: ${p.photoCredit}` : null}
-          primaryLabel={category === 'movies' ? 'Movie date here' : 'Make this the plan'}
-          onPrimary={() => makePlan(target)}
-          onFind={() => findSomeone(target)}
-          onDirections={() => openDirections(p)}
-          onOpen={() => openPlace(p)}
-          openLabel={p.mapsUri ? 'View on Google Maps' : 'View on map'}
-          friend={friend}
-        />
+        {open && room.id === 'foodie' && (!live || !imIn) ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+            {[...FOOD_CUISINES.filter((c) => c.value === 'anything'), ...FOOD_CUISINES.filter((c) => c.value !== 'anything')].map((c) => (
+              <Chip key={c.value} label={c.label} on={cuisine === c.value} friend={friend} onPress={() => setCuisine(c.value)} />
+            ))}
+          </ScrollView>
+        ) : null}
+        {open && room.id === 'late' && (!live || !imIn) ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+            {latePlans.map((p) => (
+              <Chip key={p.value} label={p.label} on={late === p.value} friend={friend} onPress={() => setLate(p.value)} />
+            ))}
+          </ScrollView>
+        ) : null}
+
+        {primary ? (
+          <View style={styles.actions}>
+            <Pressable
+              onPress={primary.onPress}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
+            >
+              <LinearGradient
+                colors={friend ? ['#14B8A6', '#0F766E'] : [...gradients.brand]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.primaryFill}
+              >
+                <Ionicons name={live ? (imIn ? 'people' : 'add-circle') : 'flash'} size={rs(16)} color="#fff" />
+                <AppText style={styles.primaryText} numberOfLines={1}>
+                  {primary.label}
+                </AppText>
+              </LinearGradient>
+            </Pressable>
+            {secondary ? (
+              <Pressable
+                onPress={secondary.onPress}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
+              >
+                <AppText style={styles.secondaryText} numberOfLines={1}>
+                  {secondary.label}
+                </AppText>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+        {open && room.id === 'late' && !plus ? (
+          <AppText style={styles.roomFoot}>Anyone can go Live here. Seeing who’s in After Hours is DateToday+.</AppText>
+        ) : null}
       </View>
     );
   };
 
   return (
     <Screen padded={false} edges={['top', 'left', 'right']}>
-      <FlatList
-        data={body ? [] : rows}
-        keyExtractor={(r) => r.key}
-        renderItem={renderRow}
-        ListHeaderComponent={header}
-        ListEmptyComponent={body ? <View style={styles.bodyWrap}>{body}</View> : null}
-        ListFooterComponent={footer}
-        contentContainerStyle={styles.content}
-        ItemSeparatorComponent={() => <View style={styles.gap} />}
-        showsVerticalScrollIndicator={false}
-        refreshing={false}
-        onRefresh={() => void (isPlaces ? placesQuery.refetch() : eventsQuery.refetch())}
-        initialNumToRender={4}
-        windowSize={7}
-      />
-      <MakePlanSheet
-        visible={Boolean(planTarget)}
-        onClose={() => setPlanTarget(null)}
-        emoji={planTarget?.emoji ?? info.emoji}
-        title={planTarget?.title ?? ''}
-        subtitle={planTarget?.subtitle ?? null}
-        mode={mode}
-        onPickMatch={pickMatch}
-        onFind={(forMode) => planTarget && findSomeone(planTarget, forMode)}
-      />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <LinearGradient
+          colors={friend ? ['rgba(20,184,166,0.22)', 'rgba(9,9,11,0)'] : ['rgba(124,58,237,0.32)', 'rgba(9,9,11,0)']}
+          style={styles.headerGlow}
+          pointerEvents="none"
+        />
+        <View style={styles.topRow}>
+          <Pressable onPress={back} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back" style={styles.backButton}>
+            <Ionicons name="chevron-back" size={rs(24)} color={colors.text} />
+          </Pressable>
+          <LiveModeSwitch compact />
+        </View>
+        <View style={styles.titleBlock}>
+          <AppText style={styles.title}>Explore Tonight</AppText>
+          <AppText style={styles.subtitle}>Find something worth going out for.</AppText>
+          <AppText style={[styles.location, trip && styles.locationTrip]} numberOfLines={1}>
+            {locationLine}
+          </AppText>
+        </View>
+
+        {live && myRooms.length ? (
+          <Pressable
+            onPress={() => router.navigate('/(tabs)/live')}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.liveBanner, friend && styles.liveBannerFriend, pressed && styles.pressed]}
+          >
+            <Ionicons name="flash" size={rs(16)} color={friend ? colors.friend : colors.brandBright} />
+            <AppText style={styles.liveBannerText} numberOfLines={1}>
+              You’re Live in {myRooms.map((r) => r.label).join(' + ')}
+            </AppText>
+            <Ionicons name="chevron-forward" size={rs(16)} color={colors.textSecondary} />
+          </Pressable>
+        ) : null}
+
+        <View style={styles.howRow}>
+          <AppText style={styles.how}>
+            {counted && totalLive > 0
+              ? `${totalLive} ${totalLive === 1 ? 'person is' : 'people are'} Live ${where ? `in ${where}` : 'near you'} right now.`
+              : 'Pick what you’re in the mood for and go Live in it.'}{' '}
+            Match first, then pick the place together.
+          </AppText>
+        </View>
+
+        <View style={styles.rooms}>{rooms.map(renderRoom)}</View>
+
+        <AppText style={styles.privacy}>
+          Rooms only show who’s Live for what. Your exact location is never shown to anyone.
+        </AppText>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = ScaledSheet.create({
-  content: {
-    paddingBottom: 40,
-  },
-  headerGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 220,
-  },
+  content: { paddingBottom: 40 },
+  headerGlow: { position: 'absolute', top: 0, left: 0, right: 0, height: 220 },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -748,146 +389,118 @@ const styles = ScaledSheet.create({
     paddingHorizontal: spacing.md,
     paddingTop: 6,
   },
-  backButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: -6,
-  },
-  titleBlock: {
-    paddingHorizontal: spacing.md,
-    paddingTop: 10,
-    gap: 3,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 30,
-    fontWeight: '800',
-    letterSpacing: -0.8,
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    fontSize: 15,
-  },
-  location: {
-    marginTop: 6,
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '600',
-  },
+  backButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginLeft: -6 },
+  titleBlock: { paddingHorizontal: spacing.md, paddingTop: 10, gap: 3 },
+  title: { color: colors.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.8 },
+  subtitle: { color: colors.textSecondary, fontSize: 15 },
+  location: { marginTop: 6, color: colors.text, fontSize: 13, fontWeight: '600' },
   locationTrip: { color: colors.brandBright },
-  rail: {
-    gap: 10,
-    paddingHorizontal: spacing.md,
-    paddingTop: 16,
-    paddingBottom: 4,
-  },
-  tile: {
-    width: 84,
-    paddingVertical: 12,
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-  },
-  tileOn: { borderColor: colors.brandBright, backgroundColor: 'rgba(168,85,247,0.18)' },
-  tileFriendOn: { borderColor: colors.friend, backgroundColor: 'rgba(94,234,212,0.12)' },
-  tileEmoji: { fontSize: 24, lineHeight: 30 },
-  tileLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: '700' },
-  tileLabelOn: { color: colors.text },
-  plusTag: {
-    position: 'absolute',
-    top: 6,
-    right: 8,
-  },
-  plusTagText: { color: colors.brandBright, fontSize: 12, fontWeight: '800' },
-  filters: {
-    gap: 8,
-    paddingHorizontal: spacing.md,
-    paddingTop: 12,
-    paddingBottom: 14,
-  },
-  chip: {
+  liveBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    minHeight: 34,
-    paddingHorizontal: 13,
+    gap: 8,
+    marginTop: 14,
+    marginHorizontal: spacing.md,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(168,85,247,0.5)',
+    backgroundColor: 'rgba(168,85,247,0.12)',
+  },
+  liveBannerFriend: { borderColor: 'rgba(94,234,212,0.45)', backgroundColor: 'rgba(94,234,212,0.08)' },
+  liveBannerText: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '700' },
+  howRow: { paddingHorizontal: spacing.md, paddingTop: 14 },
+  how: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  rooms: { gap: 14, paddingHorizontal: spacing.md, paddingTop: 14 },
+  room: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+    padding: 16,
+    gap: 12,
+    backgroundColor: colors.card,
+  },
+  roomClosed: { opacity: 0.6 },
+  roomArt: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.55 },
+  roomTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  roomEmoji: { fontSize: 34, lineHeight: 42 },
+  roomText: { flex: 1, minWidth: 0, gap: 2 },
+  roomTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  roomTitle: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
+  roomBlurb: { color: 'rgba(255,255,255,0.75)', fontSize: 13 },
+  plusMark: { color: colors.brandBright, fontSize: 14, fontWeight: '800' },
+  youPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: 'rgba(168,85,247,0.35)',
+  },
+  youPillFriend: { backgroundColor: 'rgba(20,184,166,0.4)' },
+  youPillText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 28 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E' },
+  liveDotFriend: { backgroundColor: colors.friend },
+  liveText: { flex: 1, color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '600' },
+  liveTextOn: { color: '#fff', fontWeight: '800' },
+  faces: { flexDirection: 'row', alignItems: 'center' },
+  face: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: 'rgba(12,8,20,0.9)',
+    backgroundColor: colors.elevated,
+  },
+  faceOverlap: { marginLeft: -9 },
+  faceEmpty: { alignItems: 'center', justifyContent: 'center' },
+  faceMore: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
+  faceMoreText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  chips: { gap: 8 },
+  chip: {
+    minHeight: 32,
+    paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    justifyContent: 'center',
   },
-  chipOn: { borderColor: colors.brandBright, backgroundColor: 'rgba(168,85,247,0.2)' },
-  chipFriendOn: { borderColor: colors.friend, backgroundColor: 'rgba(94,234,212,0.14)' },
-  chipText: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
-  chipTextOn: { color: colors.text },
-  gap: { height: 14 },
-  cardWrap: { paddingHorizontal: spacing.md },
-  bodyWrap: { paddingHorizontal: spacing.md },
-  section: {
-    marginTop: 10,
-    marginHorizontal: spacing.md,
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  note: {
+  chipOn: { borderColor: colors.brandBright, backgroundColor: 'rgba(168,85,247,0.35)' },
+  chipFriendOn: { borderColor: colors.friend, backgroundColor: 'rgba(20,184,166,0.3)' },
+  chipText: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '700' },
+  chipTextOn: { color: '#fff' },
+  actions: { flexDirection: 'row', gap: 10 },
+  primary: { flex: 1, borderRadius: 14, overflow: 'hidden' },
+  primaryFill: {
     flexDirection: 'row',
-    gap: 6,
-    alignItems: 'flex-start',
-    marginHorizontal: spacing.md,
-  },
-  noteText: { flex: 1, color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
-  footer: { paddingTop: 18, paddingHorizontal: spacing.md, gap: 4, alignItems: 'center' },
-  attribution: { color: colors.textSecondary, fontSize: 11 },
-  state: {
-    alignItems: 'center',
-    paddingVertical: 28,
-    paddingHorizontal: 20,
-    gap: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-  },
-  stateIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(168,85,247,0.14)',
-    marginBottom: 6,
+    gap: 7,
+    minHeight: 46,
+    paddingHorizontal: 12,
   },
-  stateTitle: { color: colors.text, fontSize: 17, fontWeight: '800', textAlign: 'center' },
-  stateBody: { color: colors.textSecondary, fontSize: 14, textAlign: 'center', lineHeight: 20 },
-  stateButton: {
-    marginTop: 10,
-    minHeight: 42,
-    paddingHorizontal: 18,
-    borderRadius: 13,
+  primaryText: { color: '#fff', fontSize: 15, fontWeight: '800', flexShrink: 1 },
+  secondary: {
+    minHeight: 46,
+    paddingHorizontal: 16,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.brand,
-  },
-  stateButtonText: { color: '#fff', fontSize: 14, fontWeight: '800' },
-  stateLink: { marginTop: 8, color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
-  loading: { gap: 14, paddingTop: 4 },
-  skeleton: {
-    borderRadius: 18,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    overflow: 'hidden',
-    paddingBottom: 14,
-    gap: 8,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(0,0,0,0.25)',
   },
-  skeletonPhoto: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.elevated },
-  skeletonLine: { height: 12, marginHorizontal: 14, borderRadius: 6, backgroundColor: colors.elevated },
-  skeletonShort: { width: '45%' },
+  secondaryText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  roomFoot: { color: 'rgba(255,255,255,0.65)', fontSize: 12, lineHeight: 17 },
+  privacy: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: 18,
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+  },
   pressed: { opacity: 0.82 },
 });

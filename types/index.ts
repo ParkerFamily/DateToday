@@ -45,6 +45,7 @@ export type TonightActivity =
   | 'activity'
   | 'walk'
   | 'movie'
+  | 'event'
   | 'chill'
   | 'surprise';
 

@@ -45,7 +45,7 @@ export const UPGRADE_COPY: Record<UpgradeReason | 'default', { title: string; bo
   },
   after_hours: {
     title: 'After Hours ✦',
-    body: 'Spots open late tonight, late shows nearby and the After Hours filters, with DateToday+.',
+    body: 'See who’s in After Hours, still out and up for a late plan near you, with DateToday+.',
   },
   default: {
     title: 'Like without limits ✦',

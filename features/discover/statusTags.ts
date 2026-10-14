@@ -120,6 +120,8 @@ const OPEN_TO: Record<string, string> = {
   drinks: 'Open to drinks',
   coffee: 'Open to coffee',
   activity: 'Up for an activity',
+  movie: 'Down for a movie',
+  event: 'Up for a show or event',
   chill: 'Down to chill',
   surprise: 'Down for something spontaneous',
 };

@@ -45,7 +45,7 @@ import { rs, ScaledSheet } from '@/lib/scale';
 import { androidGlow } from '@/lib/glow';
 import { endLiveSession, startLiveSession } from '@/services/api';
 import { useDiscoverFilters } from '@/store/discoverFilters';
-import { useExploreDraft } from '@/store/exploreDraft';
+import { useExploreRoom, type RoomGoLive } from '@/store/exploreRoom';
 import { useSessionStore } from '@/store/session';
 import { useTravelMode } from '@/store/travelMode';
 import { tripDatesLabel, tripLabel, tripPhase, usableTrip } from '@/features/travel/trip';
@@ -156,9 +156,7 @@ export default function LiveHomeScreen() {
   const [placeStyle, setPlaceStyle] = useState<PlaceStyle | null>(null);
   const [spot, setSpot] = useState<string | null>(null);
   const planIdea = placePlanIdea(placeStyle, spot);
-  const exploreDraft = useExploreDraft((s) => s.draft);
-  /** The spot preselected from Explore ("Find someone for this"), shown on the Explore card. */
-  const [fromExplore, setFromExplore] = useState<string | null>(null);
+  const roomGoLive = useExploreRoom((s) => s.goLive);
   const placeCategory =
     (activities.find((a) => PLACE_CATEGORIES.includes(a as PlanCategory)) as PlanCategory | undefined) ?? 'drinks';
   const [leaving, setLeaving] = useState(false);
@@ -223,23 +221,26 @@ export default function LiveHomeScreen() {
     if (live) return;
     if (planOptions.length < PLAN_OPTIONS.length) {
       setActivities((prev) => {
-        const kept = prev.filter((a) => planOptions.some((o) => o.value === a));
+        const kept = prev.filter(
+          (a) => planOptions.some((o) => o.value === a) || !PLAN_OPTIONS.some((o) => o.value === a),
+        );
         return kept.length === prev.length ? prev : kept.length ? kept : ['coffee'];
       });
     }
     if (friend) setEnergy((prev) => (prev === 'romantic' ? null : prev));
   }, [planOptions, friend, live]);
 
+  // "Go Live in Foodie" from Explore Tonight: same go-live path, with the room's plan.
   useEffect(() => {
-    if (!exploreDraft || live) return;
-    const pick = useExploreDraft.getState().takeDraft();
-    if (!pick) return;
-    setActivities([pick.activity]);
-    if (pick.cuisine) setFoodCuisines([pick.cuisine]);
-    setPlaceStyle('spot');
-    setSpot(pick.spot);
-    setFromExplore(pick.spot);
-  }, [exploreDraft, live]);
+    if (!roomGoLive) return;
+    const request = useExploreRoom.getState().takeGoLive();
+    if (!request || live) return;
+    setActivities(request.activities);
+    if (request.foodCuisines.length) setFoodCuisines(request.foodCuisines);
+    setAfterHoursTags(request.afterHours);
+    void activateLive(request);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomGoLive, live]);
 
   const activeFoods = live ? (liveSession?.foodCuisines ?? foodCuisines) : foodCuisines;
   const foodBit = wantsDinner ? formatFoodSummary(activeFoods) : '';
@@ -302,7 +303,12 @@ export default function LiveHomeScreen() {
     transform: [{ scale: 1 - leaveProgress.value * 0.06 }],
   }));
 
-  const activateLive = async () => {
+  /** `room`: going Live from an Explore Tonight room, with that room's plan instead of this screen's picks. */
+  const activateLive = async (room?: RoomGoLive) => {
+    const liveActivities = (room?.activities ?? activities) as TonightActivity[];
+    const liveFoods = room ? room.foodCuisines : wantsDinner ? foodCuisines : [];
+    const liveLate = room ? room.afterHours : showLateNight ? afterHoursTags : [];
+    const opened = () => useExploreRoom.getState().setRoom(room?.room ?? null);
     if (!readyForLive) {
       const next = missingKeys[0];
       Alert.alert(
@@ -350,12 +356,12 @@ export default function LiveHomeScreen() {
           longitude: trip.longitude,
           radiusMiles: radius,
           expiresAt: expiresAt.toISOString(),
-          activities: activities as TonightActivity[],
-          foodCuisines: wantsDinner ? foodCuisines : [],
+          activities: liveActivities,
+          foodCuisines: liveFoods,
           availabilityLabel: label,
           availableUntil: freeAt.toISOString(),
           laterTonightHour: laterHour,
-          afterHours: showLateNight && !tripUpcoming ? afterHoursTags : [],
+          afterHours: tripUpcoming ? [] : liveLate,
           energy,
           travel,
           planIdea,
@@ -366,6 +372,7 @@ export default function LiveHomeScreen() {
         setLiveSession({ ...session, isBoosted: false, boostedAt: null });
         setPingResults(0, 0);
         setSheet('none');
+        opened();
         void registerPushTokenAsync({ prompt: true });
         return;
       }
@@ -418,12 +425,12 @@ export default function LiveHomeScreen() {
           longitude,
           radiusMiles: radius,
           expiresAt: expiresAt.toISOString(),
-          activities: activities as TonightActivity[],
-          foodCuisines: wantsDinner ? foodCuisines : [],
+          activities: liveActivities,
+          foodCuisines: liveFoods,
           availabilityLabel: label,
           availableUntil: freeAt.toISOString(),
           laterTonightHour,
-          afterHours: showLateNight ? afterHoursTags : [],
+          afterHours: liveLate,
           energy,
           travel,
           planIdea,
@@ -433,6 +440,7 @@ export default function LiveHomeScreen() {
         setLiveSession({ ...session, isBoosted: false, boostedAt: null });
         setPingResults(0, 0);
         setSheet('none');
+        opened();
         void registerPushTokenAsync({ prompt: true });
         return;
       }
@@ -452,8 +460,9 @@ export default function LiveHomeScreen() {
           availabilityLabel: label,
           liveDurationMs,
           nightResetAt,
-          activities: activities as TonightActivity[],
-          foodCuisines: wantsDinner ? foodCuisines : [],
+          activities: liveActivities,
+          foodCuisines: liveFoods,
+          afterHours: liveLate,
           laterTonightHour,
           availabilityMode: (laterTonightHour != null ? 'later' : 'live') as 'live' | 'later',
           isBoosted: false,
@@ -465,6 +474,7 @@ export default function LiveHomeScreen() {
         setLiveSession(localSession);
         setPingResults(0, 0);
         setSheet('none');
+        opened();
         return;
       }
 
@@ -473,8 +483,8 @@ export default function LiveHomeScreen() {
         longitude,
         radiusMiles: radius,
         expiresAt: expiresAt.toISOString(),
-        activities: activities as TonightActivity[],
-        foodCuisines: wantsDinner ? foodCuisines : [],
+        activities: liveActivities,
+        foodCuisines: liveFoods,
         availabilityLabel: label,
         availableUntil: freeAt.toISOString(),
         laterTonightHour,
@@ -482,13 +492,14 @@ export default function LiveHomeScreen() {
       setLiveSession({ ...session, isBoosted: false, boostedAt: null });
       setPingResults(0, 0);
       setSheet('none');
+      opened();
     } catch (error) {
       Alert.alert(
         'Could not go live',
         friendlyError(error, 'Could not go live right now'),
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Try Again', onPress: () => void activateLive() },
+          { text: 'Try Again', onPress: () => void activateLive(room) },
         ],
       );
     } finally {
@@ -548,6 +559,7 @@ export default function LiveHomeScreen() {
       const wait = 380 - (Date.now() - started);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       setLiveSession(null);
+      useExploreRoom.getState().setRoom(null);
       setPingResults(0, 0);
       setOfflineToast(true);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -836,9 +848,7 @@ export default function LiveHomeScreen() {
               <View style={styles.exploreText}>
                 <AppText style={styles.exploreTitle}>Explore Tonight</AppText>
                 <AppText style={styles.exploreSub} numberOfLines={2}>
-                  {fromExplore && placeStyle === 'spot' && spot === fromExplore
-                    ? `Plan set: ${fromExplore}. Go Live to find someone for it.`
-                    : 'Food, drinks, movies & events nearby.'}
+                  Go Live in Foodie, Drinks, Movies & more.
                 </AppText>
               </View>
               <Ionicons name="chevron-forward" size={rs(18)} color={colors.textSecondary} />

@@ -28,8 +28,11 @@ import {
   applyDiscoverFilters,
   inAgeRange,
   INTENT_OPTIONS,
+  isNearbyOnly,
   matchedFilterLabels,
 } from '@/features/discover/applyFilters';
+import { inRoom, roomInfo, sharedRoom } from '@/features/explore/rooms';
+import { useExploreRoom } from '@/store/exploreRoom';
 import {
   activityStatus,
   availabilityText,
@@ -113,6 +116,7 @@ const ACTIVITY_EMOJI: Record<string, string> = {
   activity: '🎳',
   walk: '🚶',
   movie: '🎬',
+  event: '🎟',
   chill: '😌',
   surprise: '✨',
 };
@@ -384,10 +388,13 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
     );
   }, [widerQuery.data, rawFeed, blockedMap, handled, sentTo, matchedIds]);
   const widerCount = widerExtra.length;
-  const pool = useMemo(
-    () => (browseWider ? [...nearbyBeforeFilters, ...widerExtra] : nearbyBeforeFilters),
-    [browseWider, nearbyBeforeFilters, widerExtra],
-  );
+  // An Explore Tonight room: only people Live for that plan right now.
+  const room = useExploreRoom((s) => (live ? s.room : null));
+  const roomLabel = room ? roomInfo(room) : null;
+  const pool = useMemo(() => {
+    const all = browseWider ? [...nearbyBeforeFilters, ...widerExtra] : nearbyBeforeFilters;
+    return room ? all.filter((c) => !isNearbyOnly(c) && inRoom(c, room)) : all;
+  }, [browseWider, nearbyBeforeFilters, widerExtra, room]);
 
   // Memoize compatibility scores per card to avoid O(n^2 log n) recalculation during sort
   const cardScores = useMemo(() => {
@@ -466,9 +473,14 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
 
   const laterTonight = useMemo(() => {
     return nearbyBeforeFilters
-      .filter((c) => c.availabilityMode === 'later' && (showOutsideAge || inAgeRange(c, filters)))
+      .filter(
+        (c) =>
+          c.availabilityMode === 'later' &&
+          (!room || inRoom(c, room)) &&
+          (showOutsideAge || inAgeRange(c, filters)),
+      )
       .sort((a, b) => (a.laterTonightHour ?? 99) - (b.laterTonightHour ?? 99));
-  }, [nearbyBeforeFilters, showOutsideAge, filters]);
+  }, [nearbyBeforeFilters, showOutsideAge, filters, room]);
 
   const tripCity = liveSession?.trip?.city ?? null;
   const tonightCount = cards.filter((c) => feedTier(c) < 2).length;
@@ -597,6 +609,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
         photo: target.mainPhotoUrl ?? '',
         food: matchCompat.sharedFood[0] ?? '',
         activities: (target.activities ?? []).join(','),
+        room: sharedRoom(room, myVibe, target) ?? '',
         matchId,
         ...(mode === 'friend' ? { mode } : {}),
       },
@@ -997,12 +1010,40 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
           {showClose ? <CloseButton onPress={() => dismissToLive(router)} /> : null}
           <View style={styles.quiet}>
             {ageAsk}
-            <AppText style={styles.teaserEyebrow}>{quiet.eyebrow}</AppText>
-            <AppText style={styles.quietTitle}>{quiet.title}</AppText>
-            <AppText style={[styles.quietBody, styles.quietLead]}>{quiet.lead}</AppText>
-            <AppText variant="secondary" style={styles.quietBody}>
-              {quiet.body}
-            </AppText>
+            {roomLabel ? (
+              <>
+                <AppText style={styles.teaserEyebrow}>
+                  {roomLabel.emoji} {roomLabel.label.toUpperCase()}
+                </AppText>
+                <AppText style={styles.quietTitle}>You’re first in {roomLabel.label}.</AppText>
+                <AppText style={[styles.quietBody, styles.quietLead]}>
+                  No one else {trip ? `in ${trip.city}` : 'nearby'} is Live in {roomLabel.label} yet.
+                </AppText>
+                <AppText variant="secondary" style={styles.quietBody}>
+                  They’ll show up here the moment they join. Everyone else who’s Live is one tap away.
+                </AppText>
+                <Button
+                  label="See everyone Live"
+                  onPress={() => useExploreRoom.getState().setRoom(null)}
+                  style={styles.quietCta}
+                />
+                <Button
+                  label="Switch room"
+                  variant="secondary"
+                  onPress={() => router.push('/explore')}
+                  style={styles.quietCta}
+                />
+              </>
+            ) : (
+              <>
+                <AppText style={styles.teaserEyebrow}>{quiet.eyebrow}</AppText>
+                <AppText style={styles.quietTitle}>{quiet.title}</AppText>
+                <AppText style={[styles.quietBody, styles.quietLead]}>{quiet.lead}</AppText>
+                <AppText variant="secondary" style={styles.quietBody}>
+                  {quiet.body}
+                </AppText>
+              </>
+            )}
             <AppText variant="label" style={styles.radiusLabel}>
               {quiet.radius}
             </AppText>
@@ -1035,7 +1076,7 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
               onPress={() => router.push('/filters')}
               style={styles.quietCta}
             />
-            {widerCount > 0 ? (
+            {widerCount > 0 && !roomLabel ? (
               <View style={styles.widerBlock}>
                 <AppText style={styles.widerTitle}>{flowCopy.notLiveYetTitle}</AppText>
                 <Button
@@ -1151,31 +1192,50 @@ function DiscoverFeedInner({ showClose = false, liveHeader }: DiscoverFeedProps)
                 friendFeed && styles.pingHeaderEyebrowFriend,
               ]}
             >
-              {friendFeed
-                ? tonight
-                  ? 'FRIEND DATE · OUT TONIGHT'
-                  : 'FRIEND DATE · NEARBY'
-                : tonight
-                  ? '⚡ OUT TONIGHT'
-                  : 'MORE NEARBY'}
+              {roomLabel
+                ? `${roomLabel.emoji} ${roomLabel.label.toUpperCase()}${friendFeed ? ' · FRIEND DATE' : ''}`
+                : friendFeed
+                  ? tonight
+                    ? 'FRIEND DATE · OUT TONIGHT'
+                    : 'FRIEND DATE · NEARBY'
+                  : tonight
+                    ? '⚡ OUT TONIGHT'
+                    : 'MORE NEARBY'}
             </AppText>
             <AppText style={styles.pingHeaderTitle}>
-              {!tonight
-                ? friendFeed
-                  ? 'More people up for a Friend Date'
-                  : 'More people you might like'
-                : lowCount
-                  ? `${tonightCount} live now${nearbyCount > 0 ? ' · more nearby' : ''}`
-                  : `${tonightCount} people looking for plans now`}
+              {roomLabel
+                ? `${tonightCount} Live in ${roomLabel.label} now`
+                : !tonight
+                  ? friendFeed
+                    ? 'More people up for a Friend Date'
+                    : 'More people you might like'
+                  : lowCount
+                    ? `${tonightCount} live now${nearbyCount > 0 ? ' · more nearby' : ''}`
+                    : `${tonightCount} people looking for plans now`}
             </AppText>
-            <View style={styles.pingHeaderMetaRow}>
-              <AppText style={[styles.pingHeaderMeta, styles.pingHeaderMetaText]} numberOfLines={1}>
-                {tonight
-                  ? nearbyCount > 0 && !lowCount
-                    ? `${pingSummary} · ${nearbyCount} more nearby`
-                    : pingSummary
-                  : 'They haven’t gone live tonight, but you can still match'}
-              </AppText>
+            <View style={[styles.pingHeaderMetaRow, roomLabel && styles.pingHeaderMetaRowWrap]}>
+              {roomLabel ? (
+                <Pressable
+                  onPress={() => useExploreRoom.getState().setRoom(null)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Leave the ${roomLabel.label} room and see everyone Live`}
+                  style={({ pressed }) => [styles.roomExit, pressed && { opacity: 0.8 }]}
+                >
+                  <AppText style={styles.roomExitText} numberOfLines={1}>
+                    See everyone Live
+                  </AppText>
+                  <Ionicons name="close" size={rs(13)} color={colors.textSecondary} />
+                </Pressable>
+              ) : (
+                <AppText style={[styles.pingHeaderMeta, styles.pingHeaderMetaText]} numberOfLines={1}>
+                  {tonight
+                    ? nearbyCount > 0 && !lowCount
+                      ? `${pingSummary} · ${nearbyCount} more nearby`
+                      : pingSummary
+                    : 'They haven’t gone live tonight, but you can still match'}
+                </AppText>
+              )}
               <LikesLeftPill left={likesLeft} plus={likesUnlimited} />
             </View>
           </View>
@@ -1648,6 +1708,7 @@ const styles = ScaledSheet.create({
     gap: 8,
     marginTop: 2,
   },
+  pingHeaderMetaRowWrap: { flexWrap: 'wrap', rowGap: 6 },
   pingHeaderMetaText: {
     flex: 1,
     minWidth: 0,
@@ -1671,6 +1732,18 @@ const styles = ScaledSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  roomExit: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  roomExitText: { color: colors.textSecondary, fontSize: 12, fontWeight: '700' },
   scroll: {
     flex: 1,
     zIndex: 1,

@@ -65,13 +65,16 @@ export function PlacePicker({
   cuisine,
   onPick,
   allowManual = true,
+  nearby,
 }: {
   category: PlanCategory;
   cuisine?: string | null;
   onPick: (place: Place) => void;
   allowManual?: boolean;
+  /** A different "Near me" list (e.g. movie theaters); opens on it, without the hot picks. */
+  nearby?: { title: string; load: (me: LatLng) => Promise<Place[]> };
 }) {
-  const [mode, setMode] = useState<Mode | null>(null);
+  const [mode, setMode] = useState<Mode | null>(nearby ? 'near' : null);
   const [me, setMe] = useState<LatLng | null>(null);
   const [results, setResults] = useState<Place[]>([]);
   const [loading, setLoading] = useState(false);
@@ -84,7 +87,7 @@ export function PlacePicker({
   const [hotLoading, setHotLoading] = useState(false);
 
   useEffect(() => {
-    if (mode !== 'near' || !me) return;
+    if (mode !== 'near' || !me || nearby) return;
     let alive = true;
     setHot([]);
     setHotLoading(true);
@@ -95,7 +98,7 @@ export function PlacePicker({
     return () => {
       alive = false;
     };
-  }, [mode, me, category, cuisine]);
+  }, [mode, me, category, cuisine, nearby]);
 
   const hotNames = new Set(hot.map((p) => p.name.toLowerCase()));
   const listed = mode === 'near' ? results.filter((p) => !hotNames.has(p.name.toLowerCase())) : results;
@@ -124,7 +127,7 @@ export function PlacePicker({
         const here = me ?? (await getMyLocationQuietly()) ?? (await getMyLocation());
         if (!alive) return;
         setMe(here);
-        const places = await nearbyPlaces(here, category, cuisine);
+        const places = nearby ? await nearby.load(here) : await nearbyPlaces(here, category, cuisine);
         if (!alive) return;
         setResults(places);
         if (!places.length) setError(allowManual ? 'Nothing showing up nearby. Try search or type it in.' : 'Nothing showing up nearby. Try search.');
@@ -137,7 +140,7 @@ export function PlacePicker({
     return () => {
       alive = false;
     };
-  }, [mode, category, cuisine, me, allowManual]);
+  }, [mode, category, cuisine, me, allowManual, nearby]);
 
   useEffect(() => {
     if (mode !== 'search') return;
@@ -239,7 +242,9 @@ export function PlacePicker({
       ) : null}
       {mode === 'near' ? hot.map((p) => <HotRow key={p.id} place={p} onPress={() => pick(p)} />) : null}
 
-      {mode === 'near' && listed.length ? <AppText style={styles.listTitle}>{NEARBY_TITLE[category]}</AppText> : null}
+      {mode === 'near' && listed.length ? (
+        <AppText style={styles.listTitle}>{nearby?.title ?? NEARBY_TITLE[category]}</AppText>
+      ) : null}
 
       {loading ? (
         <View style={styles.status}>

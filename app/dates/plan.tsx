@@ -2,11 +2,15 @@ import { AppText } from '@/components/ui/AppText';
 import { friendlyError } from '@/lib/errors';
 import { CloseButton, dismissToLive } from '@/components/ui/CloseButton';
 import { Screen } from '@/components/ui/Screen';
+import { EventPicker } from '@/components/plan/EventPicker';
 import { PlacePicker, SelectedPlaceCard, placeLine } from '@/components/plan/PlacePicker';
 import { colors, radii, spacing } from '@/constants/theme';
 import { foodLabel, type FoodCuisine } from '@/constants/tonightVibe';
+import { explorePlaces } from '@/features/explore/api';
+import type { ExploreEvent } from '@/features/explore/catalog';
+import { isRoomId, planStartFor, type PlanPick } from '@/features/explore/rooms';
 import { otherUserId, proposeDate } from '@/features/matches/api';
-import { prefetchNearby, type Place, type PlanCategory } from '@/features/places/search';
+import { prefetchNearby, type LatLng, type Place, type PlanCategory } from '@/features/places/search';
 import {
   availableSlots,
   dateForChoice,
@@ -26,12 +30,14 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -48,6 +54,12 @@ const KINDS: { value: PlanCategory; emoji: string; label: string; blurb: string 
   { value: 'dinner', emoji: '🍽', label: 'Dinner', blurb: 'Sit down & talk' },
   { value: 'coffee', emoji: '☕', label: 'Coffee', blurb: 'Quick meetup' },
   { value: 'activity', emoji: '🎳', label: 'Activity', blurb: 'Something fun' },
+];
+
+const PICKS: { value: PlanPick; label: string }[] = [
+  { value: 'spot', label: '🎳 A spot' },
+  { value: 'movie', label: '🎬 Movie' },
+  { value: 'event', label: '🎟 Event' },
 ];
 
 const DAY_CHIPS: { value: DayChoice; label: string }[] = [
@@ -77,7 +89,7 @@ function parseEdit(raw: string | undefined): EditStart | null {
     const name = str(p.venueName);
     return {
       category,
-      label: str(p.label)?.slice(0, 60) ?? null,
+      label: (str(p.label) ?? str(p.activityLabel))?.slice(0, 60) ?? null,
       startsAt: startsAtIso && Number.isFinite(Date.parse(startsAtIso)) ? startsAtIso : null,
       place: name
         ? {
@@ -129,13 +141,12 @@ export default function PlanDateScreen() {
     /** Changing an accepted date: its message id, and its details as JSON to start from. */
     editOf?: string;
     edit?: string;
-    /** A spot or event picked in Explore, same JSON shape as `edit`. */
-    prefill?: string;
+    /** The Explore Tonight room you matched in: opens on its kind of date (theaters for Movies, events for Events). */
+    room?: string;
   }>();
   const editOf = typeof params.editOf === 'string' && params.editOf ? params.editOf : null;
   const original = useMemo(() => (editOf ? parseEdit(params.edit) : null), [editOf, params.edit]);
-  const prefill = useMemo(() => (editOf ? null : parseEdit(params.prefill)), [editOf, params.prefill]);
-  const seed = original ?? prefill;
+  const roomStart = original ? null : planStartFor(isRoomId(params.room) ? params.room : null);
   const theirName = displayName(params.name ?? 'them');
   const myPhoto = useSessionStore((s) => s.profile?.mainPhotoUrl ?? null);
   const myUid = useSessionStore((s) => s.userId);
@@ -155,14 +166,16 @@ export default function PlanDateScreen() {
   }, []);
 
   const tonightOpen = availableSlots(now, now).length > 0;
-  const start = original?.startsAt
-    ? new Date(original.startsAt)
-    : prefill?.startsAt && Date.parse(prefill.startsAt) > now.getTime()
-      ? new Date(prefill.startsAt)
-      : null;
+  const start = original?.startsAt ? new Date(original.startsAt) : null;
   const [category, setCategory] = useState<PlanCategory>(
-    seed?.category ?? (sharedFood ? 'dinner' : 'drinks'),
+    original?.category ?? roomStart?.category ?? (sharedFood ? 'dinner' : 'drinks'),
   );
+  /** Under Activity: a spot, a movie (pick the theater) or an event (pick the show). */
+  const [pick, setPick] = useState<PlanPick>(() =>
+    original?.label?.startsWith('🎬') ? 'movie' : original?.label?.startsWith('🎟') ? 'event' : (roomStart?.pick ?? 'spot'),
+  );
+  const [event, setEvent] = useState<ExploreEvent | null>(null);
+  const planPick: PlanPick = category === 'activity' ? pick : 'spot';
   const [dayChoice, setDayChoice] = useState<DayChoice>(() =>
     start ? dayChoiceFor(start, now) : tonightOpen ? 'tonight' : 'tomorrow',
   );
@@ -175,7 +188,7 @@ export default function PlanDateScreen() {
     [dayChoice, pickedDay, todayKey],
   );
   const suggestions = useMemo(() => suggestedTimes(category, day, now), [category, day, now]);
-  const eventStart = original ? null : start;
+  const eventStart = planPick === 'event' && event?.startsAt ? new Date(event.startsAt) : null;
   const startDay = eventStart?.toDateString();
   const startMinutes = eventStart ? eventStart.getHours() * 60 + eventStart.getMinutes() : null;
   const allSlots = useMemo(() => {
@@ -189,8 +202,8 @@ export default function PlanDateScreen() {
     start ? start.getHours() * 60 + start.getMinutes() : (suggestions[1] ?? suggestions[0] ?? 20 * 60 + 30),
   );
   const [moreTimes, setMoreTimes] = useState(() => Boolean(start));
-  const [place, setPlace] = useState<Place | null>(() => seed?.place ?? null);
-  const [picking, setPicking] = useState(false);
+  const [place, setPlace] = useState<Place | null>(() => original?.place ?? null);
+  const [picking, setPicking] = useState(() => roomStart?.pick === 'movie' || roomStart?.pick === 'event');
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -204,8 +217,63 @@ export default function PlanDateScreen() {
   }, [allSlots, suggestions, time]);
 
   const kind = KINDS.find((k) => k.value === category) ?? KINDS[0];
-  const customLabel = prefill?.label && prefill.category === category ? prefill.label : null;
+  const customLabel =
+    planPick === 'movie'
+      ? '🎬 Movie'
+      : planPick === 'event'
+        ? event
+          ? `🎟 ${event.name}`.slice(0, 60)
+          : original?.category === category && original.label?.startsWith('🎟')
+            ? original.label
+            : '🎟 Event'
+        : null;
+  const summaryEmoji = planPick === 'movie' ? '🎬' : planPick === 'event' ? '🎟' : kind.emoji;
   const summaryTitle = customLabel ? customLabel.replace(/^[^\w\s]+\s+/, '') : kind.label;
+  const theaters = useMemo(
+    () => ({
+      title: 'Theaters near you',
+      load: async (me: LatLng): Promise<Place[]> =>
+        (await explorePlaces({ center: me, category: 'movies', radiusMiles: 10 })).places,
+    }),
+    [],
+  );
+
+  const choosePick = (next: PlanPick) => {
+    if (next === pick) return;
+    tap();
+    setPick(next);
+    setEvent(null);
+    setPlace(null);
+    setPicking(next !== 'spot');
+  };
+
+  /** An event fills in the venue, the day and its start time; the invite carries its name. */
+  const pickEvent = (e: ExploreEvent) => {
+    setEvent(e);
+    setPlace({
+      id: `tm:${e.id}`,
+      name: e.venueName ?? e.name,
+      address: e.address,
+      area: e.area,
+      lat: e.lat,
+      lng: e.lng,
+      distanceMiles: e.distanceMiles,
+      kind: null,
+    });
+    setPicking(false);
+    setWhereNudge(false);
+    const at = e.startsAt ? new Date(e.startsAt) : null;
+    if (!at || at.getTime() <= Date.now()) return;
+    const choice = dayChoiceFor(at, now);
+    setDayChoice(choice);
+    if (choice === 'pick') setPickedDay(new Date(at.toDateString()));
+    setTime(at.getHours() * 60 + at.getMinutes());
+    setMoreTimes(true);
+  };
+
+  const openTickets = (url: string) => {
+    void WebBrowser.openBrowserAsync(url).catch(() => Linking.openURL(url));
+  };
   const scrollRef = useRef<ScrollView>(null);
   const whereY = useRef(0);
   const shake = useSharedValue(0);
@@ -352,22 +420,63 @@ export default function PlanDateScreen() {
                 })}
               </View>
 
+              {category === 'activity' ? (
+                <View style={styles.pickRow}>
+                  {PICKS.map((p) => {
+                    const on = pick === p.value;
+                    return (
+                      <Pressable
+                        key={p.value}
+                        onPress={() => choosePick(p.value)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: on }}
+                        style={({ pressed }) => [styles.pickChip, on && styles.chipOn, pressed && styles.pressed]}
+                      >
+                        <AppText style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+                          {p.label}
+                        </AppText>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
               <View onLayout={(e) => (whereY.current = e.nativeEvent.layout.y)}>
-                <AppText style={styles.heading}>Where?</AppText>
+                <AppText style={styles.heading}>
+                  {planPick === 'movie' ? 'Which theater?' : planPick === 'event' ? 'Which event?' : 'Where?'}
+                </AppText>
               </View>
+              {planPick === 'movie' ? (
+                <AppText style={styles.pickNote}>Showtimes aren’t listed here. Check with the theater and pick a time that works.</AppText>
+              ) : null}
               <Animated.View style={[styles.whereBlock, whereShake]}>
                 {place && !picking ? (
-                  <SelectedPlaceCard
-                    place={place}
-                    onChange={() => {
-                      tap();
-                      setPicking(true);
-                    }}
-                  />
+                  <>
+                    <SelectedPlaceCard
+                      place={place}
+                      onChange={() => {
+                        tap();
+                        setPicking(true);
+                      }}
+                    />
+                    {planPick === 'event' && event ? (
+                      <Pressable onPress={() => openTickets(event.url)} accessibilityRole="link" hitSlop={6} style={styles.ticketRow}>
+                        <AppText style={styles.ticketText} numberOfLines={1}>
+                          🎟 {event.name}
+                        </AppText>
+                        <AppText style={styles.ticketLink}>Tickets</AppText>
+                        <Ionicons name="open-outline" size={rs(14)} color={colors.brandBright} />
+                      </Pressable>
+                    ) : null}
+                  </>
+                ) : picking && planPick === 'event' ? (
+                  <EventPicker onPick={pickEvent} />
                 ) : picking ? (
                   <PlacePicker
+                    key={planPick}
                     category={category}
                     cuisine={sharedFood}
+                    nearby={planPick === 'movie' ? theaters : undefined}
                     onPick={(p) => {
                       setPlace(p);
                       setPicking(false);
@@ -385,7 +494,9 @@ export default function PlanDateScreen() {
                     <View style={styles.chooseIcon}>
                       <Ionicons name="location-outline" size={rs(18)} color={colors.brandBright} />
                     </View>
-                    <AppText style={styles.chooseText}>Search for a place</AppText>
+                    <AppText style={styles.chooseText}>
+                      {planPick === 'movie' ? 'Pick a theater' : planPick === 'event' ? 'Pick an event' : 'Search for a place'}
+                    </AppText>
                     <Ionicons name="chevron-forward" size={rs(18)} color={colors.textSecondary} />
                   </Pressable>
                 )}
@@ -487,7 +598,7 @@ export default function PlanDateScreen() {
             <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
               <View style={styles.summary}>
                 <View style={styles.summaryEmoji}>
-                  <AppText style={styles.summaryEmojiText}>{kind.emoji}</AppText>
+                  <AppText style={styles.summaryEmojiText}>{summaryEmoji}</AppText>
                 </View>
                 <View style={styles.summaryText}>
                   <AppText style={styles.summaryTitle} numberOfLines={1}>
@@ -659,6 +770,26 @@ const styles = ScaledSheet.create({
     backgroundColor: 'rgba(168,85,247,0.14)',
   },
   chooseText: { flex: 1, color: colors.text, fontSize: 16, fontWeight: '700' },
+  pickRow: { flexDirection: 'row', gap: 8, marginTop: -2 },
+  pickChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: radii.pill,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pickNote: { color: colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: -4 },
+  ticketRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 4,
+  },
+  ticketText: { flex: 1, color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
+  ticketLink: { color: colors.brandBright, fontSize: 13, fontWeight: '800' },
   dayRow: { flexDirection: 'row', gap: 8 },
   dayChip: {
     flex: 1,

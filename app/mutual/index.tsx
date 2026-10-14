@@ -26,6 +26,7 @@ import { sharedFoodHeadline } from '@/utils/tonightCompatibility';
 import type { FoodCuisine, TonightActivity } from '@/types';
 import { useSessionStore } from '@/store/session';
 import { canStartPlan } from '@/features/live/planGate';
+import { isRoomId, roomInfo } from '@/features/explore/rooms';
 import { ScaledSheet } from '@/lib/scale';
 import { androidGlow } from '@/lib/glow';
 import { repairStorageUrl } from '@/utils/photoUrl';
@@ -86,8 +87,11 @@ export default function MutualMatchScreen() {
     food?: string;
     activities?: string;
     mode?: string;
+    /** The Explore Tonight room you matched in; picks which places or events the plan opens with. */
+    room?: string;
   }>();
   const friend = params.mode === 'friend';
+  const room = isRoomId(params.room) ? roomInfo(params.room) : null;
 
   const opacity = useSharedValue(0);
   const titleScale = useSharedValue(0.7);
@@ -126,9 +130,11 @@ export default function MutualMatchScreen() {
     return (liveSession?.activities ?? ['drinks', 'dinner']) as TonightActivity[];
   }, [params.activities, liveSession?.activities]);
 
-  const vibeLine = activities
-    .map((a) => `${ACTIVITY_EMOJI[a] ?? ''} ${a.charAt(0).toUpperCase() + a.slice(1)}`.trim())
-    .join(' · ');
+  const vibeLine = room
+    ? `You’re both in ${room.emoji} ${room.label}`
+    : activities
+        .map((a) => `${ACTIVITY_EMOJI[a] ?? ''} ${a.charAt(0).toUpperCase() + a.slice(1)}`.trim())
+        .join(' · ');
 
   const sharedFood =
     typeof params.food === 'string' && params.food.length
@@ -234,6 +240,7 @@ export default function MutualMatchScreen() {
                   food: sharedFood ?? '',
                   conversationId,
                   mode: sharedFood ? 'spot' : 'plan',
+                  room: room?.id ?? '',
                 },
               });
             }}
