@@ -30,6 +30,7 @@ const chat = require('./chat');
 const sessions = require('./sessions');
 const ownerConsole = require('./admin');
 const referrals = require('./referrals');
+const shareLinks = require('./shareLinks');
 const contactBlocks = require('./contactBlocks');
 const friendDate = require('./friendDate');
 
@@ -638,14 +639,10 @@ exports.admin = onRequest(
   ),
 );
 
-const FUNCTIONS_BASE = 'https://us-central1-datetoday-e1331.cloudfunctions.net';
-const APP_STORE_URL = 'https://apps.apple.com/app/id6810919273';
-
 exports.referrals = onRequest(
   { cors: true, invoker: 'public' },
   jsonEndpoint(
     referrals.createReferralsEndpoint({
-      functionsBase: FUNCTIONS_BASE,
       pushToUser: (...args) => pushToUser(...args),
     }),
     { signedIn: true },
@@ -663,17 +660,15 @@ exports.friendDate = onRequest(
   }),
 );
 
-/** The page an invite link opens (GET ?c=CODE). */
+/** Invite links shared before datetd.com (GET ?c=CODE) go to the branded page. */
 exports.invite = onRequest({ invoker: 'public' }, (req, res) => {
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.status(405).send('Method not allowed');
     return;
   }
   const code = referrals.normalizeCode((req.query && req.query.c) || req.path);
-  const android = /android/i.test(String(req.headers['user-agent'] || ''));
   res.set('Cache-Control', 'public, max-age=300');
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(referrals.landingPage(code, { appStoreUrl: APP_STORE_URL, android }));
+  res.redirect(302, shareLinks.shareUrl('invite', code));
 });
 
 /** DateToday+ from any approved source: DateToday's web checkout (Stripe) or the app stores (RevenueCat). */

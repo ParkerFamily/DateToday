@@ -13,6 +13,9 @@
       "bundleIdentifier": "com.parkerfamily.datetoday",
       "googleServicesFile": "./GoogleService-Info.plist",
       "usesAppleSignIn": true,
+      "associatedDomains": [
+        "applinks:datetd.com"
+      ],
       "infoPlist": {
         "CFBundleDisplayName": "DateToday",
         "ITSAppUsesNonExemptEncryption": false,
@@ -75,6 +78,21 @@
           "data": [
             {
               "scheme": "datetoday"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "datetd.com",
+              "pathPrefix": "/invite/"
             }
           ],
           "category": [

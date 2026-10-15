@@ -12,6 +12,7 @@
  */
 const crypto = require('crypto');
 const { FieldValue } = require('firebase-admin/firestore');
+const { shareUrl } = require('./shareLinks');
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 8;
@@ -61,43 +62,6 @@ function milestones(invited) {
   return MILESTONES.map((m) => ({ at: m.at, label: m.label, reached: invited >= m.at }));
 }
 
-function shareUrl(functionsBase, code) {
-  return `${functionsBase}/invite?c=${code}`;
-}
-
-const esc = (s) =>
-  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-
-/** The page a shared invite link opens: tries the app, otherwise the App Store, and shows the code. */
-function landingPage(code, { appStoreUrl, android }) {
-  const c = code ? esc(code) : '';
-  const deepLink = c ? `datetoday://invite/${c}` : 'datetoday://';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>You're invited to DateToday</title>
-<meta property="og:title" content="You're invited to DateToday">
-<meta property="og:description" content="See who's out tonight and make real plans.${c ? ` Use invite code ${c}.` : ''}">
-<style>
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#09090B;color:#FAFAFA;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-main{max-width:420px;padding:32px 24px;text-align:center}
-h1{font-size:30px;margin:0 0 8px;font-weight:800}
-p{color:#92929D;line-height:1.5;margin:0 0 24px}
-.code{display:inline-block;font:700 28px ui-monospace,Menlo,monospace;letter-spacing:4px;padding:14px 22px;border:1px solid #2A2438;border-radius:16px;background:#16131F;color:#22E58B;margin-bottom:24px;user-select:all}
-a.btn{display:block;padding:16px;border-radius:14px;background:linear-gradient(90deg,#7C3AED,#C084FC);color:#fff;font-weight:800;text-decoration:none;margin-bottom:12px}
-a.alt{color:#A855F7;font-weight:700;text-decoration:none}
-small{display:block;color:#92929D;margin-top:20px}
-</style></head><body><main>
-<h1>You're invited to DateToday ⚡</h1>
-<p>See who's out tonight and make real plans.${c ? ' Sign up, then enter this code in Settings → Invite Friends to get 5 bonus Likes.' : ''}</p>
-${c ? `<div class="code">${c}</div>` : ''}
-<a class="btn" href="${esc(appStoreUrl)}">Get DateToday on the App Store</a>
-<a class="alt" href="${deepLink}">Already have the app? Open it</a>
-${android ? '<small>DateToday for Android is coming to Google Play soon.</small>' : ''}
-</main>
-<script>setTimeout(function(){location.href=${JSON.stringify(deepLink)}},300)</script>
-</body></html>`;
-}
-
 async function ensureCode(db, uid) {
   const statsRef = db.collection('referralStats').doc(uid);
   const snap = await statsRef.get();
@@ -126,8 +90,8 @@ async function deviceHashes(db, uid) {
   return new Set(snap.docs.map((d) => d.get('deviceHash')).filter(Boolean));
 }
 
-/** deps: functionsBase (string), pushToUser(db, uid, message), now(). */
-function createReferralsEndpoint({ functionsBase, pushToUser, now = () => Date.now() }) {
+/** deps: pushToUser(db, uid, message), now(). */
+function createReferralsEndpoint({ pushToUser, now = () => Date.now() }) {
   async function canRedeem(db, auth, uid) {
     const [mine, user] = await Promise.all([
       db.collection('referrals').doc(uid).get(),
@@ -151,7 +115,7 @@ function createReferralsEndpoint({ functionsBase, pushToUser, now = () => Date.n
       const next = MILESTONES.find((m) => invited < m.at) || null;
       return {
         code,
-        link: shareUrl(functionsBase, code),
+        link: shareUrl('invite', code),
         invited,
         rewards: rewardsFor(invited),
         milestones: milestones(invited),
@@ -233,7 +197,6 @@ module.exports = {
   MILESTONES,
   REDEEM_WINDOW_MS,
   createReferralsEndpoint,
-  landingPage,
   makeCode,
   normalizeCode,
   rewardsFor,

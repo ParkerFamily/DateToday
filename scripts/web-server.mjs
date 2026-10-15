@@ -1,12 +1,21 @@
-// Serves the web build (dist/) for Replit. Real files are served as-is; every other path gets
-// index.html so app links like /chat/<id> load the app, which then routes on the client.
+// Serves datetd.com from the web build (dist/) on Replit. Shared links (/invite/<code>) get a
+// branded landing page, /.well-known/ has the Universal Links / App Links files, real files are
+// served as-is, and every other path gets index.html so the app routes on the client.
 import fs from 'node:fs';
 import http from 'node:http';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+
+const shareLinks = createRequire(import.meta.url)('../functions/shareLinks.js');
 
 const root = path.resolve(process.argv[2] || 'dist');
 const port = Number(process.env.PORT) || 3000;
 const index = path.join(root, 'index.html');
+
+const WELL_KNOWN = {
+  '/.well-known/apple-app-site-association': JSON.stringify(shareLinks.appleAppSiteAssociation()),
+  '/.well-known/assetlinks.json': JSON.stringify(shareLinks.assetLinks()),
+};
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -47,7 +56,16 @@ function fileFor(urlPath) {
 
 http
   .createServer((req, res) => {
-    const urlPath = (req.url || '/').split('?')[0];
+    const url = new URL(req.url || '/', 'http://localhost');
+    const urlPath = url.pathname;
+    const send = (type, cache, body) => {
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache });
+      res.end(req.method === 'HEAD' ? undefined : body);
+    };
+    if (WELL_KNOWN[urlPath]) return send('application/json', 'public, max-age=3600', WELL_KNOWN[urlPath]);
+    const landing = shareLinks.landingPageFor(urlPath, url.searchParams, req.headers['user-agent']);
+    if (landing) return send('text/html; charset=utf-8', 'private, max-age=300', landing);
+
     const file = fileFor(urlPath);
     const target = file || index;
     const hashed = Boolean(file) && urlPath.startsWith('/_expo/');
