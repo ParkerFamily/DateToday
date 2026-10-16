@@ -20,7 +20,16 @@ import { PRIORITY, PRIORITY_TEXT } from '@/components/likes/PriorityLikeSheet';
 import { colors, gradients, spacing } from '@/constants/theme';
 import { ScaledSheet, rs } from '@/lib/scale';
 
-export type TourStep = 'welcome' | 'live' | 'swipe' | 'buttons' | 'matches' | 'plan' | 'profile' | 'invite';
+export type TourStep =
+  | 'welcome'
+  | 'live'
+  | 'friend'
+  | 'swipe'
+  | 'buttons'
+  | 'matches'
+  | 'plan'
+  | 'profile'
+  | 'invite';
 
 const STEPS: { key: TourStep; title: string; body: string }[] = [
   {
@@ -32,6 +41,11 @@ const STEPS: { key: TourStep; title: string; body: string }[] = [
     key: 'live',
     title: 'Go live when you’re free',
     body: 'On the Live tab, pick what you’re in the mood for, then hold the button to go live. People nearby see you’re free tonight.',
+  },
+  {
+    key: 'friend',
+    title: 'Dating or Friend Date',
+    body: 'Flip the switch at the top to Friend Date for platonic plans. You’ll only see and be seen by people up for the same mode.',
   },
   {
     key: 'swipe',
@@ -216,6 +230,38 @@ function Mockup({ step, pulse, swipeX }: { step: TourStep; pulse: SharedValue<nu
               <AppText style={m.goLiveText}>HOLD TO GO LIVE ⚡</AppText>
             </LinearGradient>
           </Glow>
+          <TabBar active="live" pulse={pulse} />
+        </View>
+      );
+    case 'friend':
+      return (
+        <View style={m.screen}>
+          <AppText style={m.screenTitle}>Who’s out tonight?</AppText>
+          <Glow pulse={pulse} radius={18}>
+            <View style={m.modeTrack}>
+              <View style={m.modeOff}>
+                <Ionicons name="heart" size={14} color={colors.textSecondary} />
+                <AppText style={m.modeOffText}>Dating</AppText>
+              </View>
+              <View style={m.modeOn}>
+                <Ionicons name="people" size={14} color={colors.friend} />
+                <AppText style={m.modeOnText}>Friend Date</AppText>
+              </View>
+            </View>
+          </Glow>
+          <View style={m.friendCard}>
+            <View style={m.friendTag}>
+              <Ionicons name="people" size={12} color={colors.friend} />
+              <AppText style={m.friendTagText}>Friend Date</AppText>
+            </View>
+            <Ionicons name="person" size={48} color={colors.textSecondary} />
+            <View style={m.lines}>
+              <View style={[m.line, { width: '55%' }]} />
+              <View style={[m.line, { width: '35%' }]} />
+            </View>
+            <AppText style={m.friendHint}>Platonic plans only</AppText>
+          </View>
+          <View style={m.grow} />
           <TabBar active="live" pulse={pulse} />
         </View>
       );
@@ -525,6 +571,66 @@ const m = StyleSheet.create({
   chipText: { color: colors.text, fontSize: 12, fontWeight: '700' },
   goLive: { height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center' },
   goLiveText: { color: colors.white, fontSize: 14, fontWeight: '900', letterSpacing: 0.5 },
+  modeTrack: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.elevated,
+    padding: 4,
+    gap: 4,
+  },
+  modeOff: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  modeOffText: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
+  modeOn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(94,234,212,0.16)',
+    borderWidth: 1,
+    borderColor: colors.friend,
+  },
+  modeOnText: { color: colors.friend, fontSize: 13, fontWeight: '800' },
+  friendCard: {
+    flex: 1,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(94,234,212,0.35)',
+    backgroundColor: colors.elevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    padding: 14,
+  },
+  friendTag: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(94,234,212,0.16)',
+    borderWidth: 1,
+    borderColor: colors.friend,
+  },
+  friendTagText: { color: colors.friend, fontSize: 11, fontWeight: '800' },
+  friendHint: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
   tabBar: {
     flexDirection: 'row',
     marginHorizontal: -14,
