@@ -6,10 +6,10 @@
  */
 
 export const LEGAL_VERSIONS = {
-  terms: '2026-09-17.v1',
-  privacy: '2026-09-17.v1',
-  communityGuidelines: '2026-09-11.v1',
-  identityVerificationNotice: '2026-09-11.v1',
+  terms: '2026-10-16.v1',
+  privacy: '2026-10-16.v1',
+  communityGuidelines: '2026-10-16.v1',
+  identityVerificationNotice: '2026-10-16.v1',
 } as const;
 
 export type LegalDocKey = keyof typeof LEGAL_VERSIONS;

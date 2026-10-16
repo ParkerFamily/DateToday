@@ -29,9 +29,19 @@ export default function PrivacyPolicyScreen() {
 
       <LegalSection title="What we collect">
         <LegalP>
-          Categories below reflect the current product. Location coordinates are not written to Firestore today.
-          Analytics events are console-only in development — no third-party analytics SDK is shipped. DateToday+
-          and Tonight Boost purchases are processed by Apple / Google via RevenueCat.
+          Categories below reflect the current product. Analytics events are console-only in development — no
+          third-party analytics SDK is shipped. DateToday+ and Tonight Boost purchases are processed by Apple /
+          Google via RevenueCat (and Stripe when web checkout is used).
+        </LegalP>
+      </LegalSection>
+
+      <LegalSection title="Location">
+        <LegalP>
+          When you allow location access, DateToday may use location data to provide nearby discovery, Live
+          Tonight, Travel Mode, and venue or event recommendations. Other users typically see approximate
+          distance or area labels — not your exact private coordinates — unless you intentionally share a precise
+          location yourself (for example in chat or when picking a meetup place). Use caution before sharing home
+          or work addresses.
         </LegalP>
       </LegalSection>
 

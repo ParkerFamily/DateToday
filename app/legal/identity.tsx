@@ -31,6 +31,14 @@ export default function IdentityVerificationScreen() {
         </LegalP>
       </LegalSection>
 
+      <LegalSection title="Not a background check">
+        <LegalP>
+          Verification features may help confirm certain account or profile information, but they are not a
+          guarantee of identity, character, safety, or criminal history. DateToday does not claim to perform
+          criminal background checks on users. Always use your own judgment when messaging or meeting someone.
+        </LegalP>
+      </LegalSection>
+
       <LegalSection title="What Persona processes">
         <LegalP>
           Depending on the flow, Persona may process government ID images, a selfie or short video, date of birth,

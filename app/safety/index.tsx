@@ -21,11 +21,11 @@ const LINKS = [
   },
   {
     title: 'Community Guidelines',
-    body: 'Respect, consent, no solicitation, no minors.',
+    body: 'Respect, no harassment, no scams — Dating and Friend Date.',
     href: '/legal/guidelines' as const,
   },
   {
-    title: 'Dating Safety Tips',
+    title: 'Safety Tips',
     body: 'Meet in public, tell a friend, and know when to leave.',
     href: '/safety/tips' as const,
   },
@@ -39,7 +39,8 @@ export default function SafetyCenterScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <SettingsHeader title="Safety Center" />
         <AppText variant="secondary">
-          Block, report, and get help. Your exact location is never shared.
+          Block, report, and get help. DateToday is designed not to share your exact private location unless you
+          choose to.
         </AppText>
 
         <View style={styles.list}>

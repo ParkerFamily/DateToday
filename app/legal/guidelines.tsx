@@ -20,19 +20,62 @@ export default function CommunityGuidelinesScreen() {
   return (
     <LegalScreen
       title="Community Guidelines"
-      subtitle={`Version ${LEGAL_VERSIONS.communityGuidelines}. DateToday is for real adults planning real dates.`}
+      subtitle={`Version ${LEGAL_VERSIONS.communityGuidelines}. Plain-language rules for Dating, Friend Date, and every plan on DateToday.`}
     >
-      <LegalSection title="Be respectful">
+      <LegalSection title="Respect other people">
         <LegalP>
-          Treat people like humans you’ll meet tonight. No harassment, insults, stalking, unwanted sexual
-          pressure, or hate speech based on identity, orientation, race, religion, disability, or similar.
+          Treat people like humans you might meet in person. Be kind in chats and plans. Respect someone’s
+          boundaries, time, and “no.”
         </LegalP>
       </LegalSection>
 
-      <LegalSection title="Be real">
+      <LegalSection title="No harassment or threats">
+        <LegalP>
+          No harassment, stalking, threats, intimidation, or violence — in the app or around meetings arranged
+          through DateToday. Unwanted repeated contact after someone passes, unmatches, blocks, or stops
+          talking is not okay.
+        </LegalP>
+      </LegalSection>
+
+      <LegalSection title="No hate or discrimination">
+        <LegalP>
+          No hate speech or discrimination based on identity, orientation, race, religion, disability, gender,
+          or similar.
+        </LegalP>
+      </LegalSection>
+
+      <LegalSection title="No unwanted sexual behavior">
+        <LegalP>
+          No sexual harassment, sexual pressure, or non-consensual sexual content. Keep photos and prompt videos
+          appropriate for an app you would open in public.
+        </LegalP>
+      </LegalSection>
+
+      <LegalSection title="Be real — no fake identities">
         <LegalP>
           Use your own photos and videos. No impersonation, catfishing, stolen media, or fake profiles. Optional
-          Persona verification helps others trust who you are.
+          verification can help others trust who you are, but it is not a background check.
+        </LegalP>
+      </LegalSection>
+
+      <LegalSection title="No scams or fraud">
+        <LegalP>
+          No scams, solicitation, crypto or investment pitches, affiliate spam, commercial promotion, coercion,
+          or attempts to move people off-platform for fraud.
+        </LegalP>
+      </LegalSection>
+
+      <LegalSection title="Respect a no">
+        <LegalP>
+          If someone passes, unmatches, blocks, cancels a plan, or ends communication, stop. Do not pressure
+          anyone to meet, share personal details, or continue talking.
+        </LegalP>
+      </LegalSection>
+
+      <LegalSection title="Protect privacy">
+        <LegalP>
+          Do not share another person’s private information, photos, or messages without their permission. Do not
+          dox or expose someone’s home, work, or other precise location.
         </LegalP>
       </LegalSection>
 
@@ -42,56 +85,47 @@ export default function CommunityGuidelinesScreen() {
         </LegalP>
       </LegalSection>
 
-      <LegalSection title="No scams or spam">
+      <LegalSection title="Dating and Friend Date">
         <LegalP>
-          No solicitation, crypto/investment pitches, affiliate spam, commercial promotion, or attempts to move
-          people off-platform for fraud.
+          The same conduct and safety rules apply to Dating, Friend Date, and other plans. Platonic intent does
+          not make harassment, pressure, or unsafe behavior okay.
         </LegalP>
       </LegalSection>
 
-      <LegalSection title="Consent & content">
+      <LegalSection title="Meetups">
         <LegalP>
-          Keep photos and prompt videos appropriate for a dating app you would open in public. No explicit sexual
-          content, threats, or non-consensual imagery. Offline: only meet when both people agree.
+          Meet only when both people agree. Prefer public places for first meetups, tell a friend, arrange your
+          own transportation, and leave if you feel unsafe. See Safety Tips for more.
         </LegalP>
       </LegalSection>
 
-      <LegalSection title="Safety on dates">
+      <LegalSection title="What happens if you break the rules">
         <LegalP>
-          Meet in public, tell a friend, arrange your own transportation, and leave if you feel unsafe. See Dating
-          Safety Tips for more.
-        </LegalP>
-      </LegalSection>
-
-      <LegalSection title="Enforcement ladder">
-        <LegalP>
-          1) Warning or content removal for lower-severity issues. 2) Temporary limits (discovery/chat pause or
-          feature locks). 3) Suspension. 4) Permanent ban for severe or repeated violations (underage, threats,
-          scams, violence). We may escalate faster when safety risk is clear.
+          Serious or repeated violations can lead to content removal, feature limits, suspension, or permanent
+          removal from DateToday. We may escalate faster when safety risk is clear. We review reports when we
+          can, but we do not promise a specific outcome for every report.
         </LegalP>
         <LegalNote>
           [LEGAL REVIEW REQUIRED] Confirm appeal process and review SLAs with counsel/ops before publishing.
         </LegalNote>
       </LegalSection>
 
-      <LegalSection title="Reporting">
+      <LegalSection title="Reporting and blocking">
         <LegalP>
-          Reports are confidential to the reporter. False or abusive reports may themselves lead to enforcement.
-          Block anyone you do not want to see again.
+          Block anyone you do not want to see again. Report harassment, scams, underage accounts, and other
+          safety concerns in the Safety Center. Reports are confidential to the reporter. False or abusive
+          reports may themselves lead to enforcement.
         </LegalP>
       </LegalSection>
 
       <View style={styles.actions}>
         <Button label="Report a problem" onPress={() => router.push('/safety/report')} />
-        <Button
-          label="Blocked users"
-          variant="secondary"
-          onPress={() => router.push('/settings/blocked')}
-        />
+        <Button label="Blocked users" variant="secondary" onPress={() => router.push('/settings/blocked')} />
       </View>
 
       <SettingsGroup title="Related">
-        <SettingsRow label="Dating Safety Tips" onPress={() => router.push('/safety/tips')} />
+        <SettingsRow label="Safety Tips" onPress={() => router.push('/safety/tips')} />
+        <SettingsRow label="Terms of Service" onPress={() => router.push('/legal/terms')} />
         <SettingsRow label="Safety Center" last onPress={() => router.push('/safety')} />
       </SettingsGroup>
     </LegalScreen>

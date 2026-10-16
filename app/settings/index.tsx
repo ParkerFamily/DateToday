@@ -220,7 +220,7 @@ export default function SettingsScreen() {
             onPress={() => router.push('/settings/privacy-controls')}
           />
           <SettingsRow label="Safety Center" onPress={() => router.push('/safety')} />
-          <SettingsRow label="Dating Safety Tips" onPress={() => router.push('/safety/tips')} />
+          <SettingsRow label="Safety Tips" onPress={() => router.push('/safety/tips')} />
           <SettingsRow label="Chat & messaging" onPress={() => router.push('/settings/chat')} />
           <SettingsRow label="Blocked users" onPress={() => router.push('/settings/blocked')} />
           {isBackendConfigured() ? (
