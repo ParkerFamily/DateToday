@@ -276,6 +276,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     void import('@/lib/billing/webCheckout')
       .then((m) => m.installWebEntitlementSync())
       .catch(() => undefined);
+    if (Platform.OS !== 'android') {
+      void import('@/lib/purchases')
+        .then((m) => m.installStoreEntitlementSync())
+        .catch(() => undefined);
+    }
 
     const unsub = subscribeAuth((user) => {
       // Ignore until initial restore finished to avoid null→user race wipes.

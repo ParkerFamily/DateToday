@@ -1,4 +1,4 @@
-import { NativeModules, Platform } from 'react-native';
+import { AppState, NativeModules, Platform } from 'react-native';
 import Constants from 'expo-constants';
 import type {
   CustomerInfo,
@@ -168,8 +168,9 @@ export async function configurePurchases(appUserId?: string | null): Promise<voi
         });
         configured = true;
         startPurchasesCustomerInfoListener();
-        // Warm customer info in background — never block / never throw to UI.
+        // Warm cache, then quietly post the Apple receipt so Plus shows without a buy attempt.
         void purchasesMod.getCustomerInfo().then(applyCustomerInfoToSession).catch(() => undefined);
+        void syncStorePurchasesQuietly();
       } catch {
         nativeUnavailable = true;
         purchasesMod = null;
@@ -180,7 +181,9 @@ export async function configurePurchases(appUserId?: string | null): Promise<voi
 
     if (appUserId) {
       try {
-        await purchasesMod.logIn(appUserId);
+        const { customerInfo } = await purchasesMod.logIn(appUserId);
+        applyCustomerInfoToSession(customerInfo);
+        void syncStorePurchasesQuietly();
       } catch {
         /* ignore identity sync failures */
       }
@@ -191,6 +194,58 @@ export async function configurePurchases(appUserId?: string | null): Promise<voi
     purchasesMod = null;
     configured = false;
   }
+}
+
+/**
+ * Posts the device’s App Store / Play purchases to RevenueCat without a restore prompt.
+ * Needed when Apple already owns the sub but this app-user’s CustomerInfo is still free.
+ */
+async function syncStorePurchasesQuietly(): Promise<CustomerInfo | null> {
+  if (!isPurchasesConfigured() || !purchasesMod) return null;
+  try {
+    const syncForResult = (
+      purchasesMod as PurchasesModule & {
+        syncPurchasesForResult?: () => Promise<{ customerInfo: CustomerInfo }>;
+      }
+    ).syncPurchasesForResult;
+    if (typeof syncForResult === 'function') {
+      const { customerInfo } = await syncForResult.call(purchasesMod);
+      applyCustomerInfoToSession(customerInfo);
+      return customerInfo;
+    }
+    await purchasesMod.syncPurchases();
+    return await refreshCustomerInfo();
+  } catch {
+    try {
+      return await refreshCustomerInfo();
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** Call on Firebase sign-out so the next account doesn’t inherit this device’s Plus identity. */
+export async function resetPurchasesIdentity(): Promise<void> {
+  if (isAndroidIapDeferred() || Platform.OS === 'web') return;
+  if (!purchasesMod || !configured) return;
+  try {
+    const info = await purchasesMod.logOut();
+    applyCustomerInfoToSession(info);
+  } catch {
+    useSessionStore.getState().setEntitlements(DEFAULT_ENTITLEMENTS);
+  }
+}
+
+/** Refresh store entitlements on foreground (mirrors web Stripe sync). */
+let storeSyncInstalled = false;
+export function installStoreEntitlementSync(): void {
+  if (storeSyncInstalled || isAndroidIapDeferred() || Platform.OS === 'web') return;
+  storeSyncInstalled = true;
+  AppState.addEventListener('change', (state) => {
+    if (state !== 'active') return;
+    if (!useSessionStore.getState().userId) return;
+    void refreshCustomerInfo();
+  });
 }
 
 /** Make sure configure finished before offerings / purchase (paywall can open mid-boot). */
@@ -425,7 +480,7 @@ export type PurchaseResult =
   | { status: 'success'; entitlements: EntitlementState }
   | { status: 'cancelled' }
   | { status: 'pending' }
-  | { status: 'already' }
+  | { status: 'already'; entitlements?: EntitlementState }
   | { status: 'error'; message: string };
 
 function mapPurchaseError(error: unknown): PurchaseResult {
@@ -557,7 +612,29 @@ export async function purchasePlusPackage(
     }
     return { status: 'success', entitlements };
   } catch (error) {
-    return mapPurchaseError(error);
+    const mapped = mapPurchaseError(error);
+    // Apple already owns the sub — sync the receipt onto this app user so Plus unlocks without Restore.
+    if (mapped.status === 'already') {
+      const info = await syncStorePurchasesQuietly();
+      if (info?.entitlements.active[commerceConfig.plusEntitlementId]) {
+        const entitlements = entitlementsFromCustomerInfo(info);
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { extendPingForPlusUnlock } = require('@/lib/commerce/sessionCommerce') as {
+            extendPingForPlusUnlock: () => unknown;
+          };
+          extendPingForPlusUnlock();
+        } catch {
+          /* ignore */
+        }
+        return { status: 'success', entitlements };
+      }
+      return {
+        status: 'already',
+        entitlements: info ? entitlementsFromCustomerInfo(info) : undefined,
+      };
+    }
+    return mapped;
   }
 }
 

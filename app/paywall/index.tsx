@@ -183,6 +183,8 @@ export default function PaywallScreen() {
         : await purchasePlusPackage(selectedPlan.package);
 
       if (result.status === 'success' || result.status === 'already') {
+        // already-owned used to skip a receipt sync — refresh once more so the session matches the store.
+        if (result.status === 'already') await refreshCustomerInfo();
         if (selectingOther) finishUnlocked('Plan updated');
         else router.replace('/paywall/unlocked');
         return;

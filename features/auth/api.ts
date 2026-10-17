@@ -182,6 +182,10 @@ export async function signOut() {
       const { signOutGoogle } = await import('@/features/auth/social');
       await signOutGoogle();
     }),
+    bestEffort(async () => {
+      const { resetPurchasesIdentity } = await import('@/lib/purchases');
+      await resetPurchasesIdentity();
+    }),
   ]);
   const { useOnboardingDraft } = await import('@/store/onboardingDraft');
   useOnboardingDraft.getState().reset();
