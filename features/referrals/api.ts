@@ -31,10 +31,19 @@ async function post<T>(action: string, body: object = {}): Promise<T> {
   return json;
 }
 
-export const inviteSummary = () => post<InviteSummary>('summary');
+/** Public invite URL people share. Always datetd.com — never a Cloud Functions URL. */
+export function brandedInviteLink(code: string) {
+  const clean = cleanInviteCode(code);
+  return clean ? `https://datetd.com/invite/${clean}` : 'https://datetd.com/invite';
+}
+
+export async function inviteSummary(): Promise<InviteSummary> {
+  const data = await post<InviteSummary>('summary');
+  return { ...data, link: brandedInviteLink(data.code) };
+}
 
 export const inviteMessage = (data: Pick<InviteSummary, 'code' | 'friendLikes' | 'link'>) =>
-  `Join me on DateToday ⚡ See who’s out tonight and make real plans. Use my invite code ${data.code} for ${data.friendLikes} bonus Likes: ${data.link}`;
+  `Join me on DateToday ⚡ See who’s out tonight and make real plans. Use my invite code ${data.code} for ${data.friendLikes} bonus Likes: ${brandedInviteLink(data.code) || data.link}`;
 
 export const redeemInvite = (code: string) => post<{ ok: true; friendLikes: number }>('redeem', { code });
 

@@ -56,9 +56,9 @@ export default function InviteScreen() {
 
   const share = async () => {
     if (!data) return;
-    const message = inviteMessage(data);
+    // Put the link only in the message so iMessage doesn't paste it twice (message + url).
     try {
-      await Share.share(Platform.OS === 'ios' ? { message, url: data.link } : { message });
+      await Share.share({ message: inviteMessage(data) });
     } catch {
       // Closing the share sheet isn't an error worth showing.
     }
