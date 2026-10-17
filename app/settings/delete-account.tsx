@@ -14,7 +14,7 @@ import { friendlyError } from '@/lib/errors';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
-import { LegalNote, SettingsHeader } from '@/components/settings/SettingsUI';
+import { SettingsHeader } from '@/components/settings/SettingsUI';
 import { APP_STORE_LINKS } from '@/constants/legal';
 import { colors, radii, spacing } from '@/constants/theme';
 import {
@@ -122,16 +122,11 @@ export default function DeleteAccountScreen() {
           </AppText>
         </View>
 
-        <LegalNote>
-          [LEGAL REVIEW REQUIRED] Confirm retention for safety reports, deleted_users audit rows, and any
-          payment records before relying on this copy externally.
-        </LegalNote>
-
         <View style={styles.block}>
           <AppText style={styles.blockTitle}>Subscriptions</AppText>
           <AppText variant="secondary">
             Deleting DateToday does not cancel Apple or Google subscriptions. Manage or cancel them in your
-            store account first if needed. Plus / boost IAP is not fully wired yet.
+            store account first if needed.
           </AppText>
           <Button
             label="Manage subscription (Apple)"

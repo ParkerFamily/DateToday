@@ -1,8 +1,7 @@
 import React from 'react';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
-  LegalNote,
   LegalP,
   LegalScreen,
   LegalSection,
@@ -10,6 +9,16 @@ import {
   SettingsRow,
 } from '@/components/settings/SettingsUI';
 import { LEGAL_URLS, LEGAL_VERSIONS, SUPPORT } from '@/constants/legal';
+
+function subscriptionBillingCopy() {
+  if (Platform.OS === 'ios') {
+    return 'DateToday+ (Weekly and Monthly) and Tonight Boost are auto-renewable purchases billed through the App Store. Payment is charged to your Apple ID at confirmation of purchase. Subscriptions renew automatically until you cancel. Manage or cancel in your Apple ID subscription settings; store terms (including Apple’s Standard EULA) apply. Deleting your DateToday account does not cancel an App Store subscription.';
+  }
+  if (Platform.OS === 'android') {
+    return 'DateToday+ (Weekly and Monthly) and Tonight Boost are auto-renewable purchases billed through Google Play. Payment is charged to your Google account at confirmation of purchase. Subscriptions renew automatically until you cancel. Manage or cancel in your Google Play subscription settings. Deleting your DateToday account does not cancel a Play subscription.';
+  }
+  return 'DateToday+ (Weekly and Monthly) and Tonight Boost are paid features. On mobile they are billed through the App Store or Google Play, as applicable. Where DateToday offers web checkout, billing is handled by that checkout provider. Subscriptions renew automatically until you cancel. Manage or cancel in the account where you subscribed. Deleting your DateToday account does not cancel a store or web subscription.';
+}
 
 export default function TermsOfServiceScreen() {
   const router = useRouter();
@@ -29,9 +38,8 @@ export default function TermsOfServiceScreen() {
       <LegalSection title="2. The service">
         <LegalP>
           DateToday helps people go live, discover people nearby, match, chat, and plan real-world meetups —
-          including dating, Friend Dates, and other plans the product supports. Features may change. DateToday+
-          and Tonight Boost are paid features billed through the App Store, Google Play, or DateToday’s web
-          checkout when available.
+          including dating, Friend Dates, and other plans the product supports. Features may change. Paid
+          features such as DateToday+ and Tonight Boost are described in Subscriptions & purchases below.
         </LegalP>
       </LegalSection>
 
@@ -111,14 +119,18 @@ export default function TermsOfServiceScreen() {
       </LegalSection>
 
       <LegalSection title="11. Subscriptions & purchases">
-        <LegalP>
-          DateToday+ Weekly ($9.99 USD/week) and DateToday+ Monthly ($19.99 USD/month) are auto-renewable
-          subscriptions billed through Apple, Google, or DateToday’s web checkout when available. Payment is
-          charged at confirmation of purchase. Subscriptions renew unless canceled at least 24 hours before the
-          end of the current period. Manage or cancel in your store account settings or billing portal. Deleting
-          your DateToday account does not automatically cancel a store subscription. App Store Terms of Use also
-          include Apple’s Standard EULA.
-        </LegalP>
+        <LegalP>{subscriptionBillingCopy()}</LegalP>
+        {Platform.OS === 'ios' ? (
+          <LegalP>
+            Current prices are shown in the App Store and in the app at purchase time. They may vary by region
+            and can change.
+          </LegalP>
+        ) : (
+          <LegalP>
+            Current prices are shown in the store or checkout flow at purchase time. They may vary by region and
+            can change.
+          </LegalP>
+        )}
       </LegalSection>
 
       <LegalSection title="12. Assumption of risk & disclaimers">
@@ -133,10 +145,6 @@ export default function TermsOfServiceScreen() {
           excluded or limited. Nothing in these terms is intended to exclude or limit liability that applicable
           law does not allow to be excluded or limited.
         </LegalP>
-        <LegalNote>
-          [LEGAL REVIEW REQUIRED] Confirm warranty disclaimer and limitation of liability language with counsel
-          before external publication. Do not remove protections that law requires.
-        </LegalNote>
       </LegalSection>
 
       <LegalSection title="13. Emergencies">
@@ -154,18 +162,20 @@ export default function TermsOfServiceScreen() {
         </LegalP>
       </LegalSection>
 
-      <LegalSection title="15. Governing law & disputes">
-        <LegalNote>{`[LEGAL REVIEW REQUIRED] Legal entity: ${SUPPORT.legalEntity}. Governing law / venue: ${SUPPORT.governingLaw}. Arbitration agreement and class-action waiver language must be drafted by counsel before external publication — do not invent a venue or arbitrator here.`}</LegalNote>
-      </LegalSection>
-
-      <LegalSection title="16. Contact">
-        <LegalP>{`Questions: ${SUPPORT.email}. Mailing address: ${SUPPORT.mailingAddress}.`}</LegalP>
+      <LegalSection title="15. Contact">
+        <LegalP>{`Questions about these Terms: ${SUPPORT.email}.`}</LegalP>
       </LegalSection>
 
       <SettingsGroup title="Related">
         <SettingsRow label="Privacy Policy" onPress={() => router.push('/legal/privacy')} />
         <SettingsRow label="Community Guidelines" onPress={() => router.push('/legal/guidelines')} />
         <SettingsRow label="Safety Tips" onPress={() => router.push('/safety/tips')} />
+        {Platform.OS === 'ios' ? (
+          <SettingsRow
+            label="Apple Standard EULA"
+            onPress={() => void Linking.openURL(LEGAL_URLS.appleStandardEula)}
+          />
+        ) : null}
         <SettingsRow
           label="Open hosted terms URL"
           last

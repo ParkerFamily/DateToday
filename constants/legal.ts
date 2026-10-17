@@ -2,14 +2,16 @@
  * Policy / consent versioning for DateToday.
  * Bump versions when material legal text changes; require re-consent when needed.
  *
- * Placeholders marked [LEGAL REVIEW REQUIRED] must be confirmed by counsel / owner.
+ * Do not put unfinished counsel placeholders in user-facing copy. Entity name,
+ * mailing address, governing law, and arbitration language belong in Terms only
+ * after counsel (or the owner) fills them in — until then omit those sections.
  */
 
 export const LEGAL_VERSIONS = {
-  terms: '2026-10-16.v1',
-  privacy: '2026-10-16.v1',
-  communityGuidelines: '2026-10-16.v1',
-  identityVerificationNotice: '2026-10-16.v1',
+  terms: '2026-10-17.v1',
+  privacy: '2026-10-17.v1',
+  communityGuidelines: '2026-10-17.v1',
+  identityVerificationNotice: '2026-10-17.v1',
 } as const;
 
 export type LegalDocKey = keyof typeof LEGAL_VERSIONS;
@@ -37,12 +39,7 @@ export const LEGAL_URLS = {
 } as const;
 
 export const SUPPORT = {
-  /** [LEGAL REVIEW REQUIRED] Confirm support inbox. */
   email: 'support@datetoday.app',
-  /** [LEGAL REVIEW REQUIRED] Legal entity / mailing address for Terms. */
-  legalEntity: '[LEGAL REVIEW REQUIRED — legal entity name]',
-  mailingAddress: '[LEGAL REVIEW REQUIRED — mailing address]',
-  governingLaw: '[LEGAL REVIEW REQUIRED — governing law / venue]',
 } as const;
 
 export const APP_STORE_LINKS = {

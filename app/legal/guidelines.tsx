@@ -2,7 +2,6 @@ import React from 'react';
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
-  LegalNote,
   LegalP,
   LegalScreen,
   LegalSection,
@@ -105,9 +104,6 @@ export default function CommunityGuidelinesScreen() {
           removal from DateToday. We may escalate faster when safety risk is clear. We review reports when we
           can, but we do not promise a specific outcome for every report.
         </LegalP>
-        <LegalNote>
-          [LEGAL REVIEW REQUIRED] Confirm appeal process and review SLAs with counsel/ops before publishing.
-        </LegalNote>
       </LegalSection>
 
       <LegalSection title="Reporting and blocking">

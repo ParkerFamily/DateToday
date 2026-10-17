@@ -5,7 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { LegalNote, LegalP, SettingsGroup, SettingsHeader, SettingsRow } from '@/components/settings/SettingsUI';
+import { LegalP, SettingsGroup, SettingsHeader, SettingsRow } from '@/components/settings/SettingsUI';
 import { spacing } from '@/constants/theme';
 import { useSessionStore } from '@/store/session';
 import { ScaledSheet } from '@/lib/scale';
@@ -76,11 +76,9 @@ export default function LocationSettingsScreen() {
         <LegalP>
           Today, device lat/lng from the OS is used in-app for Go Live / activation and is not written to
           Firestore. When live backend storage is active, coordinates are intended for private live-session
-          records only — not public profiles.
+          records only — not public profiles. Live-session location records are kept for the life of the
+          session and may be retained longer only when needed for safety or abuse review.
         </LegalP>
-        <LegalNote>
-          [LEGAL REVIEW REQUIRED] Confirm retention for any future live-session location records.
-        </LegalNote>
 
         <Button
           label={canAsk ? 'Allow location' : 'Open system settings'}

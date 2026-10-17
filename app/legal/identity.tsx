@@ -2,7 +2,6 @@ import React from 'react';
 import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
 import {
-  LegalNote,
   LegalP,
   LegalScreen,
   LegalSection,
@@ -59,20 +58,13 @@ export default function IdentityVerificationScreen() {
           face-matching database. Device biometrics you use to unlock your phone are controlled by your OS, not by
           this notice.
         </LegalP>
-        <LegalNote>
-          [LEGAL REVIEW REQUIRED] Confirm biometric disclosure language for App Store / regional consent
-          requirements.
-        </LegalNote>
       </LegalSection>
 
       <LegalSection title="Retention & deletion">
         <LegalP>
           Inquiry references are removed with account deletion on DateToday’s side. Persona may retain data under
-          their own policy and dashboard settings — use the shortest practical retention in Persona.
+          their own privacy policy and settings.
         </LegalP>
-        <LegalNote>
-          [LEGAL REVIEW REQUIRED — align retention with Persona settings and counsel].
-        </LegalNote>
       </LegalSection>
 
       <SettingsGroup title="Policies">

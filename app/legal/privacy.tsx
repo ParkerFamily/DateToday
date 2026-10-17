@@ -21,10 +21,7 @@ export default function PrivacyPolicyScreen() {
       subtitle={`Version ${LEGAL_VERSIONS.privacy}. This describes what DateToday collects today — Firebase is the primary backend.`}
     >
       <LegalSection title="Who we are">
-        <LegalP>{`DateToday helps people go live, discover nearby matches for tonight, and plan real dates. Contact: ${SUPPORT.email}.`}</LegalP>
-        <LegalNote>
-          [LEGAL REVIEW REQUIRED] Confirm legal entity name and mailing address before publishing externally.
-        </LegalNote>
+        <LegalP>{`DateToday helps people go live, discover nearby matches for tonight, and plan real dates and Friend Dates. Contact: ${SUPPORT.email}.`}</LegalP>
       </LegalSection>
 
       <LegalSection title="What we collect">
@@ -61,11 +58,11 @@ export default function PrivacyPolicyScreen() {
           Firestore profile/user docs, Storage media under your user folder, and your blocks when deletion
           succeeds. Reports you filed may be retained for safety.
         </LegalP>
-        <LegalP>{`You can also email ${SUPPORT.email} or visit ${LEGAL_URLS.accountDeletion} once hosted. Deleting the app does not delete your account. Store subscriptions are not canceled automatically — manage them in Apple or Google subscription settings.`}</LegalP>
-        <LegalNote>
-          [LEGAL REVIEW REQUIRED] Confirm retention periods for safety reports, deleted_users audit rows, and
-          payment records before publishing.
-        </LegalNote>
+        <LegalP>{`You can also email ${SUPPORT.email} or visit ${LEGAL_URLS.accountDeletion}. Deleting the app does not delete your account. Store subscriptions are not canceled automatically — manage them in Apple or Google subscription settings.`}</LegalP>
+        <LegalP>
+          Some records (for example safety reports, limited audit copies, or payment records) may be retained
+          longer when needed for safety, fraud prevention, tax, chargebacks, or legal obligations.
+        </LegalP>
       </LegalSection>
 
       <LegalSection title="Third parties (summary)">
